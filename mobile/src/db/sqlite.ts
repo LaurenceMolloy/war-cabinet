@@ -30,6 +30,17 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       entry_year INTEGER NOT NULL,
       FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id)
     );
+
+    CREATE TABLE IF NOT EXISTS Cabinets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      location TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS Settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
 
   // Migration: add unit_type to ItemTypes if it does not exist
@@ -46,6 +57,32 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     const hasDefaultSize = columnsRes.some(col => col.name === 'default_size');
     if (!hasDefaultSize) {
       await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN default_size TEXT');
+    }
+
+    const hasDefaultCabinet = columnsRes.some(col => col.name === 'default_cabinet_id');
+    if (!hasDefaultCabinet) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN default_cabinet_id INTEGER');
+    }
+
+    const invCols = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
+    const hasCabinetId = invCols.some(col => col.name === 'cabinet_id');
+    if (!hasCabinetId) {
+      await db.execAsync('ALTER TABLE Inventory ADD COLUMN cabinet_id INTEGER');
+    }
+
+    // Ensure at least one cabinet exists
+    const cabRes = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Cabinets');
+    if (cabRes && cabRes.count === 0) {
+      const res = await db.runAsync('INSERT INTO Cabinets (name, location) VALUES (?, ?)', 'Main Cabinet', 'Kitchen');
+      const mainCabId = res.lastInsertRowId;
+      // Assign existing inventory to main
+      await db.runAsync('UPDATE Inventory SET cabinet_id = ? WHERE cabinet_id IS NULL', mainCabId);
+    }
+
+    // Seed Settings
+    const setRes = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'month_brief_enabled');
+    if (!setRes || (setRes as any).count === 0) {
+      await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'month_brief_enabled', '1');
     }
   } catch(e) {
     console.error('Migration failed:', e);

@@ -51,4 +51,4 @@ Items are unique per (Name + Size + Expiry Date).
 
 ## 📦 Delivery
 - **installation.md**: Must document Windows setup, laptop-browser testing via Expo/Web, and APK deployment.
-- **Data Safety**: Feature to export/import the SQLite database as a file for backup.
+- **Data Safety**: Feature to export/import the SQLite database as a file for backup.

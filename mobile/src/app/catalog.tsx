@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -19,6 +19,17 @@ export default function CatalogScreen() {
   const [editingTypeName, setEditingTypeName] = useState('');
   const [editingTypeDefaultSize, setEditingTypeDefaultSize] = useState('');
   const [editingTypeUnit, setEditingTypeUnit] = useState('weight');
+  const [editingTypeDefaultCabinet, setEditingTypeDefaultCabinet] = useState<number | null>(null);
+
+  const [cabinets, setCabinets] = useState<any[]>([]);
+  const [newCabName, setNewCabName] = useState('');
+  const [newCabLocation, setNewCabLocation] = useState('');
+  const [editingCabId, setEditingCabId] = useState<number | null>(null);
+  const [editingCabName, setEditingCabName] = useState('');
+  const [editingCabLocation, setEditingCabLocation] = useState('');
+  
+  const [activeTab, setActiveTab] = useState<'categories' | 'cabinets' | 'alerts'>('categories');
+  const [alertsEnabled, setAlertsEnabled] = useState(true);
 
   const load = async () => {
     const rows = await db.getAllAsync(`
@@ -48,6 +59,16 @@ export default function CatalogScreen() {
     }, []);
 
     setCategories(grouped);
+
+    const cabRows = await db.getAllAsync(`
+      SELECT c.*, (SELECT COUNT(*) FROM Inventory v WHERE v.cabinet_id = c.id) as stock_count
+      FROM Cabinets c
+      ORDER BY c.name
+    `);
+    setCabinets(cabRows);
+
+    const setRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'month_brief_enabled');
+    setAlertsEnabled(setRes?.value === '1');
   };
 
   useFocusEffect(
@@ -102,6 +123,33 @@ export default function CatalogScreen() {
     load();
   };
 
+  const handleAddCabinet = async () => {
+    if (!newCabName.trim()) return;
+    await db.runAsync('INSERT INTO Cabinets (name, location) VALUES (?, ?)', newCabName, newCabLocation);
+    setNewCabName('');
+    setNewCabLocation('');
+    load();
+  };
+
+  const handleUpdateCabinet = async (cabId: number) => {
+    if (!editingCabName.trim()) return;
+    await db.runAsync('UPDATE Cabinets SET name = ?, location = ? WHERE id = ?', editingCabName, editingCabLocation, cabId);
+    setEditingCabId(null);
+    load();
+  };
+
+  const handleDeleteCabinet = async (cabId: number, hasStock: boolean) => {
+    if (hasStock) return;
+    await db.runAsync('DELETE FROM Cabinets WHERE id = ?', cabId);
+    load();
+  };
+
+  const toggleAlerts = async (val: boolean) => {
+    setAlertsEnabled(val);
+    await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', val ? '1' : '0', 'month_brief_enabled');
+    load();
+  };
+
   const handleUpdateItemType = async (typeId: number) => {
     if (!editingTypeName.trim()) {
       setEditingTypeId(null);
@@ -116,16 +164,14 @@ export default function CatalogScreen() {
       else finalDefaultSize = `${rawNumber} Unit`;
     }
 
-    await db.runAsync('UPDATE ItemTypes SET name = ?, unit_type = ?, default_size = ? WHERE id = ?', editingTypeName, editingTypeUnit, finalDefaultSize, typeId);
+    await db.runAsync('UPDATE ItemTypes SET name = ?, unit_type = ?, default_size = ?, default_cabinet_id = ? WHERE id = ?', 
+        editingTypeName, editingTypeUnit, finalDefaultSize, editingTypeDefaultCabinet, typeId);
     setEditingTypeId(null);
     load();
   };
 
   const handleDeleteCategory = async (catId: number, hasTypes: boolean) => {
-    if (hasTypes) {
-      Alert.alert('Cannot Delete', 'This category has item types. Please delete them first.');
-      return;
-    }
+    if (hasTypes) return;
     await db.runAsync('DELETE FROM Categories WHERE id = ?', catId);
     load();
   };
@@ -213,7 +259,13 @@ export default function CatalogScreen() {
                 <Text style={{fontSize: 11, color: '#64748b', textTransform: 'capitalize'}}>{type.unit_type} unit {type.default_size ? `• Default: ${type.default_size}` : ''}</Text>
               </View>
               <View style={styles.catActions}>
-                <TouchableOpacity onPress={() => { setEditingTypeId(type.id); setEditingTypeName(type.name); setEditingTypeUnit(type.unit_type || 'weight'); setEditingTypeDefaultSize(type.default_size || ''); }} style={{marginRight: 10, marginTop: 4}}>
+                <TouchableOpacity onPress={() => { 
+                    setEditingTypeId(type.id); 
+                    setEditingTypeName(type.name); 
+                    setEditingTypeUnit(type.unit_type || 'weight'); 
+                    setEditingTypeDefaultSize(type.default_size || '');
+                    setEditingTypeDefaultCabinet(null);
+                }} style={{marginRight: 10, marginTop: 4}}>
                   <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
                 </TouchableOpacity>
                 <TouchableOpacity 
@@ -278,46 +330,151 @@ export default function CatalogScreen() {
     </View>
   );
 
+  const renderCabinet = ({ item: cab }: any) => (
+    <View style={styles.catCard}>
+      <View style={styles.catHeader}>
+        {editingCabId === cab.id ? (
+          <View style={{flexDirection: 'column', flex: 1, gap: 8}}>
+            <TextInput style={styles.inputSmall} value={editingCabName} onChangeText={setEditingCabName} placeholder="Cabinet Name" />
+            <TextInput style={styles.inputSmall} value={editingCabLocation} onChangeText={setEditingCabLocation} placeholder="Location" />
+            <TouchableOpacity onPress={() => handleUpdateCabinet(cab.id)} style={styles.addSaveBtnFull}>
+              <Text style={styles.addSaveText}>SAVE CHANGES</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-between'}}>
+            <View>
+              <Text style={styles.catTitle}>{cab.name}</Text>
+              <Text style={{color: '#64748b', fontSize: 13}}>{cab.location || 'No Location'}</Text>
+            </View>
+            <View style={styles.catActions}>
+              <TouchableOpacity onPress={() => { setEditingCabId(cab.id); setEditingCabName(cab.name); setEditingCabLocation(cab.location || ''); }} style={{marginRight: 10}}>
+                <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
+              </TouchableOpacity>
+              <TouchableOpacity disabled={cab.stock_count > 0} onPress={() => handleDeleteCabinet(cab.id, cab.stock_count > 0)}>
+                <MaterialCommunityIcons name="delete" size={20} color={cab.stock_count > 0 ? "#334155" : "#ef4444"} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Catalog settings</Text>
+        <Text style={styles.title}>Strategic Settings</Text>
         <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()}>
           <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={categories}
-        keyExtractor={i => i.id.toString()}
-        renderItem={renderCategory}
-        ListHeaderComponent={(
-          <View style={styles.newCatBlock}>
-            <Text style={styles.label}>New Category</Text>
-            <View style={styles.newRow}>
-              <TextInput 
-                style={styles.inputMedium} 
-                value={newCatName} 
-                onChangeText={setNewCatName} 
-                placeholder="Category Name"
-                placeholderTextColor="#64748b"
-              />
-              <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge}>
-                <Text style={styles.addSaveTextLarge}>CREATE</Text>
+      <View style={styles.tabRow}>
+        <TouchableOpacity style={[styles.tab, activeTab === 'categories' && styles.tabActive]} onPress={() => setActiveTab('categories')}>
+          <Text style={[styles.tabText, activeTab === 'categories' && styles.tabTextActive]}>CATEGORIES</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')}>
+          <Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, activeTab === 'alerts' && styles.tabActive]} onPress={() => setActiveTab('alerts')}>
+          <Text style={[styles.tabText, activeTab === 'alerts' && styles.tabTextActive]}>ALERTS</Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'categories' && (
+        <FlatList
+          data={categories}
+          keyExtractor={i => i.id.toString()}
+          renderItem={renderCategory}
+          ListHeaderComponent={(
+            <View style={styles.newCatBlock}>
+              <Text style={styles.label}>New Category</Text>
+              <View style={styles.newRow}>
+                <TextInput 
+                  style={styles.inputMedium} 
+                  value={newCatName} 
+                  onChangeText={setNewCatName} 
+                  placeholder="Category Name"
+                  placeholderTextColor="#64748b"
+                />
+                <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge}>
+                  <Text style={styles.addSaveTextLarge}>CREATE</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        />
+      )}
+
+      {activeTab === 'cabinets' && (
+        <FlatList
+          data={cabinets}
+          keyExtractor={i => i.id.toString()}
+          renderItem={renderCabinet}
+          ListHeaderComponent={(
+            <View style={styles.newCatBlock}>
+              <Text style={styles.label}>New Cabinet / Location</Text>
+              <TextInput style={styles.inputMedium} value={newCabName} onChangeText={setNewCabName} placeholder="Cabinet Name (e.g. Deep Storage 1)" placeholderTextColor="#64748b" />
+              <View style={{height: 10}} />
+              <TextInput style={styles.inputMedium} value={newCabLocation} onChangeText={setNewCabLocation} placeholder="Physical Location (e.g. Cellar)" placeholderTextColor="#64748b" />
+              <TouchableOpacity onPress={handleAddCabinet} style={styles.addSaveBtnFull}>
+                <Text style={styles.addSaveText}>CREATE CABINET</Text>
               </TouchableOpacity>
             </View>
+          )}
+        />
+      )}
+
+      {activeTab === 'alerts' && (
+        <View style={{padding: 10}}>
+          <View style={styles.prefRow}>
+            <View style={{flex: 1}}>
+              <Text style={styles.prefTitle}>Monthly Tactical Briefing</Text>
+              <Text style={styles.prefSub}>Receive a notification on the 1st of every month with expiry counts.</Text>
+            </View>
+            <Switch 
+                value={alertsEnabled} 
+                onValueChange={toggleAlerts}
+                trackColor={{ false: "#334155", true: "#22c55e" }}
+                thumbColor={alertsEnabled ? "#f8fafc" : "#94a3b8"}
+            />
           </View>
-        )}
-      />
+
+          <View style={{marginTop: 40}}>
+            <TouchableOpacity 
+                style={styles.testBtn} 
+                onPress={async () => {
+                    const { testStockAlert } = await import('../services/notifications');
+                    await testStockAlert(db);
+                    Alert.alert('System Armed', 'A test alert has been dispatched. If you do not see it, please check notification permissions.');
+                }}
+            >
+              <MaterialCommunityIcons name="bell-ring" size={24} color="white" />
+              <Text style={styles.testBtnText}>TEST STOCK ALERT</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a', padding: 16 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 40 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 40 },
   title: { fontSize: 26, color: '#f8fafc', fontWeight: 'bold' },
+  tabRow: { flexDirection: 'row', marginBottom: 20, backgroundColor: '#1e293b', borderRadius: 8, padding: 4 },
+  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 6 },
+  tabActive: { backgroundColor: '#3b82f6' },
+  tabText: { color: '#64748b', fontWeight: 'bold', fontSize: 13 },
+  tabTextActive: { color: 'white' },
   cancelBtn: { padding: 8, backgroundColor: '#334155', borderRadius: 20 },
+  prefRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', padding: 20, borderRadius: 12, marginBottom: 12 },
+  prefTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold' },
+  prefSub: { color: '#94a3b8', fontSize: 13, marginTop: 4 },
+  testBtn: { backgroundColor: '#3b82f6', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 18, borderRadius: 12, gap: 10 },
+  testBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   label: { color: '#94a3b8', fontSize: 16, marginBottom: 8, marginTop: 10 },
   newCatBlock: { marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   newRow: { flexDirection: 'row', alignItems: 'center' },

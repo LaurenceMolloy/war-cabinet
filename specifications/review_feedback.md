@@ -2,6 +2,27 @@
 
 This document tracks items that were strictly specified in the `requirements.md` but were initially overlooked during the first iteration of development.
 
+## RESTORED CAPABILITIES (Post-Rollback Recovery)
+The following strategic features were lost during an unintended source code revert and were manually restored from the Agent's persistent memory:
+
+1. **Strategic Persistence & Android Channels**: Re-implemented the 'Strategic Alerts' Notification Channel with `MAX` importance and pinned persistence.
+2. **Three-Tier Tactical Briefing**: Restored categorization logic for EXPIRED, EXPIRING THIS MONTH, and DUE TO EXPIRE SOON (3M).
+3. **Precision Batch Identification**: Re-enabled the 'Batch-Count Brackets' (e.g., "Pasta (3)") to ensure notification clarity.
+4. **Tactical Total Aggregation**: Restored the high-visibility Weight/Volume/Count totals in the Dashboard headers with unit-safe scaling (g -> kg, ml -> l).
+5. **Proactive Command Settings**: Re-integrated the ALERTS tab and the 'TEST STOCK ALERT' simulation engine into the Catalog.
+
+## Forty-Fifth Iteration Feedback
+1. **Strategic Navigation (Deep Linking)**: Tapping a 'War Cabinet Briefing' notification was only applying the filter if the user was already on the Dashboard.
+    *   **Global Over-Ride**: The notification listener has been upgraded to force-navigate the user back to the primary Dashboard (`/`) from any administrative page (like Catalog or Add Stock).
+    *   **Filter Reset**: Tapping the alert now explicitly clears all 'Cabinet' or 'Site' filters, resulting in a clean "All-Storage" audit focused entirely on the urgently expiring items.
+    *   **Unified State**: The dashboard now synchronizes its UI status directly with the deep-link parameters for a zero-friction action loop.
+
+## Forty-Sixth Iteration Feedback
+1. **Precision Quantity Reporting (Briefings)**: The tactical briefings were inadvertently counting 'Inventory Rows' (batches) instead of the absolute 'Total Quantity' of stock items.
+    *   **Quantity-First Auditing**: The notification engine has been refactored to sum the `quantity` of every expiring batch.
+    *   **Smart Multiples Display**: The 'Brackets' (e.g., "Rice (12)") now accurately reflect the total number of physical units. The system remains silent for single items, ensuring high-resolution clarity on lock screens.
+    *   **Tier Totals**: The leading count for each tier (e.g., "15 EXPIRED") now reflects the aggregate sum of all affected units across all item types in that category.
+
 ## First Iteration Feedback
 1. **Edit/Remove functionality for inventory:** The ability to deduct or completely remove stock was omitted. The user must be able to decrement items as they consume them, removing them entirely when 0.
 2. **Smart Size Selection:** The "Quick Chips" design for selecting item sizes (and remembering custom sizes entered for an item) wasn't implemented into the Add Item form.
@@ -59,6 +80,21 @@ This document tracks items that were strictly specified in the `requirements.md`
     *   🟢 **Green** (`#22c55e`): **Safe** (Expires in more than 6 months).
     *   ⚪ **Grey** (`#94a3b8`): **No Expiry** (No date data available).
     This logic ensures a high-contrast birds-eye view for stock rotation management.
+
+## Thirty-Eighth Iteration Feedback
+1. **Automated Batch Merging (Cabinet-Aware)**: To ensure a high-precision inventory without clutter, the system now intelligently merges identical stock records.
+    *   **The Merging Standard**: When a stock batch is saved or **Transferred**, the system automatically audits the destination cabinet. If an item of the same Type, Size, and Expiry already exists there, the batches are consolidated into a single record.
+    *   **Unified Auditing**: This mechanism ensures that moving stock physically (e.g., from Cellar to Kitchen) also collapses those records digitally, maintaining a 1-to-1 relationship between the app and the shelf.
+    *   **Entry Date Reset**: Merged batches reflect the most recent "Stock Move" as their Entry Date, ensuring you know exactly when that location was last restocked.
+
+## Thirty-Seventh Iteration Feedback
+1. **Multi-Cabinet Distributed Inventory**: The system has transitioned from a single-site list to a full Multi-Cabinet architecture.
+    *   **Cabinet Management**: A new "Cabinets" tab in the Strategic Settings allows for creating, editing, and deleting storage sites (e.g., Kitchen, Cellar, Shed) with associated physical locations.
+    *   **Strategic Filtering**: The dashboard now features a Cabinet Filter bar. Users can toggle between "ALL STORAGE" and specific sites. Categories containing NO items at the selected site are automatically ghosted and demoted, maintaining consistent focus.
+    *   **Batch Localization**: Every stock card now displays its specific cabinet and physical location in a blue high-contrast label.
+    *   **Default Placement**: Item Types can now have a "Default Cabinet" assigned in settings, which will be automatically selected when adding new stock for that type.
+    *   **Transfer Ease**: By editing any stock item, users can instantly "Transfer" it to a different cabinet, reflecting moves from deep storage to active use areas.
+    *   **Strategic Roadmapping**: Created `specifications/future_ideas.md` to park high-tech concepts like NFC deep-linking for future R&D cycles.
 
 ## Thirty-Sixth Iteration Feedback
 1. **Human-Readable Expiry Phrasing**: To maximize the "Zero-Math" speed of the dashboard, the numeric MM/YYYY expiry dates were replaced with high-resolution relative durations.
@@ -151,6 +187,13 @@ This document tracks items that were strictly specified in the `requirements.md`
     *   **Header Deprecation**: The cluttered `QTY`, `ENTRY`, and `EXPIRY` table headers were removed to clean up the interface and maximize vertical real estate.
 
 ## Twentieth Iteration Feedback
+1. **Thematic Header Branding (Safe Mode Implementation)**: To lean into the "War Cabinet" aesthetic, four AI-generated caricatures of high-profile global leaders (The "Big Four") were integrated into the application header. **Note:** Due to Android AAPT asset compilation constraints with certain AI image metadata, these assets are currently implemented but **commented out** in "Safe Mode" to ensure stable APK generation. They can be re-enabled once the files are manually re-saved to standardized PNG formats.
+
+## Nineteenth Iteration Feedback
+1. **Top-Level Category Urgency Prioritization**: To ensure the dashboard remains a strictly prioritized tool for stock rotation management, the top-level Category sorting logic was overhauled. The previous numerical (ID-based) ordering was replaced with a dynamic "Expiry First" sort. Categories containing the single most imminent batch in the entire system are now locked to the absolute top of the screen. If multiple categories are "Safe" (all batches > 6 months) or contain no expiry dates, the secondary sort logic falls back to a clean Alphabetical listing. This creates a predictable high-priority rotation view that never hides an expiring item below healthy stock.
+
+## Seventeenth Iteration Feedback
+1. **Collapsed Category Summary Statistics**: To prevent the dashboard from becoming an "information black hole" when items are tucked away, a summary line was added to all collapsed Category Headers. The system now performs a secondary audit during rollup to display the exact number of unique stocked items (only those with > 0 quantity) and the total aggregate count of all batches within that category. This provides instant quantitative insight without needing to expand the list.
 1. **Thematic Header Branding (Safe Mode Implementation)**: To lean into the "War Cabinet" aesthetic, four AI-generated caricatures of high-profile global leaders (The "Big Four") were integrated into the application header. **Note:** Due to Android AAPT asset compilation constraints with certain AI image metadata, these assets are currently implemented but **commented out** in "Safe Mode" to ensure stable APK generation. They can be re-enabled once the files are manually re-saved to standardized PNG formats.
 
 ## Nineteenth Iteration Feedback

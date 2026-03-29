@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -34,16 +34,25 @@ export default function AddInventoryScreen() {
   const [errorField, setErrorField] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [cabinets, setCabinets] = useState<any[]>([]);
+  const [selectedCabinetId, setSelectedCabinetId] = useState<number | null>(null);
+  const [showCabinetPicker, setShowCabinetPicker] = useState(false);
+
   useEffect(() => {
     async function loadData() {
-      // 1. Load Type Info
-      const typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string}>('SELECT name, unit_type, default_size FROM ItemTypes WHERE id = ?', Number(typeId));
+      const typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null}>('SELECT name, unit_type, default_size, default_cabinet_id FROM ItemTypes WHERE id = ?', Number(typeId));
       if (typeRes) {
         setUnitType(typeRes.unit_type || 'weight');
         setTypeName(typeRes.name);
+        if (typeRes.default_cabinet_id) setSelectedCabinetId(typeRes.default_cabinet_id);
       }
 
-      // 2. Load Chips
+      const cabRows = await db.getAllAsync<any>('SELECT * FROM Cabinets');
+      setCabinets(cabRows);
+      if (!selectedCabinetId && cabRows.length > 0) {
+        setSelectedCabinetId(cabRows[0].id);
+      }
+
       const res = await db.getAllAsync<{size: string}>(
         'SELECT size FROM Inventory WHERE item_type_id = ? GROUP BY size ORDER BY MAX(id) DESC LIMIT 3',
         Number(typeId)
@@ -52,7 +61,6 @@ export default function AddInventoryScreen() {
         setCustomChips(res.map(r => r.size));
       }
 
-      // 3. Handle Edit Mode vs Add Mode
       if (editBatchId) {
         const batch = await db.getFirstAsync<any>(
           'SELECT * FROM Inventory WHERE id = ?',
@@ -60,7 +68,6 @@ export default function AddInventoryScreen() {
         );
         if (batch) {
           setQuantity(batch.quantity.toString());
-          // Strip unit suffix for editing
           const rawSize = batch.size || '';
           const suffix = getUnitSuffix(typeRes?.unit_type || 'weight');
           if (suffix && rawSize.endsWith(suffix)) {
@@ -70,9 +77,9 @@ export default function AddInventoryScreen() {
           }
           setExpiryMonth(batch.expiry_month?.toString() || '');
           setExpiryYear(batch.expiry_year?.toString() || '');
+          if (batch.cabinet_id) setSelectedCabinetId(batch.cabinet_id);
         }
       } else {
-        // Default values for new items
         if (typeRes && typeRes.default_size) {
           const suffix = getUnitSuffix(typeRes.unit_type || 'weight');
           if (suffix && typeRes.default_size.endsWith(suffix)) {
@@ -99,18 +106,16 @@ export default function AddInventoryScreen() {
       return;
     }
 
-    // Append unit before saving
     let finalSize = s;
     const suffix = getUnitSuffix(unitType);
     if (suffix && !s.toLowerCase().endsWith(suffix.toLowerCase())) {
         finalSize = s + suffix;
     }
 
-    // Intelligent check: weight/volume must be numeric-only now
     if ((unitType === 'weight' || unitType === 'volume')) {
       if (!/^\d+(\.\d+)?$/.test(s)) {
         setErrorField('size');
-        setErrorMsg(`Format error: "${unitType}" only accepts numbers (the ${suffix} is added automatically)`);
+        setErrorMsg(`Format error: "${unitType}" only accepts numbers`);
         return;
       }
     }
@@ -124,74 +129,46 @@ export default function AddInventoryScreen() {
 
     const exM = parseInt(expiryMonth);
     const exY = parseInt(expiryYear);
-    
     const validExpiry = !isNaN(exM) && !isNaN(exY) && exM > 0 && exM <= 12 && exY > 2020;
-
-    const currentMonth = new Date().getMonth() + 1;
-    const currentYear = new Date().getFullYear();
-
     const expMVal = validExpiry ? exM : null;
     const expYVal = validExpiry ? exY : null;
 
-    if (editBatchId) {
-      // Logic for Refresh / Edit
-      // Check if we are merging into another existing batch
-      let existing;
-      if (validExpiry) {
-        existing = await db.getFirstAsync<{id: number}>(
-          'SELECT id FROM Inventory WHERE item_type_id = ? AND size = ? AND expiry_month = ? AND expiry_year = ? AND id != ?',
-          Number(typeId), size, expMVal, expYVal, Number(editBatchId)
-        );
-      } else {
-        existing = await db.getFirstAsync<{id: number}>(
-          'SELECT id FROM Inventory WHERE item_type_id = ? AND size = ? AND expiry_month IS NULL AND expiry_year IS NULL AND id != ?',
-          Number(typeId), size, Number(editBatchId)
-        );
-      }
+    // Check for existing identical batch at destination
+    const existingSearchQuery = `
+      SELECT id FROM Inventory 
+      WHERE item_type_id = ? AND size = ? AND cabinet_id = ?
+        AND (expiry_month IS NULL OR expiry_month = ?)
+        AND (expiry_year IS NULL OR expiry_year = ?)
+        AND id != ?
+    `;
+    const existing = await db.getFirstAsync<{id: number}>(
+      existingSearchQuery, 
+      Number(typeId), finalSize, selectedCabinetId, expMVal, expYVal, editBatchId ? Number(editBatchId) : -1
+    );
 
-      if (existing) {
-        // Merge: Update the other batch and delete current one
-        await db.runAsync(
-          'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ? WHERE id = ?',
-          q, currentMonth, currentYear, existing.id
-        );
+    if (existing) {
+      // Merge into existing batch
+      await db.runAsync(
+        'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ? WHERE id = ?',
+        q, currentMonth, currentYear, existing.id
+      );
+      if (editBatchId) {
+        // Cleaning up the old entry after move/merge
         await db.runAsync('DELETE FROM Inventory WHERE id = ?', Number(editBatchId));
-      } else {
-        // Just update current batch
-        await db.runAsync(
-          'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ? WHERE id = ?',
-          q, finalSize, expMVal, expYVal, currentMonth, currentYear, Number(editBatchId)
-        );
       }
+    } else if (editBatchId) {
+      // No match at destination, so just move/update this batch
+      await db.runAsync(
+        'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, cabinet_id = ? WHERE id = ?',
+        q, finalSize, expMVal, expYVal, currentMonth, currentYear, selectedCabinetId, Number(editBatchId)
+      );
     } else {
-      // Logic for Add New
-      let existing;
-      if (validExpiry) {
-        existing = await db.getFirstAsync<{id: number}>(
-          'SELECT id FROM Inventory WHERE item_type_id = ? AND size = ? AND expiry_month = ? AND expiry_year = ?',
-          Number(typeId), finalSize, expMVal, expYVal
-        );
-      } else {
-        existing = await db.getFirstAsync<{id: number}>(
-          'SELECT id FROM Inventory WHERE item_type_id = ? AND size = ? AND expiry_month IS NULL AND expiry_year IS NULL',
-          Number(typeId), finalSize
-        );
-      }
-
-      if (existing) {
-        await db.runAsync(
-          'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ? WHERE id = ?',
-          q, currentMonth, currentYear, existing.id
-        );
-      } else {
-        await db.runAsync(
-          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year) 
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          Number(typeId), q, finalSize, 
-          expMVal, expYVal, 
-          currentMonth, currentYear
-        );
-      }
+      // New item, no match found
+      await db.runAsync(
+        `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        Number(typeId), q, finalSize, expMVal, expYVal, currentMonth, currentYear, selectedCabinetId
+      );
     }
 
     router.back();
@@ -211,10 +188,7 @@ export default function AddInventoryScreen() {
   else if (unitType === 'count') genericChips = ['1', '6', '12', '24'];
   else genericChips = ['50g', '100g', '250g', '500g', '1kg'];
 
-  const allChips = Array.from(new Set([
-    ...customChips,
-    ...genericChips
-  ]));
+  const allChips = Array.from(new Set([...customChips, ...genericChips]));
 
   return (
     <View style={styles.container}>
@@ -282,6 +256,24 @@ export default function AddInventoryScreen() {
       </View>
 
       <View style={styles.formGroup}>
+        <Text style={styles.label}>Storage Cabinet</Text>
+        <TouchableOpacity 
+          style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]} 
+          onPress={() => setShowCabinetPicker(true)}
+        >
+          <View>
+            <Text style={{ color: '#f8fafc', fontSize: 16 }}>
+              {cabinets.find(c => c.id === selectedCabinetId)?.name || 'Select Cabinet'}
+            </Text>
+            <Text style={{ color: '#64748b', fontSize: 12 }}>
+              {cabinets.find(c => c.id === selectedCabinetId)?.location || 'No Location'}
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-down" size={24} color="#64748b" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.formGroup}>
         <Text style={styles.label}>Expiry Date</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <TouchableOpacity 
@@ -333,6 +325,33 @@ export default function AddInventoryScreen() {
         )}
       </View>
 
+      <Modal visible={showCabinetPicker} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Storage Site</Text>
+            {cabinets.map(cab => (
+              <TouchableOpacity 
+                key={cab.id} 
+                style={[styles.modalItem, selectedCabinetId === cab.id && styles.modalItemActive]}
+                onPress={() => {
+                  setSelectedCabinetId(cab.id);
+                  setShowCabinetPicker(false);
+                }}
+              >
+                <View>
+                  <Text style={[styles.modalItemText, selectedCabinetId === cab.id && styles.modalItemTextActive]}>{cab.name}</Text>
+                  <Text style={{color: '#64748b', fontSize: 12}}>{cab.location}</Text>
+                </View>
+                {selectedCabinetId === cab.id && <MaterialCommunityIcons name="check" size={20} color="#3b82f6" />}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowCabinetPicker(false)}>
+              <Text style={styles.modalCloseText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
         <Text style={styles.saveText}>{editBatchId ? 'UPDATE STOCK' : 'SAVE TO STOCK'}</Text>
       </TouchableOpacity>
@@ -364,5 +383,14 @@ const styles = StyleSheet.create({
   inputContainer: { flexDirection: 'row', alignItems: 'center' },
   unitLabel: { position: 'absolute', right: 16, color: '#3b82f6', fontWeight: 'bold', fontSize: 16 },
   clearDateBtn: { flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 4 },
-  clearDateText: { color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginLeft: 6, letterSpacing: 0.5 }
+  clearDateText: { color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginLeft: 6, letterSpacing: 0.5 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 24, maxHeight: '80%' },
+  modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+  modalItem: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#334155', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  modalItemActive: { backgroundColor: '#334155', borderRadius: 8, paddingHorizontal: 10 },
+  modalItemText: { color: '#f8fafc', fontSize: 16 },
+  modalItemTextActive: { color: '#3b82f6', fontWeight: 'bold' },
+  modalClose: { marginTop: 20, padding: 15, alignItems: 'center' },
+  modalCloseText: { color: '#ef4444', fontWeight: 'bold', fontSize: 16 }
 });

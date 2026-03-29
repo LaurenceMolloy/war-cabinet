@@ -1,123 +1,168 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, Image } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, Image, Modal, Platform } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Link, useFocusEffect, useRouter } from 'expo-router';
+import { Link, useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import { requestPermissions, scheduleMonthlyBriefing } from '../services/notifications';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const [categories, setCategories] = useState<any[]>([]);
   const [expandedCatIds, setExpandedCatIds] = useState<Set<number>>(new Set());
+  
+  const [filterCabinetId, setFilterCabinetId] = useState<number | null>(null);
+  const [filterExpiryMode, setFilterExpiryMode] = useState<'ALL' | 'EXPIRED' | 'THIS_MONTH' | '<3M'>('ALL');
+  const [cabinets, setCabinets] = useState<any[]>([]);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const params = useLocalSearchParams();
+
+  useEffect(() => {
+    if (params.forceFilter === '<3M') {
+       setFilterCabinetId(null);
+       setFilterExpiryMode('<3M');
+       // Consume the param
+       router.setParams({ forceFilter: undefined });
+    }
+  }, [params.forceFilter]);
 
   const load = async () => {
+    // Proactive Logistics
+    const hasPerms = await requestPermissions();
+    if (hasPerms) {
+       await scheduleMonthlyBriefing(db);
+    }
+
+    const cabRows = await db.getAllAsync<any>('SELECT * FROM Cabinets ORDER BY name');
+    setCabinets(cabRows);
+
     const allRows = await db.getAllAsync<any>(`
       SELECT c.id as cat_id, c.name as cat_name, c.icon as cat_icon, 
-             i.id as type_id, i.name as type_name, 
-             inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year
+             i.id as type_id, i.name as type_name, i.unit_type as type_unit, 
+             inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year,
+             cab.name as cab_name, cab.location as cab_location
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
-      LEFT JOIN Inventory inv ON i.id = inv.item_type_id
-      ORDER BY c.name, i.name, 
-               CASE WHEN inv.expiry_year IS NULL THEN 1 ELSE 0 END,
-               inv.expiry_year ASC, 
-               inv.expiry_month ASC, 
-               CAST(inv.size AS INTEGER) ASC
+      LEFT JOIN Inventory inv ON i.id = inv.item_type_id ${filterCabinetId ? ` AND inv.cabinet_id = ${filterCabinetId}` : ''}
+      LEFT JOIN Cabinets cab ON inv.cabinet_id = cab.id
+      ORDER BY c.name, i.name, inv.expiry_year, inv.expiry_month, inv.size
     `);
 
-    const grouped = allRows.reduce((acc: any, row: any) => {
+    const acc: any = {};
+    allRows.forEach(row => {
       if (!acc[row.cat_id]) {
-        acc[row.cat_id] = { id: row.cat_id, name: row.cat_name, icon: row.cat_icon, types: {} };
+        acc[row.cat_id] = { 
+          id: row.cat_id, 
+          name: row.cat_name, 
+          icon: row.cat_icon, 
+          types: {},
+          soonest_month: null,
+          soonest_year: null
+        };
       }
       if (row.type_id) {
         if (!acc[row.cat_id].types[row.type_id]) {
-          acc[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, items: [] };
+          acc[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, unit_type: row.type_unit, items: [] };
         }
         if (row.inv_id) {
-          acc[row.cat_id].types[row.type_id].items.push({
-            id: row.inv_id,
-            quantity: row.quantity,
-            size: row.size,
-            expiry_month: row.expiry_month,
-            expiry_year: row.expiry_year,
-            entry_month: row.entry_month,
-            entry_year: row.entry_year
-          });
-        }
-      }
-      return acc;
-    }, {});
+          const now = new Date();
+          const currentStamp = now.getFullYear() * 12 + (now.getMonth() + 1);
+          const expStamp = (row.expiry_year && row.expiry_month) ? (row.expiry_year * 12 + row.expiry_month) : null;
+          
+          let matchesFilter = true;
+          if (filterExpiryMode === 'EXPIRED') matchesFilter = !!expStamp && expStamp < currentStamp;
+          else if (filterExpiryMode === 'THIS_MONTH') matchesFilter = !!expStamp && expStamp === currentStamp;
+          else if (filterExpiryMode === '<3M') matchesFilter = !!expStamp && (expStamp <= currentStamp + 3);
 
-    const finalCategories = Object.values(grouped).map((c: any) => {
-      // Convert types object to array and calculate soonest for each type
-      c.types = Object.values(c.types).map((t: any) => {
-        let typeSoonestStamp = Number.MAX_SAFE_INTEGER;
-        t.items.forEach((item: any) => {
-          if (item.expiry_month && item.expiry_year) {
-            const stamp = parseInt(item.expiry_year) * 12 + parseInt(item.expiry_month);
-            if (stamp < typeSoonestStamp) typeSoonestStamp = stamp;
+          if (matchesFilter) {
+            acc[row.cat_id].types[row.type_id].items.push({
+              id: row.inv_id,
+              quantity: row.quantity,
+              size: row.size,
+              expiry_month: row.expiry_month,
+              expiry_year: row.expiry_year,
+              entry_month: row.entry_month,
+              entry_year: row.entry_year,
+              cab_name: row.cab_name,
+              cab_location: row.cab_location
+            });
           }
-        });
-        t.soonest_stamp = typeSoonestStamp;
-        return t;
-      });
-
-      // Sort types by the soonest expiring item within them
-      c.types.sort((a: any, b: any) => a.soonest_stamp - b.soonest_stamp);
-
-      // Now calculate the category-wide soonest from the types
-      let catSoonestMonth = null;
-      let catSoonestYear = null;
-      if (c.types.length > 0 && c.types[0].soonest_stamp !== Number.MAX_SAFE_INTEGER) {
-        catSoonestMonth = c.types[0].soonest_stamp % 12 || 12;
-        catSoonestYear = Math.floor((c.types[0].soonest_stamp - (c.types[0].soonest_stamp % 12 || 12)) / 12);
-        // Special case: if %12 is 0 it returns 12, need to adjust year
-        if (c.types[0].soonest_stamp % 12 === 0) {
-            catSoonestYear = (c.types[0].soonest_stamp / 12) - 1;
-            catSoonestMonth = 12;
-        } else {
-            catSoonestYear = Math.floor(c.types[0].soonest_stamp / 12);
-            catSoonestMonth = c.types[0].soonest_stamp % 12;
         }
       }
-      
-      c.soonest_month = catSoonestMonth;
-      c.soonest_year = catSoonestYear;
+    });
 
-      // Calculate Summary Stats
+    const finalCategories = Object.values(acc).map((c: any) => {
       let itemsStocked = 0;
       let totalQty = 0;
-      c.types.forEach((t: any) => {
+
+      c.types = Object.values(c.types).map((t: any) => {
         let typeQty = 0;
-        t.items.forEach((it: any) => typeQty += it.quantity);
+        let soonestTypeStamp = Number.MAX_SAFE_INTEGER;
+
+        t.items.forEach((it: any) => {
+          typeQty += it.quantity;
+          if (it.expiry_year && it.expiry_month) {
+            const stamp = it.expiry_year * 12 + it.expiry_month;
+            if (stamp < soonestTypeStamp) {
+              soonestTypeStamp = stamp;
+              if (!c.soonest_year || stamp < (c.soonest_year * 12 + c.soonest_month)) {
+                c.soonest_month = it.expiry_month;
+                c.soonest_year = it.expiry_year;
+              }
+            }
+          }
+        });
+        t.soonest_stamp = soonestTypeStamp;
         if (typeQty > 0) itemsStocked++;
         totalQty += typeQty;
+
+        // Calculate Tactical Total (Weight/Volume/Count)
+        let totalValue = 0;
+        t.items.forEach((it: any) => {
+          const qty = it.quantity || 0;
+          const sz = it.size || "";
+          const num = parseFloat(sz);
+          if (!isNaN(num)) {
+            let val = num;
+            if (sz.toLowerCase().endsWith('kg') || (sz.toLowerCase().endsWith('l') && !sz.toLowerCase().endsWith('ml')) || sz.toLowerCase().endsWith('ltr')) {
+              val = num * 1000;
+            }
+            totalValue += (val * qty);
+          }
+        });
+
+        let totalDisplay = "";
+        if (totalValue > 0) {
+          if (t.unit_type === 'weight') {
+            if (totalValue >= 1000) totalDisplay = `${(totalValue / 1000).toFixed(totalValue % 1000 === 0 ? 0 : 1)} kg`;
+            else totalDisplay = `${totalValue} g`;
+          } else if (t.unit_type === 'volume') {
+            if (totalValue >= 1000) totalDisplay = `${(totalValue / 1000).toFixed(totalValue % 1000 === 0 ? 0 : 1)} l`;
+            else totalDisplay = `${totalValue} ml`;
+          } else {
+            totalDisplay = `${totalValue} Units`;
+          }
+        }
+        t.tactical_total = totalDisplay;
+
+        return t;
       });
       c.items_stocked = itemsStocked;
       c.total_qty = totalQty;
       
       // Also store a top-level category stamp for sorting
-      // Use the stamp of the first (soonest) type, or infinity
-      c.cat_soonest_stamp = (c.types.length > 0) ? c.types[0].soonest_stamp : Number.MAX_SAFE_INTEGER;
+      c.cat_soonest_stamp = (c.types.length > 0) ? Math.min(...c.types.map((tt: any) => tt.soonest_stamp)) : Number.MAX_SAFE_INTEGER;
 
       return c;
     });
 
-    // Final Sort Tiered Hierarchy:
-    // 1. Stock Presence (Stocked above Empty)
-    // 2. Expiry Urgency (Soonest First)
-    // 3. Alphabetical
-    finalCategories.sort((a, b) => {
+    // Final Sort Tiered Hierarchy
+    finalCategories.sort((a: any, b: any) => {
       const aHasStock = a.items_stocked > 0;
       const bHasStock = b.items_stocked > 0;
-      
-      if (aHasStock !== bHasStock) {
-        return aHasStock ? -1 : 1;
-      }
-
-      if (a.cat_soonest_stamp !== b.cat_soonest_stamp) {
-        return a.cat_soonest_stamp - b.cat_soonest_stamp;
-      }
+      if (aHasStock !== bHasStock) return aHasStock ? -1 : 1;
+      if (a.cat_soonest_stamp !== b.cat_soonest_stamp) return a.cat_soonest_stamp - b.cat_soonest_stamp;
       return a.name.localeCompare(b.name);
     });
 
@@ -127,7 +172,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [])
+    }, [filterCabinetId, filterExpiryMode])
   );
 
   const toggleCategory = (id: number) => {
@@ -152,14 +197,13 @@ export default function HomeScreen() {
   };
 
   const getStatusColor = (m: number | null, y: number | null) => {
-    if (!m || !y) return '#94a3b8'; // Grey (No Expiry)
+    if (!m || !y) return '#94a3b8'; // Grey
     const now = new Date();
     const remaining = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
-    
-    if (remaining <= 0) return '#b91c1c';  // Intense Red: Expired/Imminent
-    if (remaining < 4) return '#f97316';   // Orange: 1-3 months
-    if (remaining < 7) return '#fde047';   // Vibrant Yellow: 4-6 months
-    return '#22c55e';                     // Green: > 6 months
+    if (remaining <= 0) return '#b91c1c';
+    if (remaining < 4) return '#f97316';
+    if (remaining < 7) return '#fde047';
+    return '#22c55e';
   };
 
   const formatMonth = (m: any) => m ? m.toString().padStart(2, '0') : '--';
@@ -169,7 +213,6 @@ export default function HomeScreen() {
     const now = new Date();
     const remaining = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
     const color = getStatusColor(m, y);
-    
     if (remaining < 0) {
       const abs = Math.abs(remaining);
       return (
@@ -194,19 +237,14 @@ export default function HomeScreen() {
 
   const formatSizeDisplay = (rawSize: string) => {
     if (!rawSize) return 'N/A';
-    
-    // Extract numeric part and unit
     const numMatch = rawSize.match(/^(\d+(\.\d+)?)/);
     if (!numMatch) return rawSize;
-    
     const num = parseFloat(numMatch[0]);
     const unit = rawSize.replace(numMatch[0], '').trim().toLowerCase();
-
     if (num >= 1000) {
       if (unit === 'g') return (num / 1000).toLocaleString() + 'kg';
       if (unit === 'ml') return (num / 1000).toLocaleString() + 'l';
     }
-    
     return rawSize;
   };
 
@@ -244,50 +282,48 @@ export default function HomeScreen() {
         return (
           <View key={type.id} style={styles.typeBlock}>
             <View style={styles.typeHeader}>
-              <Text style={styles.typeTitle}>{type.name}</Text>
-              <Link href={`/add?typeId=${type.id}`} asChild>
+              <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
+                <MaterialCommunityIcons 
+                  name={expandedCatIds.has(cat.id) ? "chevron-down" : "chevron-right"} 
+                  size={20} 
+                  color="#64748b" 
+                />
+                <Text style={styles.typeTitle}>{type.name}</Text>
+              </View>
+              {type.tactical_total ? <Text style={styles.totalLabel}>{type.tactical_total}</Text> : null}
+              <Link href={{ pathname: "/add", params: { typeId: type.id } }} asChild>
                 <TouchableOpacity style={styles.addButton}>
                   <Text style={styles.addText}>+ ADD</Text>
                 </TouchableOpacity>
               </Link>
             </View>
             
-            {!hasItems && <Text style={styles.emptyText}>No stock available.</Text>}
+            {!hasItems && <Text style={styles.emptyText}>No matching inventory.</Text>}
             {hasItems && type.items.map((inv: any) => (
               <View key={inv.id} style={styles.inventoryRow}>
+                <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
+                   <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
+                </View>
                 <View style={styles.rowMain}>
                   <View style={styles.qtyBadge}>
                     <Text style={styles.qtyText}>{inv.quantity}</Text>
                   </View>
                   <Text style={styles.sizeText} numberOfLines={1}>{formatSizeDisplay(inv.size)}</Text>
                   <View style={styles.actionsGroup}>
-                    <TouchableOpacity 
-                      onPress={() => router.push({ pathname: '/add', params: { typeId: type.id.toString(), editBatchId: inv.id.toString() } })} 
-                      style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]}
-                    >
+                    <TouchableOpacity onPress={() => router.push({ pathname: '/add', params: { typeId: type.id.toString(), editBatchId: inv.id.toString() } })} style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]}>
                       <MaterialCommunityIcons name="pencil" size={16} color="white" />
                     </TouchableOpacity>
-                    <TouchableOpacity 
-                      onPress={() => deductQuantity(inv.id, inv.quantity)} 
-                      style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}
-                    >
+                    <TouchableOpacity onPress={() => deductQuantity(inv.id, inv.quantity)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}>
                       <MaterialCommunityIcons name="minus" size={16} color="white" />
                     </TouchableOpacity>
-                    <TouchableOpacity 
-                      onPress={() => addQuantity(inv.id)} 
-                      style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}
-                    >
+                    <TouchableOpacity onPress={() => addQuantity(inv.id)} style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}>
                       <MaterialCommunityIcons name="plus" size={16} color="white" />
                     </TouchableOpacity>
                   </View>
                 </View>
                 <View style={[styles.rowSub, { justifyContent: 'space-between' }]}>
                   <Text style={styles.subText}>ENTRY: {formatMonth(inv.entry_month)}/{inv.entry_year}</Text>
-                  {inv.expiry_month ? (
-                    getUrgencyPhrasing(inv.expiry_month, inv.expiry_year)
-                  ) : (
-                    <Text style={styles.subText}>EXPIRY: N/A</Text>
-                  )}
+                  {inv.expiry_month ? getUrgencyPhrasing(inv.expiry_month, inv.expiry_year) : <Text style={styles.subText}>EXPIRY: N/A</Text>}
                 </View>
               </View>
             ))}
@@ -295,20 +331,18 @@ export default function HomeScreen() {
         );
       })}
     </View>
-      );
-    };
+    );
+  };
 
-    return (
-      <View style={styles.container}>
+  return (
+    <View style={styles.container}>
       <View style={styles.appHeader}>
         <View style={styles.leaderGroup}>
-          {/* <Image source={require('../../assets/trump.png')} style={styles.caricature} /> */}
-          {/* <Image source={require('../../assets/putin.png')} style={styles.caricature} /> */}
+          {/* Caricatures commented out for safe mode */}
         </View>
         <Text style={styles.headerTitle}>War Cabinet</Text>
         <View style={styles.leaderGroup}>
-          {/* <Image source={require('../../assets/xi.png')} style={styles.caricature} /> */}
-          {/* <Image source={require('../../assets/kim.png')} style={styles.caricature} /> */}
+          {/* Caricatures commented out for safe mode */}
         </View>
         <Link href="/catalog" asChild>
           <TouchableOpacity style={styles.settingsBtn}>
@@ -316,6 +350,67 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </Link>
       </View>
+
+      <View style={styles.filterBar}>
+        <TouchableOpacity style={[styles.filterBtn, filterCabinetId ? styles.filterBtnActive : null, { flex: 1.5 }]} onPress={() => setShowFilterModal(true)}>
+            <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center'}}>
+                <MaterialCommunityIcons name="home-modern" size={16} color={filterCabinetId ? "white" : "#64748b"} style={{marginRight: 6}} />
+                <Text style={[styles.filterBtnText, filterCabinetId ? styles.filterBtnTextActive : null]}>
+                    {filterCabinetId ? cabinets.find(c => c.id === filterCabinetId)?.name?.toUpperCase() : 'ALL CABINETS'}
+                </Text>
+            </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+            style={[styles.filterBtn, filterExpiryMode !== 'ALL' ? styles.filterBtnActive : null, { flex: 1 }]} 
+            onPress={() => {
+              const sequence: any[] = ['ALL', 'EXPIRED', 'THIS_MONTH', '<3M'];
+              const idx = sequence.indexOf(filterExpiryMode);
+              setFilterExpiryMode(sequence[(idx + 1) % sequence.length]);
+            }}
+        >
+            <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center'}}>
+                <MaterialCommunityIcons name={filterExpiryMode === 'ALL' ? "calendar-search" : "calendar-alert"} size={16} color={filterExpiryMode !== 'ALL' ? "white" : "#64748b"} style={{marginRight: 6}} />
+                <Text style={[styles.filterBtnText, filterExpiryMode !== 'ALL' ? styles.filterBtnTextActive : null]}>
+                   {filterExpiryMode === 'ALL' ? 'ALL STOCK' : filterExpiryMode.replace('_', ' ').replace('<3M', 'DUE SOON')}
+                </Text>
+            </View>
+        </TouchableOpacity>
+
+        {(filterCabinetId || filterExpiryMode !== 'ALL') && (
+           <TouchableOpacity style={{ paddingHorizontal: 10, justifyContent: 'center' }} onPress={() => { setFilterCabinetId(null); setFilterExpiryMode('ALL'); }}>
+             <MaterialCommunityIcons name="filter-remove" size={20} color="#ef4444" />
+           </TouchableOpacity>
+        )}
+      </View>
+
+      <Modal visible={showFilterModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Filter by Cabinet</Text>
+            {cabinets.map(cab => (
+              <TouchableOpacity 
+                key={cab.id} 
+                style={[styles.modalItem, filterCabinetId === cab.id && styles.modalItemActive]}
+                onPress={() => {
+                  setFilterCabinetId(cab.id);
+                  setShowFilterModal(false);
+                }}
+              >
+                <View>
+                  <Text style={[styles.modalItemText, filterCabinetId === cab.id && styles.modalItemTextActive]}>{cab.name}</Text>
+                  <Text style={{color: '#64748b', fontSize: 12}}>{cab.location}</Text>
+                </View>
+                {filterCabinetId === cab.id && <MaterialCommunityIcons name="check" size={20} color="#3b82f6" />}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowFilterModal(false)}>
+              <Text style={styles.modalCloseText}>CLOSE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <FlatList
         data={categories}
         keyExtractor={(item) => item.id.toString()}
@@ -328,11 +423,25 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
-  appHeader: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: '#1e293b', paddingTop: 50, paddingBottom: 20, paddingHorizontal: 10, position: 'relative' },
+  appHeader: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: '#1e293b', paddingTop: 50, paddingBottom: 15, paddingHorizontal: 10, position: 'relative' },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc', textAlign: 'center', marginHorizontal: 10 },
+  filterBar: { flexDirection: 'row', backgroundColor: '#1e293b', paddingHorizontal: 16, paddingBottom: 12, gap: 10 },
+  filterBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155' },
+  filterBtnActive: { backgroundColor: '#3b82f6', borderColor: '#3b82f6' },
+  filterBtnText: { color: '#64748b', fontSize: 11, fontWeight: 'bold' },
+  filterBtnTextActive: { color: 'white' },
   leaderGroup: { flexDirection: 'row', gap: 5 },
   caricature: { width: 35, height: 35, borderRadius: 17.5, backgroundColor: '#1e293b' },
-  settingsBtn: { position: 'absolute', right: 20, bottom: 20 },
+  settingsBtn: { position: 'absolute', right: 20, bottom: 15 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 24, maxHeight: '80%' },
+  modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+  modalItem: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#334155', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  modalItemActive: { backgroundColor: '#334155', borderRadius: 8, paddingHorizontal: 10 },
+  modalItemText: { color: '#f8fafc', fontSize: 16 },
+  modalItemTextActive: { color: '#3b82f6', fontWeight: 'bold' },
+  modalClose: { marginTop: 20, padding: 15, alignItems: 'center' },
+  modalCloseText: { color: '#ef4444', fontWeight: 'bold', fontSize: 16 },
   categoryCard: { backgroundColor: '#1e293b', borderRadius: 8, marginBottom: 12, overflow: 'hidden' },
   categoryHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#334155' },
   categoryTitle: { fontSize: 18, color: '#f8fafc', fontWeight: 'bold' },
@@ -340,11 +449,12 @@ const styles = StyleSheet.create({
   statusDot: { width: 12, height: 12, borderRadius: 6 },
   typeBlock: { padding: 12, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   typeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  typeTitle: { color: '#e2e8f0', fontSize: 16, fontWeight: '600' },
+  typeTitle: { color: '#e2e8f0', fontSize: 16, fontWeight: '600', marginLeft: 4 },
   addButton: { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#3b82f6', borderRadius: 4 },
   addText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
   emptyText: { color: '#64748b', fontStyle: 'italic', fontSize: 14, marginLeft: 16 },
   inventoryRow: { padding: 12, backgroundColor: '#334155', borderRadius: 6, marginBottom: 8, borderBottomWidth: 0 },
+  totalLabel: { fontSize: 13, color: '#3b82f6', fontWeight: 'bold', marginRight: 12 },
   rowMain: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   qtyBadge: { backgroundColor: '#334155', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   qtyText: { color: 'white', fontSize: 13, fontWeight: 'bold' },
