@@ -11,6 +11,18 @@ The following strategic features were lost during an unintended source code reve
 4. **Tactical Total Aggregation**: Restored the high-visibility Weight/Volume/Count totals in the Dashboard headers with unit-safe scaling (g -> kg, ml -> l).
 5. **Proactive Command Settings**: Re-integrated the ALERTS tab and the 'TEST STOCK ALERT' simulation engine into the Catalog.
 
+## Fiftieth Iteration Feedback
+1. **Recursive Urgency Sorting**: To achieve absolute situational priority, the sorting logic was synchronized across all three levels of the inventory hierarchy (Category -> Item Type -> Batch).
+    *   **Tiered Float Logic**: Item Types (e.g., "Pasta") now leapfrog their peers if they contain an expiring batch.
+    *   **Tie-Break Standards**: Ties in expiry are broken alphabetically. Empty categories or types are demoted to the bottom of their respective containers.
+    *   **Waterfall Flow**: The dashboard now provides a "Zero-Searching" experience—the single most urgent physical unit in the entire stockpile is guaranteed to be at the top-left of the first expanded category.
+
+## Forty-Ninth Iteration Feedback
+1. **High-Contrast Tactical Phrasing**: To ensure "Zero-Confusion" during Stock Rotation, the application's expiry vocabulary has been standardized across all views (Dashboard Rows and Category Summaries).
+    *   **Alert-First Highlighting**: High-contrast colors and bolding are now strictly reserved for the most critical tiers: `EXPIRED ITEMS`, `THIS MONTH`, and `1 MONTH`. 
+    *   **Visual Recedence**: Any item with > 1 month of shelf life now defaults to a neutral grey, ensuring the user's focus is never pulled away from imminent rotation needs.
+    *   **Unified Labels**: Phrasing has been standardized as `NEXT EXPIRING: [STATUS]` for category headers.
+
 ## Forty-Fifth Iteration Feedback
 1. **Strategic Navigation (Deep Linking)**: Tapping a 'War Cabinet Briefing' notification was only applying the filter if the user was already on the Dashboard.
     *   **Global Over-Ride**: The notification listener has been upgraded to force-navigate the user back to the primary Dashboard (`/`) from any administrative page (like Catalog or Add Stock).
@@ -22,6 +34,19 @@ The following strategic features were lost during an unintended source code reve
     *   **Quantity-First Auditing**: The notification engine has been refactored to sum the `quantity` of every expiring batch.
     *   **Smart Multiples Display**: The 'Brackets' (e.g., "Rice (12)") now accurately reflect the total number of physical units. The system remains silent for single items, ensuring high-resolution clarity on lock screens.
     *   **Tier Totals**: The leading count for each tier (e.g., "15 EXPIRED") now reflects the aggregate sum of all affected units across all item types in that category.
+
+## Forty-Seventh Iteration Feedback
+1. **Strategic Selection (Instant Global Search)**: Navigating deep categories was identified as a tactical bottleneck for large stockpiles.
+    *   **Keywords Filter**: Added a high-speed search bar ("FIND STOCK...") to the primary Dashboard.
+    *   **Universal Selection**: Matching now spans Item Names, Categories, and Storage Sites (Cabinets), allowing one-word "Instant-View" capability (e.g., typing "Pantry" shows everything in that location).
+    *   **Seamless Hierarchy Integration**: The categorized layout remains intact, but automatically "thins out" to show only matching combat-ready goods.
+
+## Forty-Eighth Iteration Feedback
+1. **The "Front Line" (Priority Staples)**: Mobile users spend too much time navigating hierarchies for daily items (Bread, Milk, Wine).
+    *   **Zero-Friction Access**: Added a horizontal "Front Line" belt at the top of the Dashboard for "Starred" items.
+    *   **Frequency Intelligence**: Items are now tracked via `interaction_count`, ensuring your most used staples naturally float to the premier leftmost position.
+    *   **FEFO-Safe Confirmation**: Tapping a "Front Line" item triggers a Smart-Selection engine that finds the **soonest-expiring batch** and prompts for confirmation with location awareness before deduction.
+    *   **Administrative Star**: Added "Star" controls to the Catalog for long-term provisioning of staples.
 
 ## First Iteration Feedback
 1. **Edit/Remove functionality for inventory:** The ability to deduct or completely remove stock was omitted. The user must be able to decrement items as they consume them, removing them entirely when 0.

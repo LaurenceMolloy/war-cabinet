@@ -64,6 +64,16 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN default_cabinet_id INTEGER');
     }
 
+    const hasIsFavorite = columnsRes.some(col => col.name === 'is_favorite');
+    if (!hasIsFavorite) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN is_favorite INTEGER DEFAULT 0');
+    }
+
+    const hasInteractionCount = columnsRes.some(col => col.name === 'interaction_count');
+    if (!hasInteractionCount) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN interaction_count INTEGER DEFAULT 0');
+    }
+
     const invCols = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
     const hasCabinetId = invCols.some(col => col.name === 'cabinet_id');
     if (!hasCabinetId) {

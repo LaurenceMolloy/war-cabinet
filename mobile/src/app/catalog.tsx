@@ -33,7 +33,7 @@ export default function CatalogScreen() {
 
   const load = async () => {
     const rows = await db.getAllAsync(`
-      SELECT c.id as cat_id, c.name as cat_name, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.default_size as type_default_size,
+      SELECT c.id as cat_id, c.name as cat_name, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size,
              (SELECT COUNT(*) FROM Inventory v WHERE v.item_type_id = i.id) as type_stock_count
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
@@ -51,6 +51,8 @@ export default function CatalogScreen() {
             id: row.type_id, 
             name: row.type_name, 
             unit_type: row.type_unit || 'weight', 
+            is_favorite: row.is_favorite || 0,
+            interaction_count: row.interaction_count || 0,
             default_size: row.type_default_size || '',
             stock_count: row.type_stock_count || 0
         });
@@ -170,6 +172,11 @@ export default function CatalogScreen() {
     load();
   };
 
+  const toggleFavorite = async (typeId: number, current: number) => {
+    await db.runAsync('UPDATE ItemTypes SET is_favorite = ? WHERE id = ?', current === 1 ? 0 : 1, typeId);
+    load();
+  };
+
   const handleDeleteCategory = async (catId: number, hasTypes: boolean) => {
     if (hasTypes) return;
     await db.runAsync('DELETE FROM Categories WHERE id = ?', catId);
@@ -254,9 +261,18 @@ export default function CatalogScreen() {
             </View>
           ) : (
             <>
-              <View style={{flex: 1}}>
-                <Text style={styles.typeText}>{type.name}</Text>
-                <Text style={{fontSize: 11, color: '#64748b', textTransform: 'capitalize'}}>{type.unit_type} unit {type.default_size ? `• Default: ${type.default_size}` : ''}</Text>
+              <View style={{flex: 1, flexDirection: 'row', alignItems: 'center'}}>
+                <TouchableOpacity onPress={() => toggleFavorite(type.id, type.is_favorite)} style={{marginRight: 12}}>
+                  <MaterialCommunityIcons 
+                    name={type.is_favorite ? "star" : "star-outline"} 
+                    size={24} 
+                    color={type.is_favorite ? "#eab308" : "#334155"} 
+                  />
+                </TouchableOpacity>
+                <View style={{flex: 1}}>
+                  <Text style={styles.typeText}>{type.name}</Text>
+                  <Text style={{fontSize: 11, color: '#64748b', textTransform: 'capitalize'}}>{type.unit_type} unit {type.default_size ? `• Default: ${type.default_size}` : ''}</Text>
+                </View>
               </View>
               <View style={styles.catActions}>
                 <TouchableOpacity onPress={() => { 

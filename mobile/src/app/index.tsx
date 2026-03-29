@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, Image, Modal, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, Image, Modal, Platform, TextInput } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Link, useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
@@ -14,8 +14,14 @@ export default function HomeScreen() {
   
   const [filterCabinetId, setFilterCabinetId] = useState<number | null>(null);
   const [filterExpiryMode, setFilterExpiryMode] = useState<'ALL' | 'EXPIRED' | 'THIS_MONTH' | '<3M'>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
   const [cabinets, setCabinets] = useState<any[]>([]);
+  const [favorites, setFavorites] = useState<any[]>([]);
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showExpiryModal, setShowExpiryModal] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<any>(null);
+  const [confirmBatch, setConfirmBatch] = useState<any>(null);
   const params = useLocalSearchParams();
 
   useEffect(() => {
@@ -39,7 +45,7 @@ export default function HomeScreen() {
 
     const allRows = await db.getAllAsync<any>(`
       SELECT c.id as cat_id, c.name as cat_name, c.icon as cat_icon, 
-             i.id as type_id, i.name as type_name, i.unit_type as type_unit, 
+             i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count,
              inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year,
              cab.name as cab_name, cab.location as cab_location
       FROM Categories c
@@ -51,6 +57,15 @@ export default function HomeScreen() {
 
     const acc: any = {};
     allRows.forEach(row => {
+      // Tactical Scry (Search) Filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const isInName = row.type_name?.toLowerCase().includes(query);
+        const isInCat = row.cat_name?.toLowerCase().includes(query);
+        const isInSite = row.cab_name?.toLowerCase().includes(query);
+        if (!isInName && !isInCat && !isInSite) return;
+      }
+
       if (!acc[row.cat_id]) {
         acc[row.cat_id] = { 
           id: row.cat_id, 
@@ -63,7 +78,14 @@ export default function HomeScreen() {
       }
       if (row.type_id) {
         if (!acc[row.cat_id].types[row.type_id]) {
-          acc[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, unit_type: row.type_unit, items: [] };
+          acc[row.cat_id].types[row.type_id] = { 
+            id: row.type_id, 
+            name: row.type_name, 
+            unit_type: row.type_unit, 
+            is_favorite: row.is_favorite,
+            interaction_count: row.interaction_count,
+            items: [] 
+          };
         }
         if (row.inv_id) {
           const now = new Date();
@@ -148,12 +170,19 @@ export default function HomeScreen() {
 
         return t;
       });
+      // Handle Type Sorting
+      c.types.sort((a: any, b: any) => {
+        if (a.items.length > 0 && b.items.length === 0) return -1;
+        if (a.items.length === 0 && b.items.length > 0) return 1;
+        if (a.soonest_stamp !== b.soonest_stamp) return a.soonest_stamp - b.soonest_stamp;
+        return a.name.localeCompare(b.name);
+      });
+
       c.items_stocked = itemsStocked;
       c.total_qty = totalQty;
       
-      // Also store a top-level category stamp for sorting
-      c.cat_soonest_stamp = (c.types.length > 0) ? Math.min(...c.types.map((tt: any) => tt.soonest_stamp)) : Number.MAX_SAFE_INTEGER;
-
+      const ttStamps = c.types.map((tt: any) => tt.soonest_stamp);
+      c.cat_soonest_stamp = (ttStamps.length > 0) ? Math.min(...ttStamps) : Number.MAX_SAFE_INTEGER;
       return c;
     });
 
@@ -167,12 +196,24 @@ export default function HomeScreen() {
     });
 
     setCategories(finalCategories);
+
+    // Extract & Sort Favorites
+    const favs: any[] = [];
+    finalCategories.forEach(c => {
+      c.types.forEach((t: any) => {
+        if (t.is_favorite && t.items.length > 0) {
+          favs.push(t);
+        }
+      });
+    });
+    favs.sort((a, b) => b.interaction_count - a.interaction_count || a.name.localeCompare(b.name));
+    setFavorites(favs);
   };
 
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [filterCabinetId, filterExpiryMode])
+    }, [filterCabinetId, filterExpiryMode, searchQuery])
   );
 
   const toggleCategory = (id: number) => {
@@ -182,18 +223,37 @@ export default function HomeScreen() {
     setExpandedCatIds(next);
   };
 
-  const deductQuantity = async (invId: number, currentQty: number) => {
+  const deductQuantity = async (invId: number, currentQty: number, typeId?: number) => {
     if (currentQty <= 1) {
       await db.runAsync('DELETE FROM Inventory WHERE id = ?', invId);
     } else {
       await db.runAsync('UPDATE Inventory SET quantity = quantity - 1 WHERE id = ?', invId);
     }
+    if (typeId) {
+      await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
+    }
     load();
   };
 
-  const addQuantity = async (invId: number) => {
+  const addQuantity = async (invId: number, typeId?: number) => {
     await db.runAsync('UPDATE Inventory SET quantity = quantity + 1 WHERE id = ?', invId);
+    if (typeId) {
+      await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
+    }
     load();
+  };
+
+  const handleFavoriteAction = (type: any) => {
+    // FEFO: Find soonest expiry item
+    const soonest = [...type.items].sort((a, b) => {
+      const aStamp = (a.expiry_year && a.expiry_month) ? (a.expiry_year * 12 + a.expiry_month) : 999999;
+      const bStamp = (b.expiry_year && b.expiry_month) ? (b.expiry_year * 12 + b.expiry_month) : 999999;
+      return aStamp - bStamp;
+    })[0];
+    
+    setConfirmTarget(type);
+    setConfirmBatch(soonest);
+    setShowConfirmModal(true);
   };
 
   const getStatusColor = (m: number | null, y: number | null) => {
@@ -208,29 +268,40 @@ export default function HomeScreen() {
 
   const formatMonth = (m: any) => m ? m.toString().padStart(2, '0') : '--';
 
-  const getUrgencyPhrasing = (m: number | null, y: number | null) => {
+  const getUrgencyPhrasing = (m: number | null, y: number | null, isHeader = false) => {
     if (!m || !y) return null;
     const now = new Date();
     const remaining = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
-    const color = getStatusColor(m, y);
+    const rawColor = getStatusColor(m, y);
+    
+    // High-Contrast Filter: Highlight anything in the Orange/Red tiers (3 months or less)
+    const isCritical = remaining < 4;
+    const color = isCritical ? rawColor : '#94a3b8';
+    const weight = isCritical ? 'bold' : 'normal';
+
+    const labelPrefix = isHeader ? "NEXT EXPIRY: " : "expires ";
+
     if (remaining < 0) {
+      if (isHeader) return <Text style={[styles.subText, { color: '#ef4444', fontWeight: 'bold' }]}>EXPIRED ITEMS</Text>;
       const abs = Math.abs(remaining);
       return (
         <Text style={styles.subText}>
-          expired <Text style={{ color, fontWeight: 'bold' }}>{abs} {abs === 1 ? 'MONTH' : 'MONTHS'}</Text> ago
+          expired <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>{abs} {abs === 1 ? 'MONTH' : 'MONTHS'}</Text> ago
         </Text>
       );
     }
+    
     if (remaining === 0) {
       return (
         <Text style={styles.subText}>
-          expires <Text style={{ color, fontWeight: 'bold' }}>THIS MONTH</Text>
+          {labelPrefix}<Text style={{ color, fontWeight: 'bold' }}>THIS MONTH</Text>
         </Text>
       );
     }
+
     return (
       <Text style={styles.subText}>
-        expires in <Text style={{ color, fontWeight: 'bold' }}>{remaining} {remaining === 1 ? 'MONTH' : 'MONTHS'}</Text>
+        {labelPrefix}<Text style={{ color, fontWeight: weight }}>{remaining} {remaining === 1 ? 'MONTH' : 'MONTHS'}</Text>
       </Text>
     );
   };
@@ -263,9 +334,7 @@ export default function HomeScreen() {
                   {cat.soonest_month && cat.soonest_year && (
                     <>
                       <Text style={styles.divider}>|</Text>
-                      <Text style={[styles.subText, { color: getStatusColor(cat.soonest_month, cat.soonest_year), fontWeight: 'bold' }]}>
-                        SOONEST: {formatMonth(cat.soonest_month)}/{cat.soonest_year}
-                      </Text>
+                      {getUrgencyPhrasing(cat.soonest_month, cat.soonest_year, true)}
                     </>
                   )}
                 </View>
@@ -313,17 +382,17 @@ export default function HomeScreen() {
                     <TouchableOpacity onPress={() => router.push({ pathname: '/add', params: { typeId: type.id.toString(), editBatchId: inv.id.toString() } })} style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]}>
                       <MaterialCommunityIcons name="pencil" size={16} color="white" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => deductQuantity(inv.id, inv.quantity)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}>
+                    <TouchableOpacity onPress={() => deductQuantity(inv.id, inv.quantity, type.id)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}>
                       <MaterialCommunityIcons name="minus" size={16} color="white" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => addQuantity(inv.id)} style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}>
+                    <TouchableOpacity onPress={() => addQuantity(inv.id, type.id)} style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}>
                       <MaterialCommunityIcons name="plus" size={16} color="white" />
                     </TouchableOpacity>
                   </View>
                 </View>
                 <View style={[styles.rowSub, { justifyContent: 'space-between' }]}>
                   <Text style={styles.subText}>ENTRY: {formatMonth(inv.entry_month)}/{inv.entry_year}</Text>
-                  {inv.expiry_month ? getUrgencyPhrasing(inv.expiry_month, inv.expiry_year) : <Text style={styles.subText}>EXPIRY: N/A</Text>}
+                  {inv.expiry_month ? getUrgencyPhrasing(inv.expiry_month, inv.expiry_year, false) : <Text style={styles.subText}>EXPIRY: N/A</Text>}
                 </View>
               </View>
             ))}
@@ -351,43 +420,96 @@ export default function HomeScreen() {
         </Link>
       </View>
 
-      <View style={styles.filterBar}>
-        <TouchableOpacity style={[styles.filterBtn, filterCabinetId ? styles.filterBtnActive : null, { flex: 1.5 }]} onPress={() => setShowFilterModal(true)}>
-            <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center'}}>
-                <MaterialCommunityIcons name="home-modern" size={16} color={filterCabinetId ? "white" : "#64748b"} style={{marginRight: 6}} />
-                <Text style={[styles.filterBtnText, filterCabinetId ? styles.filterBtnTextActive : null]}>
-                    {filterCabinetId ? cabinets.find(c => c.id === filterCabinetId)?.name?.toUpperCase() : 'ALL CABINETS'}
-                </Text>
-            </View>
-        </TouchableOpacity>
+      {/* The Front Line: Command Deck */}
+      {favorites.length > 0 && (
+        <View style={styles.frontLineCard}>
+          <View style={styles.frontLineHeader}>
+             <MaterialCommunityIcons name="flash" size={14} color="#eab308" />
+             <Text style={styles.frontLineTitle}>THE FRONT LINE</Text>
+             <Text style={styles.frontLineSub}>• click for instant use</Text>
+          </View>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={favorites}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({item}) => (
+              <TouchableOpacity style={styles.favChip} onPress={() => handleFavoriteAction(item)}>
+                <MaterialCommunityIcons name="star" size={13} color="#eab308" style={{marginRight: 6}} />
+                <Text style={styles.favText}>{item.name}</Text>
+              </TouchableOpacity>
+            )}
+            contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 14, gap: 10 }}
+          />
+        </View>
+      )}
+      {/* Unified Tactical Command Strip */}
+      <View style={styles.commandStrip}>
+        <View style={styles.searchSide}>
+           <MaterialCommunityIcons name="magnify" size={20} color="#64748b" />
+           <TextInput
+             style={styles.stripInput}
+             placeholder="FIND STOCK..."
+             placeholderTextColor="#475569"
+             value={searchQuery}
+             onChangeText={setSearchQuery}
+             autoCapitalize="none"
+             autoCorrect={false}
+           />
+           {searchQuery.length > 0 && (
+             <TouchableOpacity onPress={() => setSearchQuery('')}>
+               <MaterialCommunityIcons name="close-circle" size={18} color="#64748b" />
+             </TouchableOpacity>
+           )}
+        </View>
 
-        <TouchableOpacity 
-            style={[styles.filterBtn, filterExpiryMode !== 'ALL' ? styles.filterBtnActive : null, { flex: 1 }]} 
-            onPress={() => {
-              const sequence: any[] = ['ALL', 'EXPIRED', 'THIS_MONTH', '<3M'];
-              const idx = sequence.indexOf(filterExpiryMode);
-              setFilterExpiryMode(sequence[(idx + 1) % sequence.length]);
-            }}
-        >
-            <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center'}}>
-                <MaterialCommunityIcons name={filterExpiryMode === 'ALL' ? "calendar-search" : "calendar-alert"} size={16} color={filterExpiryMode !== 'ALL' ? "white" : "#64748b"} style={{marginRight: 6}} />
-                <Text style={[styles.filterBtnText, filterExpiryMode !== 'ALL' ? styles.filterBtnTextActive : null]}>
-                   {filterExpiryMode === 'ALL' ? 'ALL STOCK' : filterExpiryMode.replace('_', ' ').replace('<3M', 'DUE SOON')}
-                </Text>
-            </View>
-        </TouchableOpacity>
+        <View style={styles.dividerPipe} />
 
-        {(filterCabinetId || filterExpiryMode !== 'ALL') && (
-           <TouchableOpacity style={{ paddingHorizontal: 10, justifyContent: 'center' }} onPress={() => { setFilterCabinetId(null); setFilterExpiryMode('ALL'); }}>
-             <MaterialCommunityIcons name="filter-remove" size={20} color="#ef4444" />
+        <View style={styles.filterSide}>
+           {/* Cabinet Select */}
+           <TouchableOpacity style={styles.iconFilterBtn} onPress={() => setShowFilterModal(true)}>
+             <MaterialCommunityIcons 
+               name="warehouse" 
+               size={20} 
+               color={filterCabinetId ? "#3b82f6" : "#475569"} 
+             />
            </TouchableOpacity>
-        )}
+
+           {/* Urgency/Expiry Selector */}
+           <TouchableOpacity 
+             style={styles.iconFilterBtn} 
+             onPress={() => setShowExpiryModal(true)}
+           >
+             <MaterialCommunityIcons 
+               name={filterExpiryMode === 'ALL' ? "calendar-search" : "calendar-alert"} 
+               size={20} 
+               color={filterExpiryMode === 'ALL' ? "#475569" : "#eab308"} 
+             />
+           </TouchableOpacity>
+
+           {(filterCabinetId || filterExpiryMode !== 'ALL') && (
+             <TouchableOpacity 
+               style={styles.iconFilterBtn} 
+               onPress={() => { setFilterCabinetId(null); setFilterExpiryMode('ALL'); }}
+             >
+               <MaterialCommunityIcons name="filter-remove" size={20} color="#ef4444" />
+             </TouchableOpacity>
+           )}
+        </View>
       </View>
 
       <Modal visible={showFilterModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Filter by Cabinet</Text>
+            <TouchableOpacity 
+              style={[styles.modalItem, filterCabinetId === null && styles.modalItemActive]}
+              onPress={() => { setFilterCabinetId(null); setShowFilterModal(false); }}
+            >
+              <MaterialCommunityIcons name="home-outline" size={20} color={filterCabinetId === null ? "white" : "#64748b"} style={{marginRight: 12}} />
+              <Text style={[styles.modalItemText, filterCabinetId === null && styles.modalItemTextActive]}>ALL SITES</Text>
+            </TouchableOpacity>
+
             {cabinets.map(cab => (
               <TouchableOpacity 
                 key={cab.id} 
@@ -406,6 +528,97 @@ export default function HomeScreen() {
             ))}
             <TouchableOpacity style={styles.modalClose} onPress={() => setShowFilterModal(false)}>
               <Text style={styles.modalCloseText}>CLOSE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showExpiryModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Filter by Urgency</Text>
+            
+            <TouchableOpacity 
+              style={[styles.modalItem, filterExpiryMode === 'ALL' && styles.modalItemActive]}
+              onPress={() => { setFilterExpiryMode('ALL'); setShowExpiryModal(false); }}
+            >
+              <MaterialCommunityIcons name="calendar-blank" size={20} color={filterExpiryMode === 'ALL' ? "white" : "#64748b"} style={{marginRight: 12}} />
+              <Text style={[styles.modalItemText, filterExpiryMode === 'ALL' && styles.modalItemTextActive]}>ALL STOCK</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.modalItem, filterExpiryMode === 'EXPIRED' && styles.modalItemActive]}
+              onPress={() => { setFilterExpiryMode('EXPIRED'); setShowExpiryModal(false); }}
+            >
+              <MaterialCommunityIcons name="clock-alert" size={20} color={filterExpiryMode === 'EXPIRED' ? "white" : "#ef4444"} style={{marginRight: 12}} />
+              <Text style={[styles.modalItemText, filterExpiryMode === 'EXPIRED' && styles.modalItemTextActive]}>EXPIRED ONLY</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.modalItem, filterExpiryMode === 'THIS_MONTH' && styles.modalItemActive]}
+              onPress={() => { setFilterExpiryMode('THIS_MONTH'); setShowExpiryModal(false); }}
+            >
+              <MaterialCommunityIcons name="calendar-month" size={20} color={filterExpiryMode === 'THIS_MONTH' ? "white" : "#eab308"} style={{marginRight: 12}} />
+              <Text style={[styles.modalItemText, filterExpiryMode === 'THIS_MONTH' && styles.modalItemTextActive]}>EXPIRING THIS MONTH</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.modalItem, filterExpiryMode === '<3M' && styles.modalItemActive]}
+              onPress={() => { setFilterExpiryMode('<3M'); setShowExpiryModal(false); }}
+            >
+              <MaterialCommunityIcons name="history" size={20} color={filterExpiryMode === '<3M' ? "white" : "#3b82f6"} style={{marginRight: 12}} />
+              <Text style={[styles.modalItemText, filterExpiryMode === '<3M' && styles.modalItemTextActive]}>{"DUE SOON (< 3M)"}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowExpiryModal(false)}>
+              <Text style={styles.modalCloseText}>CLOSE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showConfirmModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={{alignItems: 'center', marginBottom: 20}}>
+               <View style={{backgroundColor: '#334155', padding: 15, borderRadius: 50, marginBottom: 15}}>
+                 <MaterialCommunityIcons name="alert-decagram" size={40} color="#eab308" />
+               </View>
+               <Text style={styles.modalTitle}>CONFIRM CONSUMPTION</Text>
+               <Text style={{color: '#94a3b8', textAlign: 'center', fontSize: 16}}>
+                 Use <Text style={{color: 'white', fontWeight: 'bold'}}>1 unit</Text> of {confirmTarget?.name}?
+               </Text>
+            </View>
+
+            <View style={styles.confirmDetails}>
+               <View style={styles.detailRow}>
+                 <Text style={styles.detailLabel}>TARGET BATCH:</Text>
+                 <Text style={styles.detailValue}>{confirmBatch?.size || 'Standard'}</Text>
+               </View>
+               <View style={styles.detailRow}>
+                 <Text style={styles.detailLabel}>LOCATION:</Text>
+                 <Text style={styles.detailValue}>{confirmBatch?.cab_name} ({confirmBatch?.cab_location})</Text>
+               </View>
+               <View style={styles.detailRow}>
+                 <Text style={styles.detailLabel}>EXPIRY DATE:</Text>
+                 <Text style={[styles.detailValue, {color: getStatusColor(confirmBatch?.expiry_month, confirmBatch?.expiry_year)}]}>
+                   {confirmBatch?.expiry_month ? `${formatMonth(confirmBatch.expiry_month)}/${confirmBatch.expiry_year}` : 'N/A'}
+                 </Text>
+               </View>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.confirmBtn} 
+              onPress={() => {
+                deductQuantity(confirmBatch.id, confirmBatch.quantity, confirmTarget.id);
+                setShowConfirmModal(false);
+              }}
+            >
+              <Text style={styles.confirmBtnText}>CONFIRM USE</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelLink} onPress={() => setShowConfirmModal(false)}>
+              <Text style={{color: '#64748b', fontWeight: 'bold'}}>CANCEL ACTION</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -433,6 +646,18 @@ const styles = StyleSheet.create({
   leaderGroup: { flexDirection: 'row', gap: 5 },
   caricature: { width: 35, height: 35, borderRadius: 17.5, backgroundColor: '#1e293b' },
   settingsBtn: { position: 'absolute', right: 20, bottom: 15 },
+  searchContainer: { backgroundColor: '#1e293b', paddingHorizontal: 16, paddingBottom: 10 },
+  searchBarWrapper: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#0f172a', 
+    borderRadius: 8, 
+    paddingHorizontal: 12, 
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#334155'
+  },
+  searchInput: { flex: 1, color: 'white', fontSize: 14, fontWeight: '500', marginLeft: 8 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 24, maxHeight: '80%' },
   modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
@@ -463,5 +688,63 @@ const styles = StyleSheet.create({
   rowSub: { flexDirection: 'row', alignItems: 'center' },
   subText: { color: '#94a3b8', fontSize: 11, letterSpacing: 0.5 },
   divider: { color: '#334155', marginHorizontal: 8, fontSize: 12 },
-  actionBtn: { padding: 6, borderRadius: 6, alignItems: 'center', justifyContent: 'center' }
+  actionBtn: { padding: 6, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  commandStrip: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    marginHorizontal: 16, 
+    marginBottom: 10,
+    backgroundColor: '#0f172a',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingLeft: 12,
+    height: 48
+  },
+  searchSide: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  stripInput: { flex: 1, color: 'white', fontSize: 13, fontWeight: '500', marginLeft: 8 },
+  dividerPipe: { width: 1, height: 24, backgroundColor: '#334155', marginHorizontal: 8 },
+  filterSide: { flexDirection: 'row', alignItems: 'center', paddingRight: 4 },
+  iconFilterBtn: { padding: 10 },
+  frontLineCard: { 
+    marginHorizontal: 16, 
+    marginTop: 20, 
+    marginBottom: 6,
+    borderWidth: 1, 
+    borderColor: '#334155', 
+    borderRadius: 8,
+    backgroundColor: '#1e293b',
+    overflow: 'hidden'
+  },
+  frontLineHeader: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#0f172a',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155'
+  },
+  frontLineTitle: { color: '#64748b', fontSize: 11, fontWeight: 'bold', marginLeft: 6, letterSpacing: 0.5 },
+  frontLineSub: { color: '#475569', fontSize: 11, marginLeft: 6 },
+  frontLineContainer: { 
+    marginHorizontal: 16, 
+    marginTop: 20, 
+    marginBottom: 6,
+    borderWidth: 1, 
+    borderColor: '#334155', 
+    borderRadius: 12,
+    backgroundColor: '#1e293b' 
+  },
+  favoritesBar: { backgroundColor: '#1e293b', paddingBottom: 12 },
+  barLabel: { color: '#64748b', fontSize: 10, fontWeight: 'bold', marginLeft: 16, marginBottom: 8, letterSpacing: 1 },
+  favChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#334155' },
+  favText: { color: 'white', fontSize: 13, fontWeight: 'bold' },
+  confirmDetails: { backgroundColor: '#0f172a', borderRadius: 8, padding: 16, marginBottom: 25 },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  detailLabel: { color: '#64748b', fontSize: 11, fontWeight: 'bold' },
+  detailValue: { color: 'white', fontSize: 14, fontWeight: 'bold' },
+  confirmBtn: { backgroundColor: '#eab308', padding: 16, borderRadius: 8, alignItems: 'center' },
+  confirmBtnText: { color: 'black', fontWeight: 'bold', fontSize: 16 },
+  cancelLink: { marginTop: 20, alignItems: 'center' }
 });
