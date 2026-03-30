@@ -1,0 +1,96 @@
+[
+  {
+    "id": "TC-1.1a",
+    "test_marker": "TC-1.1a",
+    "iteration": 1,
+    "screen": "add",
+    "entity": "batch",
+    "action": "increment",
+    "title": "New Batch Creation Behaviour",
+    "text": "To add new items, tap the blue '+ ADD' button on a dashboard row. You can safely abort this process at any point by tapping the grey 'CANCEL' button at the bottom of the form, or the 'X' icon in the top right corner. If you proceed and tap 'Save to Stock', any item containing distinct parameters (like a different size, location, or expiry date) will independently spawn its own dedicated inventory batch row.",
+    "tags": ["batch", "creation", "add", "cancel", "form"]
+  },
+  {
+    "id": "TC-1.1b",
+    "test_marker": "TC-1.1b",
+    "iteration": 1,
+    "screen": "index",
+    "entity": "batch",
+    "action": "decrement",
+    "title": "Stock Decrement Behaviour & Batch Deletion",
+    "text": "The system uses a strict safety-first approach to stock reduction. Tapping the minus button will decrement batch quantity seamlessly until it reaches 1. Tapping minus on the final unit will trigger a high-contrast confirmation modal. You can either confirm the deletion, or cancel the action to safely back out and leave your final item intact.",
+    "tags": ["batch", "purge", "removal", "minus", "use", "decrement", "safety", "stock", "confirm", "cancel"]
+  },
+  {
+    "id": "TC-1.2a",
+    "test_marker": "TC-1.2",
+    "iteration": 1,
+    "screen": "add",
+    "entity": "chip",
+    "action": "remember",
+    "title": "Smart Size Memory & Rotation",
+    "text": "Custom sizes are instantly memorized and placed as a Smart Size chip for that item. The system maintains a persistent 3-slot custom memory per item. A 4th unique custom size will seamlessly evict the oldest entry. The 5 static default anchors (e.g. 50g, 100g, 1kg) always remain locked in place.",
+    "tags": [
+      "chip",
+      "size",
+      "memory",
+      "persistence",
+      "rotation",
+      "custom",
+      "add",
+      "smart"
+    ]
+  },
+  {
+    "id": "TC-1.2b",
+    "test_marker": "TC-1.2",
+    "iteration": 1,
+    "screen": "add",
+    "entity": "chip",
+    "action": "reset",
+    "title": "Smart Size Memory Removal",
+    "text": "The active memory is directly tied to your physical inventory. When you delete or consume the last batch of a specific custom size (reducing its quantity to zero), the system automatically forgets that exact Smart Size chip to prevent Ghost Clutter, while safely retaining all other active sizes.",
+    "tags": [
+      "chip",
+      "reset",
+      "memory",
+      "clutter",
+      "ghost",
+      "zero",
+      "purge",
+      "add",
+      "smart"
+    ]
+  },
+  {
+    "id": "TC-1.3",
+    "test_marker": "TC-1.3",
+    "iteration": 1,
+    "screen": "catalog",
+    "entity": "category",
+    "action": "delete",
+    "title": "Catalog & Visibility Synchronization",
+    "text": "The Catalog acts as the strict source of truth. Items become visible in the main list only after creation in the Catalog. To protect structural integrity, the system disables the category deletion button if any underlying items still exist within it, explicitly preventing orphaned data.",
+    "tags": [
+      "catalog",
+      "lock",
+      "sync",
+      "delete",
+      "category",
+      "safety",
+      "orphaned",
+      "visibility"
+    ]
+  },
+  {
+    "id": "TC-7.1",
+    "test_marker": "TC-7.1",
+    "iteration": 7,
+    "screen": "add",
+    "entity": "batch",
+    "action": "aggregate",
+    "title": "Duplicate Batch Aggregation (Upsert)",
+    "text": "To maintain a clean and uncluttered inventory, the system intelligently merges identical stock records. If you submit a new batch with the exact same Size, Location, and Expiry Date as an existing batch, the system will seamlessly aggregate them into a single row, boosting the quantity while refreshing the entry date.",
+    "tags": ["batch", "aggregate", "upsert", "merge", "duplicate", "clutter", "clean", "add"]
+  }
+]

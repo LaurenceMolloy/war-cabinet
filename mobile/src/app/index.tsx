@@ -22,6 +22,10 @@ export default function HomeScreen() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<any>(null);
   const [confirmBatch, setConfirmBatch] = useState<any>(null);
+  
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleteBatch, setDeleteBatch] = useState<any>(null);
   const params = useLocalSearchParams();
 
   useEffect(() => {
@@ -223,8 +227,18 @@ export default function HomeScreen() {
     setExpandedCatIds(next);
   };
 
-  const deductQuantity = async (invId: number, currentQty: number, typeId?: number) => {
-    if (currentQty <= 1) {
+  const handleDeductRequest = (inv: any, type: any) => {
+    if (inv.quantity <= 1) {
+      setDeleteTarget(type);
+      setDeleteBatch(inv);
+      setShowDeleteModal(true);
+    } else {
+      deductQuantity(inv.id, inv.quantity, type.id);
+    }
+  };
+
+  const deductQuantity = async (invId: number, currentQty: number, typeId?: number, forceDelete = false) => {
+    if (currentQty <= 1 || forceDelete) {
       await db.runAsync('DELETE FROM Inventory WHERE id = ?', invId);
     } else {
       await db.runAsync('UPDATE Inventory SET quantity = quantity - 1 WHERE id = ?', invId);
@@ -382,7 +396,7 @@ export default function HomeScreen() {
                     <TouchableOpacity onPress={() => router.push({ pathname: '/add', params: { typeId: type.id.toString(), editBatchId: inv.id.toString() } })} style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]}>
                       <MaterialCommunityIcons name="pencil" size={16} color="white" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => deductQuantity(inv.id, inv.quantity, type.id)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}>
+                    <TouchableOpacity onPress={() => handleDeductRequest(inv, type)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}>
                       <MaterialCommunityIcons name="minus" size={16} color="white" />
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => addQuantity(inv.id, type.id)} style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}>
@@ -413,6 +427,11 @@ export default function HomeScreen() {
         <View style={styles.leaderGroup}>
           {/* Caricatures commented out for safe mode */}
         </View>
+        <Link href="/briefing" asChild>
+          <TouchableOpacity style={styles.briefingBtn}>
+            <MaterialCommunityIcons name="information-outline" size={26} color="#3b82f6" />
+          </TouchableOpacity>
+        </Link>
         <Link href="/catalog" asChild>
           <TouchableOpacity style={styles.settingsBtn}>
             <MaterialCommunityIcons name="cog" size={26} color="#cbd5e1" />
@@ -577,6 +596,47 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
+      <Modal visible={showDeleteModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={{alignItems: 'center', marginBottom: 20}}>
+               <View style={{backgroundColor: '#334155', padding: 15, borderRadius: 50, marginBottom: 15}}>
+                 <MaterialCommunityIcons name="delete-alert" size={40} color="#ef4444" />
+               </View>
+               <Text style={styles.modalTitle}>CONFIRM DELETION</Text>
+               <Text style={{color: '#94a3b8', textAlign: 'center', fontSize: 16}}>
+                 You are consuming the final <Text style={{color: 'white', fontWeight: 'bold'}}>1 unit</Text> of {deleteTarget?.name}. This will remove the batch entirely.
+               </Text>
+            </View>
+
+            <View style={styles.confirmDetails}>
+               <View style={styles.detailRow}>
+                 <Text style={styles.detailLabel}>TARGET BATCH:</Text>
+                 <Text style={styles.detailValue}>{deleteBatch?.size || 'Standard'}</Text>
+               </View>
+               <View style={styles.detailRow}>
+                 <Text style={styles.detailLabel}>LOCATION:</Text>
+                 <Text style={styles.detailValue}>{deleteBatch?.cab_name} ({deleteBatch?.cab_location})</Text>
+               </View>
+            </View>
+
+            <TouchableOpacity 
+              style={[styles.confirmBtn, {backgroundColor: '#ef4444'}]} 
+              onPress={() => {
+                deductQuantity(deleteBatch.id, deleteBatch.quantity, deleteTarget.id, true);
+                setShowDeleteModal(false);
+              }}
+            >
+              <Text style={[styles.confirmBtnText, {color: 'white'}]}>CONFIRM DELETE</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelLink} onPress={() => setShowDeleteModal(false)}>
+              <Text style={{color: '#64748b', fontWeight: 'bold'}}>CANCEL ACTION</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={showConfirmModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -645,7 +705,8 @@ const styles = StyleSheet.create({
   filterBtnTextActive: { color: 'white' },
   leaderGroup: { flexDirection: 'row', gap: 5 },
   caricature: { width: 35, height: 35, borderRadius: 17.5, backgroundColor: '#1e293b' },
-  settingsBtn: { position: 'absolute', right: 20, bottom: 15 },
+  settingsBtn: { position: 'absolute', right: 16, bottom: 12 },
+  briefingBtn: { position: 'absolute', right: 56, bottom: 12 },
   searchContainer: { backgroundColor: '#1e293b', paddingHorizontal: 16, paddingBottom: 10 },
   searchBarWrapper: { 
     flexDirection: 'row', 

@@ -41,3 +41,6 @@ app-example
 # generated native folders
 /ios
 /android
+
+# separate project - exclude temporary files
+/solar_calcs

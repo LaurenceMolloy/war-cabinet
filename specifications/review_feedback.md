@@ -54,13 +54,139 @@ The following strategic features were lost during an unintended source code reve
 3. **Cancel option on forms:** The Add Item form was shipped without a mechanism to cancel out and navigate back to the main list.
 4. **Catalog Management (Categorization & Item Types):** The overarching functionality to edit the standard "enumerated types" (add/remote categories and stock types) was missing. Users must be able to configure what types of items the app supports.
 
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 1)
+
+*(Note: When translating these manual protocols into automated test suites, the **Setup** and **Clean-up** paths represent the `beforeEach()` and `afterEach()` teardown fixtures, ensuring a perfectly isolated zero-state database architecture for every run.)*
+
+**[TC-1.1a] VERIFICATION: New Batch Creation Behaviour**
+*   **Conditions**: Clean, empty database state.
+*   **Setup**: 
+    1. Create Locations: "Pantry" and "Garage".
+    2. Create Category "Carbs" -> Item Type "Rice".
+    3. Add one baseline "Rice" batch to the "Pantry" (Size: "500g", Expiry: "06/2026", Quantity: 1).
+*   **Actions**: 
+    1. CANCELLED NEW BATCH: Tap the blue "ADD" button to configure a new Rice batch, then tap the "CANCEL" button (or the 'X' icon in the top right corner).
+    2. NEW BATCH WITH DIFFERENT SIZE: Tap "ADD", configure a rice batch with a *different size* (Size: "750g", Location: "Pantry", Expiry: "06/2026", Qty: 1), then tap **Save to Stock**.
+    3. NEW BATCH WITH DIFFERENT LOCATION: Tap "ADD", configure a rice batch with a *different location* (Size: "500g", Location: "Garage", Expiry: "06/2026", Qty: 2), then tap **Save to Stock**.
+    4. NEW BATCH WITH DIFFERENT EXPIRY: Tap "ADD", configure a rice batch with a *different expiry* (Size: "500g", Location: "Pantry", Expiry: "12/2026", Qty: 3), then tap **Save to Stock**.
+*   **Assertions**:
+    1. CANCELLED NEW BATCH (Step 1): Returns to the dashboard without creating any additional batch rows.
+    2. DIFFERENT SIZE (Step 2): Generates a completely separate second batch row accurately displaying Size: "750g", Location: "Pantry", Expiry: "06/2026", and a Quantity badge of 1.
+    3. DIFFERENT LOCATION (Step 3): Generates a completely separate third batch row accurately displaying Size: "500g", Location: "Garage", Expiry: "06/2026", and a Quantity badge of 2.
+    4. DIFFERENT EXPIRY (Step 4): Generates a completely separate fourth batch row accurately displaying Size: "500g", Location: "Pantry", Expiry: "12/2026", and a Quantity badge of 3.
+*   **Clean-up**: 
+    1. Delete the "Carbs" Category (cascading constraints will automatically purge all Rice inventory records).
+    2. Delete the "Pantry" and "Garage" Locations to reset the environment.
+
+
+**[TC-1.1b] VERIFICATION: Stock Decrement Behaviour & Batch Deletion**
+*   **Conditions**: Clean, empty database state.
+*   **Setup**: 
+    1. Create Location: "Pantry".
+    2. Create Category "Carbs" -> Item Type "Rice".
+    3. Add one baseline "Rice" batch (Quantity: 2) to the "Pantry".
+*   **Actions**: 
+    1. On the Dashboard, tap the - (minus) button on the "Rice" row.
+    2. Tap the - (minus) button a second time.
+    3. Tap "CANCEL ACTION" on the resulting pop-up modal.
+    4. Tap the - (minus) button for a third time.
+    5. Tap "CONFIRM DELETE" on the modal.
+*   **Assertions**:
+    1. First minus tap (Step 1) safely reduces the quantity back down to 1; row remains visible.
+    2. Second minus tap (Step 2) correctly triggers the deletion prevention modal.
+    3. Tapping "CANCEL ACTION" (Step 3) securely dismisses the modal, leaving the row quantity intact at 1.
+    4. Confirming the deletion (Step 5) successfully drops the record and removes the item batch from the UI.
+*   **Clean-up**: 
+    1. Delete the "Carbs" Category to purge the remaining item records.
+    2. Delete the "Pantry" Location to completely wipe the test footprint.
+
+
+**[TC-1.2] VERIFICATION: Smart Size Chips: Persistence, Rotation, and Memory Removal Behaviour**
+*   **Conditions**: Clean, empty database state.
+*   **Setup**: 
+    1. Create Location: "Pantry".
+    2. Create Category "Spices" -> Item Type "Salt".
+*   **Actions**:
+    1. Add one custom-sized batch each for: 776g, 777g, 778g
+    2. Add a 4th custom-sized batch: 779g.
+    3. Re-open "Add Stock" and inspect the smart chip row.
+    4. Delete batches for 776g, 777g, 778g (reduce quantity to 0).
+    5. Re-open "Add Stock" and inspect the smart chip row again.
+*   **Assertions**:
+    1. After step 3: 
+      - First 3 smart chips are 779g, 778g, 777g (in that order).
+      - 776g is no longer present (forgotten due to memory limit of 3 custom chips).
+      - All 5 static default chips are present.
+      - Total chip count = 8 (5 default + 3 custom).
+    2. After step 5
+      - Smart-chips for 776g, 777g, 778g are not present.
+      - 779g smart chip remains present.
+      - All 5 static default chips are present.
+      - Total chip count = 6 (5 default + 1 custom).
+*   **Clean-up**: 
+    1. Delete the "Spices" Category. This purges all Salt batch rows and perfectly resets the Smart Size memory limits in the database.
+    2. Delete the "Pantry" Location to fully wipe the footprint.
+
+
+**[TC-1.3] VERIFICATION: Catalog–Inventory Synchronization: Item Visibility and Category Deletion Behaviour**
+*   **Conditions**: Clean, empty database state.
+*   **Setup**: 
+    1. Create Category "Snacks" (Category is empty).
+*   **Actions**:
+    1. Open the "Snacks" category on the main screen.
+    2. Navigate to the Catalog screen.
+    3. Add a new Item "Military Ration" to "Snacks"
+    4. Return to the main screen and open "Snacks" again.
+    5. Navigate back to the Catalog and locate "Snacks".
+    6. Delete "Military Ration" using the bin icon.
+    7. Return to the main screen and open "Snacks" again.
+    8. Navigate back to the Catalog and delete the "Snacks" category.
+    9. Return to the main screen and look for the Snacks category.
+
+*   **Assertions**:
+    After step 1: "Snacks" category contains no items.
+    After step 4: "Military Ration" appears in "Snacks" (no stock required).
+    After step 5: "Snacks" category delete option is disabled (category contains an item).
+    After step 6: "Snacks" category delete option becomes enabled (category is now empty).
+    After step 7: The "Snacks" category contains no items.
+    After step 9: The "Snacks" category is no longer visible on the main screen.
+*   **Clean-up**: 
+    1. Confirm "Snacks" is fully deleted (Step 8 inherently cleans this test up).
+    2. System is natively returned to empty zero-state.
+
+
 ## Second Iteration Feedback
 1. **Category Management Limits:** It was impossible to delete newly added Categories. Furthermore, Categories could not be renamed (to preserve historic item links under them without losing relationships).
 2. **Inventory Adjustments (Plus and Minus):** The `-` deduction button was unclear and seemingly stalled at 1 (due to Web Preview `Alert` blocking), making it hard to delete the final item. Furthermore, a `+` button was missing directly on the dashboard row to quickly restock an exact item batch without navigating away.
 3. **Date Selectors:** The input for Expiry Month and Year was manual text entry instead of rotating selectors (spinners) defaulted to the current month and year.
 
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 2)
+**[TC-2.1] VERIFICATION: Category Purge & Dashboard Plus**
+*   **Conditions**: Empty "Snacks" category exists; one item "Rice" exists in "Carbs."
+*   **Actions**:
+    1. In **Catalog**, delete the "Snacks" category.
+    2. Tap the `+` increment button on the "Rice" row on the Dashboard.
+    3. Open "Add Stock" and inspect the Date Selector defaults.
+*   **Assertions**:
+    1. "Snacks" is removed from the list.
+    2. "Rice" quantity increases by exactly 1 unit without navigating away.
+    3. Expiry selectors default to the current `MM/YYYY`.
+*   **Clean-up**: Deduct the extra "Rice" unit via the `-` button.
+
 ## Third Iteration Feedback
 1. **Item Type Editing:** While categories were made editable in the second iteration, the actual items (Item Types) under those categories were not. The user could not fix typos or rename generic "Item Types" once they had been created.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 3)
+**[TC-3.1] VERIFICATION: Item Type Rename Propagation**
+*   **Conditions**: Item Type "Tuna" exists under "Canned Goods."
+*   **Actions**: Navigate to **Settings > Catalog**, edit "Tuna," rename it to "Safe-Catch Tuna."
+*   **Assertions**:
+    1. The name "Safe-Catch Tuna" is reflected on every "Tuna" inventory batch on the Dashboard.
+    2. Catalog list now displays "Safe-Catch Tuna" alphabetically.
+*   **Clean-up**: Rename back to "Tuna" to restore baseline.
 
 ## Fourth Iteration Feedback
 1. **Inventory Visualization:** The layout of the stock items inside the main list wasn't scannable enough. The layout has been redesigned into rigid columnar blocks on a single line showing `STATUS - QUANTITY - SIZE - ENTRY DATE - EXPIRY DATE` alongside adjustment buttons to make scanning quick and methodical.
@@ -74,6 +200,20 @@ The following strategic features were lost during an unintended source code reve
 
 ## Seventh Iteration Feedback
 1. **Duplicate Batch Accumulation (Upsert logic)**: The Add Stock form lacked logic to detect if the user was entering the exact same item, size, and expiry date. Instead of aggregating them into a single stack, it spawned duplicate rows. The saving logic has been refactored to check for an identical matching batch—incrementing its quantity and refreshing its entry date instead of polluting the dashboard with duplicates.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 7)
+**[TC-7.1] VERIFICATION: Duplicate Batch Aggregation (Upsert Logic)**
+*   **Conditions**: One "Pasta" batch exists with a quantity of 1, Size "500g", Expiry "05/2026", located in "Pantry".
+*   **Actions**:
+    1. Open the "Add Stock" form for "Pasta".
+    2. Enter a structurally identical match: Size "500g", Expiry "05/2026", Location "Pantry".
+    3. Tap "Save to Stock".
+*   **Assertions**:
+    1. The system does *not* create a second standalone batch row for "Pasta".
+    2. The original batch correctly absorbs the new entry, instantly increasing the dashboard quantity pill to 2.
+    3. The Entry Date of the successfully merged batch updates to the current month/year.
+*   **Clean-up**: Tap `-` once on the aggregate row to return the quantity to 1.
 
 ## Eighth Iteration Feedback
 1. **Background Suspend State Loss**: The mobile app froze or crashed its action buttons (Add, Minus, Delete, etc.) if the phone went to sleep or the app was backgrounded. This was diagnosed as the OS destroying the ad-hoc SQLite connection. The application's architecture was refactored. The entire render tree is now wrapped in Expo's specialized `<SQLiteProvider>`, maintaining and cleanly reopening database connections automatically whenever the OS suspends and wakes the app lifecycle.

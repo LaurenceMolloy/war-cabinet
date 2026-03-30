@@ -73,4 +73,22 @@ The War Cabinet is an instrument of **Urgency**.
 
 ---
 
+## 🛡️ TEST-BASED FUNCTIONALITY GUIDE
+
+### 📡 Iteration 1: Foundation Operations
+
+#### **Incremental Purging ([TC-1.1])**
+The War Cabinet handles batch consumption with a safety-first approach. Tapping the row-level `-` button on a batch with multiple units will first decrement the count. Only when you tap `-` on the final unit will the record be purged from your database—ensuring you never accidentally wipe a stockpile with a single misclick.
+
+#### **Quick-Chip Memory & Rotation ([TC-1.2])**
+The app actively "learns" your logistics habits. When you enter a custom size (e.g., `777g`), it is instantly memorized and placed as a "Quick Chip" at the front of the list for that item.
+*   **The Rotation:** The system maintains a 3-slot "Active Memory." If you use a 4th custom size, the earliest memory is "Evicted" to keep the interface clean.
+*   **The Anchor:** Your 5 standard sizes (500g, 1kg, etc.) always remain locked at the end of the row, accessible via horizontal swipe.
+*   **Memory Purge:** If you consume your last batch of a custom-sized item (qty -> 0), the app gracefully clears that custom memory to prevent "Ghost Clutter" in your dropdowns.
+
+#### **Catalog/Inventory Synchronization ([TC-1.3])**
+Your Catalog is the "Master Blueprint." Items only appear as selectable options in the "Add Stock" form once they have been defined in the Catalog settings. To protect your data, the Catalog will **block** the deletion of any item type if you currently have stock of it in your cupboards—preventing unmanageable "Ghost Stock."
+
+---
+
 **"If you are prepared, you shall not fear."** 🛡️
