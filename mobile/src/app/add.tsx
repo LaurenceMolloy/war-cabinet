@@ -5,7 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 
 export default function AddInventoryScreen() {
-  const { typeId, editBatchId } = useLocalSearchParams();
+  const { typeId, editBatchId, inheritedCabinetId, categoryId } = useLocalSearchParams();
   const router = useRouter();
   const db = useSQLiteContext();
 
@@ -49,7 +49,15 @@ export default function AddInventoryScreen() {
 
       const cabRows = await db.getAllAsync<any>('SELECT * FROM Cabinets');
       setCabinets(cabRows);
-      if (!selectedCabinetId && cabRows.length > 0) {
+      
+      // Determine Default Cabinet Selection
+      if (editBatchId) {
+        // Edit mode cabinet is handled later by batch load
+      } else if (inheritedCabinetId) {
+        setSelectedCabinetId(Number(inheritedCabinetId));
+      } else if (typeRes?.default_cabinet_id) {
+        setSelectedCabinetId(typeRes.default_cabinet_id);
+      } else if (cabRows.length > 0) {
         setSelectedCabinetId(cabRows[0].id);
       }
 
@@ -171,7 +179,24 @@ export default function AddInventoryScreen() {
       );
     }
 
-    router.back();
+    // Strategic Navigation: Follow the action, isolate the category, and scroll into view
+    const currentFilter = inheritedCabinetId ? Number(inheritedCabinetId) : null;
+    const targetCatId = categoryId ? Number(categoryId) : null;
+    const targetTypeIdNum = typeId ? Number(typeId) : null;
+    
+    if (!editBatchId) {
+        router.replace({ 
+          pathname: '/', 
+          params: { 
+            setCabinetId: (currentFilter !== null && selectedCabinetId !== currentFilter) ? selectedCabinetId : undefined,
+            setCabinetName: (currentFilter !== null && selectedCabinetId !== currentFilter) ? cabinets.find(c => c.id === selectedCabinetId)?.name : undefined,
+            targetCatId: targetCatId ?? undefined,
+            targetTypeId: targetTypeIdNum ?? undefined
+          } 
+        });
+    } else {
+        router.back();
+    }
   };
 
   const increment = () => setQuantity(prev => (parseInt(prev || '0') + 1).toString());

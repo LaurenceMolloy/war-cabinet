@@ -11,6 +11,58 @@ The following strategic features were lost during an unintended source code reve
 4. **Tactical Total Aggregation**: Restored the high-visibility Weight/Volume/Count totals in the Dashboard headers with unit-safe scaling (g -> kg, ml -> l).
 5. **Proactive Command Settings**: Re-integrated the ALERTS tab and the 'TEST STOCK ALERT' simulation engine into the Catalog.
 
+## Fifty-Second Iteration Feedback
+1. **Deep Tactical Drill-Down**: Re-architected the inventory hierarchy from a two-tier expanded view into a three-tier "Drill-Down" system (Category → Item Type → Batch). This prevents dashboard overcrowding in large stockpiles.
+2. **Single-Batch Exemption (Zero-Friction Access)**: To avoid unnecessary tapping, any Item Type containing only one single batch is exempt from the collapsible drawer and is displayed at full resolution by default.
+3. **Aggregated Item Intelligence**: Collapsed item rows now display high-level tactical summaries (Total Quantity, Urgency Status Dot, and Location Count) to allow for rapid situational awareness without drilling down.
+4. **Category Command Toggles**: Added "Expand All" and "Collapse All" tactical triggers within each Category header, permitting instant transitions between high-level auditing and deep-dive inspections.
+5. **Post-Save Laser Focus**: Upon returning from an edit or save, the Dashboard now isolates the specific Item Type modified, expanding its drawer while collapsing all other items in the category to maintain a tidy workspace.
+
+## Fifty-First Iteration Feedback
+1. **Context-Aware Cabinet Defaulting**: The "Add Stock" form now intelligently inherits the active Cabinet context from the Dashboard if a filter is active.
+2. **Follow-the-Action UX**: To prevent "ghost item" confusion, the Dashboard filter now automatically switches to the destination Cabinet after a successful save if it differs from the current filter, ensuring the user always sees the result of their action.
+3. **Targeted View Isolation**: Upon returning from an edit or addition, the Dashboard now isolates the relevant Category by automatically expanding it and collapsing all other categories to minimize visual noise.
+4. **Precision Alignment (Auto-Scroll)**: The Dashboard now leverages a `scrollToId` mechanism to ensure the modified category is immediately scrolled into view, providing instant confirmation of the change.
+5. **Contextual Action Feedback (Tactical Banners)**: Added a temporary high-visibility status banner that confirms the cabinet switch (e.g., *"SWITCHED TO [CABINET NAME]"*) to eliminate any ambiguity when the filter context changes.
+6. **Action-Pillar Preservation**: Refined the "Ghosting" desaturation logic. While empty categories still recede visually when collapsed, the **"+ ADD"** buttons and primary action paths now always maintain 100% opacity, ensuring they never appear disabled or non-clickable.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 52)
+**[TC-52.1] VERIFICATION: Deep Tactical Drill-Down & Smart Hierarchy**
+*   **Conditions**: Clean database; Category "Supplies" exists; Locations "Pantry" and "Garage" exist.
+*   **Setup**: 
+    1. Add "Rice" (Batch 1: 500g, Pantry).
+    2. Add "Pasta" (Batch 1: 500g, Pantry).
+    3. Add "Pasta" (Batch 2: 750g, Garage).
+*   **Actions**:
+    1. OBSERVE: Navigate to Dashboard and expand "Supplies" Category.
+    2. DRILL-DOWN: Tap the "Pasta" item row to expand.
+    3. BULK-TOGGLE: Tap the "Collapse All" icon in the "Supplies" header.
+    4. LASER-FOCUS: Tap "+ ADD" for Rice, add a second matching batch to Garage, and Save.
+*   **Assertions**:
+    1. EXEMPTION (Step 1): "Rice" (1 batch) is displayed fully expanded by default.
+    2. DRILL-DOWN (Step 1): "Pasta" (2 batches) is collapsed by default, showing only its summary.
+    3. BULK-TOGGLE (Step 3): All items in the category become collapsed.
+    4. LASER-FOCUS (Step 4): On return, the "Supplies" category is open AND the "Rice" item is automatically expanded (as it now has 2 batches), while others are closed.
+*   **Clean-up**: Reset filter.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 51)
+**[TC-51.1] VERIFICATION: Cabinet-Aware Context & Post-Save "Follow" Logic**
+*   **Conditions**: Clean database; Locations "Pantry" and "Garage" exist.
+*   **Actions**:
+    1. FILTER: On Dashboard, filter view to **"Pantry"**.
+    2. DEFAULTING: Tap "+ ADD" for any Rice item (Category: Carbs).
+    3. CROSS-SAVE: In the Add form, change cabinet to **"Garage"** and Save.
+*   **Assertions**:
+    1. Step 2: The "Storage Cabinet" field in the Add form defaults to **"Pantry"** (inherited from filter).
+    2. Step 3: Upon return, the Dashboard filter has automatically shifted to **"Garage"**.
+    3. ISOLATION: On return, the **"Carbs"** category is expanded, and all other categories are collapsed.
+    4. ALIGNMENT: The UI performs an automated scroll-to-view for the "Carbs" category.
+    5. FEEDBACK: A tactical banner appears at the bottom confirming: **"SWITCHED TO GARAGE"**.
+*   **Clean-up**: 
+    1. Reset filter to "All Sites".
+
 ## Fiftieth Iteration Feedback
 1. **Recursive Urgency Sorting**: To achieve absolute situational priority, the sorting logic was synchronized across all three levels of the inventory hierarchy (Category -> Item Type -> Batch).
     *   **Tiered Float Logic**: Item Types (e.g., "Pasta") now leapfrog their peers if they contain an expiring batch.
@@ -301,7 +353,8 @@ The following strategic features were lost during an unintended source code reve
 
 ## Thirtieth Iteration Feedback
 1. **Empty Category "Ghosting" Effect**: To make it instantly obvious which shelves are empty vs. stocked but undated, a desaturation layer was added to unstocked categories.
-    *   **Visual Recedence**: Categories with `Total Stock = 0` are now rendered at **40% opacity** when closed. This "Ghosting" effect allows the active inventory to visually dominate the screen.
+    *   **Visual Recedence**: Categories with `Total Stock = 0` are now rendered at **50% opacity** when closed. This "Ghosting" effect allows the active inventory to visually dominate the screen.
+    *   **Action Isolation**: Actionable elements (like the "+ ADD" button) are exempt from this effect, remaining at 100% opacity to ensure the UI feels alive and functional.
     *   **Dot Differentiation**: The Status Dot for empty categories is desaturated to `#334155`, distinguishing it from the solid Grey dot of "Stocked but Undated" items.
     *   **Active Focus**: Only categories with stock remain at 100% opacity, ensuring the user's attention is never wasted on empty containers.
 
