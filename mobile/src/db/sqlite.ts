@@ -100,7 +100,11 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
 
   // Seed Categories if empty
   const countRes = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Categories');
-  if (countRes && countRes.count === 0) {
+  
+  // SUPPORT FOR ZERO-TRUST TESTING: Allow E2E tests to bypass seeding
+  const shouldSkipSeeds = typeof window !== 'undefined' && (window as any).__E2E_SKIP_SEEDS__;
+  
+  if (countRes && countRes.count === 0 && !shouldSkipSeeds) {
     const seedCategories = [
       { name: 'Alcohol', icon: 'wine' },
       { name: 'Sweeteners', icon: 'hexagon' },

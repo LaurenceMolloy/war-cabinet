@@ -60,7 +60,7 @@ export default function CatalogScreen() {
       return acc;
     }, []);
 
-    setCategories(grouped);
+    setCategories(grouped as any[]);
 
     const cabRows = await db.getAllAsync(`
       SELECT c.*, (SELECT COUNT(*) FROM Inventory v WHERE v.cabinet_id = c.id) as stock_count
@@ -309,6 +309,7 @@ export default function CatalogScreen() {
             onChangeText={setNewItemName} 
             placeholder="New Item Name"
             placeholderTextColor="#64748b" 
+            testID="new-item-name-input"
           />
           <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 10}}>
             <TextInput 
@@ -334,12 +335,12 @@ export default function CatalogScreen() {
               <Text style={[styles.unitChipText, newItemUnit === 'count' && styles.unitChipTextActive]}>Count (Unit)</Text>
             </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={() => handleAddItemType(cat.id)} style={styles.addSaveBtnFull}>
+          <TouchableOpacity onPress={() => handleAddItemType(cat.id)} style={styles.addSaveBtnFull} testID="submit-item-type-btn">
             <Text style={styles.addSaveText}>ADD ITEM TYPE</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        <TouchableOpacity style={styles.addNewBtn} onPress={() => setSelectedCat(cat.id)}>
+        <TouchableOpacity style={styles.addNewBtn} onPress={() => setSelectedCat(cat.id)} testID={`expand-add-item-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}>
           <Text style={styles.addNewText}>+ Add Item Type</Text>
         </TouchableOpacity>
       )}
@@ -413,8 +414,9 @@ export default function CatalogScreen() {
                   onChangeText={setNewCatName} 
                   placeholder="Category Name"
                   placeholderTextColor="#64748b"
+                  testID="new-cat-input"
                 />
-                <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge}>
+                <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge} testID="create-cat-btn">
                   <Text style={styles.addSaveTextLarge}>CREATE</Text>
                 </TouchableOpacity>
               </View>
@@ -431,10 +433,10 @@ export default function CatalogScreen() {
           ListHeaderComponent={(
             <View style={styles.newCatBlock}>
               <Text style={styles.label}>New Cabinet / Location</Text>
-              <TextInput style={styles.inputMedium} value={newCabName} onChangeText={setNewCabName} placeholder="Cabinet Name (e.g. Deep Storage 1)" placeholderTextColor="#64748b" />
+              <TextInput style={styles.inputMedium} value={newCabName} onChangeText={setNewCabName} placeholder="Cabinet Name (e.g. Deep Storage 1)" placeholderTextColor="#64748b" testID="new-cab-name-input" />
               <View style={{height: 10}} />
-              <TextInput style={styles.inputMedium} value={newCabLocation} onChangeText={setNewCabLocation} placeholder="Physical Location (e.g. Cellar)" placeholderTextColor="#64748b" />
-              <TouchableOpacity onPress={handleAddCabinet} style={styles.addSaveBtnFull}>
+              <TextInput style={styles.inputMedium} value={newCabLocation} onChangeText={setNewCabLocation} placeholder="Physical Location (e.g. Cellar)" placeholderTextColor="#64748b" testID="new-cab-loc-input" />
+              <TouchableOpacity onPress={handleAddCabinet} style={styles.addSaveBtnFull} testID="create-cab-btn">
                 <Text style={styles.addSaveText}>CREATE CABINET</Text>
               </TouchableOpacity>
             </View>

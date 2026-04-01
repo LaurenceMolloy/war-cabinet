@@ -375,7 +375,7 @@ export default function HomeScreen() {
               </View>
               {type.tactical_total ? <Text style={styles.totalLabel}>{type.tactical_total}</Text> : null}
               <Link href={{ pathname: "/add", params: { typeId: type.id } }} asChild>
-                <TouchableOpacity style={styles.addButton}>
+                <TouchableOpacity style={styles.addButton} testID={`add-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
                   <Text style={styles.addText}>+ ADD</Text>
                 </TouchableOpacity>
               </Link>
@@ -383,15 +383,19 @@ export default function HomeScreen() {
             
             {!hasItems && <Text style={styles.emptyText}>No matching inventory.</Text>}
             {hasItems && type.items.map((inv: any) => (
-              <View key={inv.id} style={styles.inventoryRow}>
+              <View 
+                key={inv.id} 
+                style={styles.inventoryRow} 
+                testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.size.replace(/\s+/g, '')}-${inv.cab_name?.toLowerCase().replace(/\s+/g, '-') || 'global'}-${inv.expiry_month || 'nx'}-${inv.expiry_year || 'nx'}`}
+              >
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
                    <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
                 </View>
                 <View style={styles.rowMain}>
                   <View style={styles.qtyBadge}>
-                    <Text style={styles.qtyText}>{inv.quantity}</Text>
+                    <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
                   </View>
-                  <Text style={styles.sizeText} numberOfLines={1}>{formatSizeDisplay(inv.size)}</Text>
+                  <Text style={styles.sizeText} numberOfLines={1} testID="size-text">{formatSizeDisplay(inv.size)}</Text>
                   <View style={styles.actionsGroup}>
                     <TouchableOpacity onPress={() => router.push({ pathname: '/add', params: { typeId: type.id.toString(), editBatchId: inv.id.toString() } })} style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]}>
                       <MaterialCommunityIcons name="pencil" size={16} color="white" />
@@ -433,7 +437,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </Link>
         <Link href="/catalog" asChild>
-          <TouchableOpacity style={styles.settingsBtn}>
+          <TouchableOpacity style={styles.settingsBtn} testID="settings-btn">
             <MaterialCommunityIcons name="cog" size={26} color="#cbd5e1" />
           </TouchableOpacity>
         </Link>

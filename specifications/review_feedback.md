@@ -59,25 +59,25 @@ The following strategic features were lost during an unintended source code reve
 
 *(Note: When translating these manual protocols into automated test suites, the **Setup** and **Clean-up** paths represent the `beforeEach()` and `afterEach()` teardown fixtures, ensuring a perfectly isolated zero-state database architecture for every run.)*
 
-**[TC-1.1a] VERIFICATION: New Batch Creation Behaviour**
-*   **Conditions**: Clean, empty database state.
+**[TC-1.1a] VERIFICATION: New Batch Creation & 4-Way Combination Accuracy (Time-Independent)**
+*   **Conditions**: Clean, empty database state (Zero-Trust/No Seeds).
 *   **Setup**: 
     1. Create Locations: "Pantry" and "Garage".
     2. Create Category "Carbs" -> Item Type "Rice".
-    3. Add one baseline "Rice" batch to the "Pantry" (Size: "500g", Expiry: "06/2026", Quantity: 1).
+    3. Add one baseline "Rice" batch (Size: "500g", Expiry: "Now + 2 Months", Quantity: 1, Location: "Pantry").
 *   **Actions**: 
-    1. CANCELLED NEW BATCH: Tap the blue "ADD" button to configure a new Rice batch, then tap the "CANCEL" button (or the 'X' icon in the top right corner).
-    2. NEW BATCH WITH DIFFERENT SIZE: Tap "ADD", configure a rice batch with a *different size* (Size: "750g", Location: "Pantry", Expiry: "06/2026", Qty: 1), then tap **Save to Stock**.
-    3. NEW BATCH WITH DIFFERENT LOCATION: Tap "ADD", configure a rice batch with a *different location* (Size: "500g", Location: "Garage", Expiry: "06/2026", Qty: 2), then tap **Save to Stock**.
-    4. NEW BATCH WITH DIFFERENT EXPIRY: Tap "ADD", configure a rice batch with a *different expiry* (Size: "500g", Location: "Pantry", Expiry: "12/2026", Qty: 3), then tap **Save to Stock**.
+    1. CANCELLED NEW BATCH: Open "Add Stock" for Rice, configure size/expiry, but tap **CANCEL**.
+    2. SIZE DISTINCTION: Add a second "Rice" batch with a different size (Size: "750g", Location: "Pantry", Expiry: "Now + 2 Months", Qty: 1).
+    3. LOCATION DISTINCTION: Add a third "Rice" batch with a different location (Size: "500g", Location: "Garage", Expiry: "Now + 2 Months", Qty: 2).
+    4. EXPIRY DISTINCTION: Add a fourth "Rice" batch with a different relative expiry (Size: "500g", Location: "Pantry", Expiry: "Now + 8 Months", Qty: 3).
 *   **Assertions**:
-    1. CANCELLED NEW BATCH (Step 1): Returns to the dashboard without creating any additional batch rows.
-    2. DIFFERENT SIZE (Step 2): Generates a completely separate second batch row accurately displaying Size: "750g", Location: "Pantry", Expiry: "06/2026", and a Quantity badge of 1.
-    3. DIFFERENT LOCATION (Step 3): Generates a completely separate third batch row accurately displaying Size: "500g", Location: "Garage", Expiry: "06/2026", and a Quantity badge of 2.
-    4. DIFFERENT EXPIRY (Step 4): Generates a completely separate fourth batch row accurately displaying Size: "500g", Location: "Pantry", Expiry: "12/2026", and a Quantity badge of 3.
+    1. CANCELLED NEW BATCH (Step 1): Dashboard remains unchanged with only 1 baseline row.
+    2. COMPOSITE ACCURACY: Every step results in a separate, distinct row on the dashboard.
+    3. 4-WAY VERIFICATION: Each of the 4 rows accurately reflects its unique combination of **Size + Location + Expiry Phrasing + Quantity**.
+    4. RELATIVE DATES: Expiry labels correctly display "expires 2 MONTHS" and "expires 8 MONTHS" based on current system time.
 *   **Clean-up**: 
-    1. Delete the "Carbs" Category (cascading constraints will automatically purge all Rice inventory records).
-    2. Delete the "Pantry" and "Garage" Locations to reset the environment.
+    1. Delete the "Carbs" Category (cascading purge).
+    2. Delete the "Pantry" and "Garage" Locations.
 
 
 **[TC-1.1b] VERIFICATION: Stock Decrement Behaviour & Batch Deletion**

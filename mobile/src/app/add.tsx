@@ -197,7 +197,7 @@ export default function AddInventoryScreen() {
           <Text style={styles.title}>{editBatchId ? 'Refresh Stock' : 'Add Stock'}</Text>
           <Text style={styles.subTitle}>{typeName}</Text>
         </View>
-        <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} testID="cancel-btn">
           <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
         </TouchableOpacity>
       </View>
@@ -213,6 +213,7 @@ export default function AddInventoryScreen() {
             value={quantity} 
             onChangeText={(val) => { setQuantity(val); setErrorField(null); }}
             keyboardType="numeric"
+            testID="qty-input"
           />
           <TouchableOpacity style={styles.stepButton} onPress={increment}>
             <MaterialCommunityIcons name="plus" size={24} color="white" />
@@ -247,6 +248,7 @@ export default function AddInventoryScreen() {
             placeholder={unitType === 'count' ? "Units (e.g. 6)" : `Enter amount in ${getUnitSuffix(unitType)}`}
             placeholderTextColor="#64748b"
             keyboardType={(unitType === 'weight' || unitType === 'volume' || unitType === 'count') ? "numeric" : "default"}
+            testID="size-input"
           />
           {(unitType === 'weight' || unitType === 'volume') && (
             <Text style={styles.unitLabel}>{getUnitSuffix(unitType)}</Text>
@@ -260,6 +262,7 @@ export default function AddInventoryScreen() {
         <TouchableOpacity 
           style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]} 
           onPress={() => setShowCabinetPicker(true)}
+          testID="cabinet-selector"
         >
           <View>
             <Text style={{ color: '#f8fafc', fontSize: 16 }}>
@@ -352,7 +355,7 @@ export default function AddInventoryScreen() {
         </View>
       </Modal>
 
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+      <TouchableOpacity style={styles.saveButton} onPress={handleSave} testID="save-stock-btn">
         <Text style={styles.saveText}>{editBatchId ? 'UPDATE STOCK' : 'SAVE TO STOCK'}</Text>
       </TouchableOpacity>
     </View>
