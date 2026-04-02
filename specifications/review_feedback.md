@@ -11,7 +11,35 @@ The following strategic features were lost during an unintended source code reve
 4. **Tactical Total Aggregation**: Restored the high-visibility Weight/Volume/Count totals in the Dashboard headers with unit-safe scaling (g -> kg, ml -> l).
 5. **Proactive Command Settings**: Re-integrated the ALERTS tab and the 'TEST STOCK ALERT' simulation engine into the Catalog.
 
+## Fifty-Eighth Iteration Feedback
+1. **Pixel-Perfect "Ref-Scroll" System**: Replaced the unreliable distance-estimation scroll with a coordinate-based "Two-Pass" measurement system for 100% landing accuracy.
+    *   **Two-Pass Refinement**: The list first performs an instant "Pass 1" jump (using a guess) to ensure the target is rendered, then a "Pass 2" measurement using `measureInWindow` to calculate the exact pixel offset required.
+    *   **Laser Landing**: Target batches now land exactly **300px** from the top of the viewport, consistently clearing the Search Bar and Front Line panel regardless of item heights or list position.
+2. **Smart "Final-Unit" Modal Flow**: Streamlined the quick-use experience by consolidating the Confirm-Use and Confirm-Deletion steps for single-unit batches.
+    *   **Contextual Transformation**: If a batch contains only 1 unit, the "Confirm Use" briefing card transforms into a **"USE & DELETE BATCH"** warning in red.
+    *   **Single-Step Resolution**: Tapping confirm now performs both the deduction and the deletion in one go, eliminating the previous "Double-Modal Hop" (Confirm Use -> Confirm Deletion).
+3. **Tactical Deletion Briefing**: Upgraded the manual deletion modal (triggered via the red minus button) to include the full tactical briefing card.
+    *   **Physical Verification**: Users can now see the Cabinet, Location, Size, and Expiry of the batch they are about to remove, ensuring zero accidental deletions of the wrong stock batch.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 58)
+**[TC-58.1] VERIFICATION: Pixel Precision & Smart Final Unit**
+*   **Conditions**: 
+    1. Item A: 1 unit remaining (starred).
+    2. Item B: 5 units remaining (starred, deep in the list).
+*   **Actions**:
+    1. Tap **Item B** in The Front Line.
+    2. Verify Landing: Watch the scroll — confirm the item lands ~300px from top (below search bar).
+    3. Tap **Item A** in The Front Line.
+    4. Verify Modal: Confirm the title is "USE & DELETE BATCH" and the briefing card is visible.
+    5. Confirm Use/Delete: Tap button — verify the item is removed in a single action.
+*   **Assertions**:
+    1. PRECISION: Item B is perfectly framed and visible for the flash animation.
+    2. NO DOUBLE-HOP: Tapping "Use & Delete" on Item A closes the modal and finishes the action immediately.
+    3. CONTEXT: The manual red minus button on any batch now also shows the Briefing Card.
+
 ## Fifty-Fourth Iteration Feedback
+
 1. **Strategic Disaster Recovery (The Ocean-Proof Safe)**: Re-architected the backup system from a "Chocolate Teapot" (internal storage only) to a durable, multi-layered recovery suite.
     *   **iOS Files App Gateway**: Enabled `UISupportsDocumentBrowser` to expose internal snapshots directly to the native iOS Files app, ensuring they are captured by iCloud system backups and survive app uninstallation.
     *   **Android Shadow Mirroring**: Implemented a "Persistence Mirror" protocol using the Storage Access Framework (SAF). Android users can now designate a public directory (e.g. Downloads) to receive automated shadow copies of every snapshot, protecting data even if the application is wiped.
@@ -37,7 +65,85 @@ The following strategic features were lost during an unintended source code reve
     2. SHIFT: The file that was originally `01` is now `03` after three snapshots.
     3. VISIBILITY: The numbers `01`, `02`, etc., are clearly visible at the start of the filenames in the system picker.
 
-## Fifty-Third Iteration Feedback
+## Fifty-Seventh Iteration Feedback
+1. **Front Line "Tactical Follow" System**: After confirming use of a starred Front Line item, the dashboard now intelligently follows the action to show the deduction in context.
+    *   **Cabinet Switch**: The dashboard filter automatically switches to the cabinet where the soonest-expiring batch lives.
+    *   **Expand & Isolate**: The relevant category and item type are automatically expanded; all others collapse.
+    *   **Animated Quantity Flash**: The quantity badge pulses green. The DB deduction fires at the animation peak so the number visibly counts down from N to N-1 while the badge is still glowing — matching the same visual feedback the user sees when manually tapping the red minus button.
+    *   **Last-Unit Guard**: If the batch only has 1 unit left, the system routes to the standard delete confirmation modal instead of silently removing the batch.
+2. **Confirm Use Modal — Tactical Intel Card**: Upgraded the bare "Use 1 unit?" prompt into a full briefing card showing Cabinet, Location, Size, and Expiry date so users can physically locate the item before confirming.
+3. **Flash-Scroll via `useEffect` (Bug Fix)**: The previous `setTimeout` scroll used a stale closure of `categories` (pre-reload data) causing the list to jump to the wrong position. Replaced with a `useEffect` that watches both `flashBatchId` and `categories` simultaneously — React guarantees `categories` is the fresh, post-reload value at the time the effect fires. Since batches are FEFO-sorted, the deducted batch always appears at the top of its expanded type row.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 57)
+**[TC-57.1] VERIFICATION: Front Line Tactical Follow & Flash**
+*   **Conditions**: At least one starred item with 3+ units in a cabinet that is NOT currently active in the dashboard filter.
+*   **Actions**:
+    1. Set dashboard to a different cabinet (not the starred item's cabinet).
+    2. Tap the starred item chip in The Front Line.
+    3. Review the **Confirm Use** modal — verify Location, Size, Expiry are shown.
+    4. Tap **CONFIRM USE**.
+*   **Assertions**:
+    1. FOLLOW: Dashboard switches to the item's cabinet automatically.
+    2. EXPAND: The correct category/type row is open; others are collapsed.
+    3. SCROLL: The list scrolls so the target batch is visible on screen.
+    4. FLASH: The quantity badge glows green and then the number decrements (N → N-1) while the glow is still active.
+    5. LAST UNIT: Repeat until 1 unit remains. On next use, the Delete Confirmation modal appears instead.
+
+## Fifty-Sixth Iteration Feedback
+1. **Active Filter Pill Row**: Added a compact, always-visible filter status bar that appears directly below the search/command strip whenever one or more filters are active. The row is completely invisible when no filters are set, ensuring zero clutter during normal use.
+    *   **Cabinet Pills (Blue)**: Display the name of the active cabinet (e.g. `🏠 PANTRY`) with a dedicated `×` dismiss button.
+    *   **Expiry Pills (Urgency-Coloured)**: Display the active urgency mode using the established colour system: `EXPIRED` (red), `THIS MONTH` (orange), `DUE < 3M` (yellow).
+    *   **Independent Dismissal**: Each pill clears only its own filter, leaving the other active. Users can cancel a cabinet filter without losing their expiry filter and vice versa.
+2. **Front Line Filter Independence (Bug Fix)**: Resolved an issue where The Front Line (starred items belt) would disappear when a Cabinet or Expiry filter was active.
+    *   **Root Cause**: Favourites were sourced from the same filtered dataset as the main inventory, so starred items outside the active cabinet's scope lost their stock and were hidden.
+    *   **Fix**: Added a separate unfiltered SQL query exclusively for The Front Line. Starred item types with any stock anywhere in the system are now always visible, regardless of what filters are active on the main Dashboard.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 56)
+**[TC-56.1] VERIFICATION: Active Filter Pills**
+*   **Conditions**: At least two Cabinets exist; some items with expiry data exist.
+*   **Actions**:
+    1. Apply a Cabinet filter (e.g., **Pantry**).
+    2. Also apply an Expiry filter (e.g., **DUE < 3M**).
+    3. Dismiss only the Cabinet pill using its `×` button.
+    4. Dismiss the remaining Expiry pill using its `×` button.
+*   **Assertions**:
+    1. DUAL PILLS (Step 2): Both a blue `PANTRY` pill and a yellow `DUE < 3M` pill are visible below the search bar.
+    2. SELECTIVE CLEAR (Step 3): Cabinet filter clears; the `DUE < 3M` pill remains active.
+    3. ZERO STATE (Step 4): The pill row disappears entirely, leaving a clean interface.
+
+**[TC-56.2] VERIFICATION: Front Line Filter Independence**
+*   **Conditions**: At least one starred item exists. Multiple Cabinets exist.
+*   **Actions**:
+    1. Confirm The Front Line is visible with its starred items.
+    2. Apply a Cabinet filter that **does not** contain any of the starred items.
+*   **Assertions**:
+    1. The Front Line remains fully visible regardless of the active Cabinet filter.
+    2. Tapping a Front Line item still correctly finds the soonest-expiring batch across **all** locations.
+
+## Fifty-Fifth Iteration Feedback
+1. **Cabinet Transfer "Follow-the-Action" (Mobile Fix)**: Resolved a regression where the Dashboard would not switch cabinet filters after an item was moved to a new storage site on mobile.
+    *   **Root Cause**: The Edit/Pencil button was navigating to the edit screen *without* passing the current dashboard filter context, so the edit screen had no basis to detect a location change.
+    *   **Context Propagation**: The Dashboard's Edit action now explicitly passes `inheritedCabinetId` (the current filter) to the edit screen, giving it the intelligence to compare origin vs. destination.
+    *   **Timestamp Cache-Busting**: Added a unique `timestamp` to every navigation signal so that sequential moves to the same cabinet are each treated as fresh events, preventing the Dashboard's `useEffect` from skipping the filter switch.
+    *   **Explicit Nil Guards**: Replaced truthy checks (`if (params.setCabinetId)`) with strict `!== undefined` guards so that valid cabinet IDs of `0` are not accidentally treated as "no filter."
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 55)
+**[TC-55.1] VERIFICATION: Cabinet Transfer "Follow-the-Action"**
+*   **Conditions**: Two Cabinets exist (e.g., "Pantry" and "Garage"). At least one batch in "Pantry".
+*   **Actions**:
+    1. FILTER: Set Dashboard filter to **Pantry**.
+    2. Tap the **Pencil (Edit)** icon on any batch.
+    3. In the Edit form, change the Storage Site to **Garage**.
+    4. Tap **"Save to Stock"**.
+*   **Assertions**:
+    1. On return, Dashboard filter automatically shifts to **Garage**.
+    2. A tactical banner confirms: **"SWITCHED TO GARAGE"**.
+    3. The relevant Category is expanded and the moved item is visible.
+
+## Fifty-Fourth Iteration Feedback
 1. **Dual-Packet Tactical Backup**: Implemented a resilient cross-platform backup system that generates two distinct artifacts: a **JSON Restore Ledger** (for 100% accurate system recovery) and a **Universal Inventory CSV** (for human-readable spreadsheet audits in Excel or Google Sheets).
 2. **Rolling Hourly Archive**: Added a "Black Box" backup regime that performs an automated check every hour. A new snapshot is only captured if the database state has changed since the last check, ensuring no wasted storage.
 3. **Snapshot Rotation (The Rolling Five)**: To manage local storage footprint, the system maintains a rolling stack of the last 5 snapshots. Manual backups are integrated into this same sliding window, ensuring the most recent state is always preserved.

@@ -12,6 +12,8 @@ export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const flatRef = React.useRef<FlatList>(null);
+  const batchRefs = React.useRef<Record<number, View | null>>({});
+  const currentScrollY = React.useRef(0);
   const [categories, setCategories] = useState<any[]>([]);
   const [expandedCatIds, setExpandedCatIds] = useState<Set<number>>(new Set());
   const [expandedTypeIds, setExpandedTypeIds] = useState<Set<number>>(new Set());
@@ -26,6 +28,9 @@ export default function HomeScreen() {
   
   const [feedback, setFeedback] = useState<string | null>(null);
   const feedbackAnim = React.useRef(new Animated.Value(0)).current;
+  const flashAnim = React.useRef(new Animated.Value(0)).current;
+  const [flashBatchId, setFlashBatchId] = useState<number | null>(null);
+  const hasScrolledForFlashRef = React.useRef<number | null>(null); // prevents double-scroll from load() re-triggering useEffect
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<any>(null);
@@ -70,6 +75,61 @@ export default function HomeScreen() {
     }
   }, [params.forceFilter, params.setCabinetId, params.setCabinetName, params.targetCatId, params.targetTypeId, params.timestamp, cabinets, categories]);
 
+  // Scroll to bring the flashing batch row into view near the top of the screen.
+  // We use a Two-Pass approach for pixel-perfect precision:
+  // 1. Guess the Y offset using estimation to get the target visible & 'mounted'.
+  // 2. Use measureInWindow to get the EXACT screen position and refine the scroll.
+  useEffect(() => {
+    if (!flashBatchId) { hasScrolledForFlashRef.current = null; return; }
+    if (categories.length === 0) return;
+    if (hasScrolledForFlashRef.current === flashBatchId) return;
+    hasScrolledForFlashRef.current = flashBatchId;
+
+    const catIdx = categories.findIndex((cat: any) =>
+      cat.types?.some((t: any) => t.items?.some((inv: any) => inv.id === flashBatchId))
+    );
+    if (catIdx === -1) { 
+      flatRef.current?.scrollToOffset({ offset: 0, animated: false }); 
+      currentScrollY.current = 0;
+      return; 
+    }
+
+    const cat = categories[catIdx];
+    const typeIdx = cat?.types?.findIndex((t: any) =>
+      t.items?.some((inv: any) => inv.id === flashBatchId)
+    ) ?? 0;
+
+    // PASS 1: Jump instantly using baseline estimate (ensures target is mounted)
+    const LIST_TOP_PADDING   = 16;
+    const CLOSED_CAT_HEIGHT  = 82;
+    const CAT_HEADER_HEIGHT  = 72;
+    const CLOSED_TYPE_HEIGHT = 62;
+    const TYPE_HEADER_HEIGHT = 60;
+    const guessY = LIST_TOP_PADDING + (catIdx * CLOSED_CAT_HEIGHT) + CAT_HEADER_HEIGHT + (typeIdx * CLOSED_TYPE_HEIGHT) + TYPE_HEADER_HEIGHT;
+    const jumpOffset = Math.max(0, guessY - 200);
+
+    // Manual update of tracking ref because native onScroll event might be delayed
+    currentScrollY.current = jumpOffset; 
+    flatRef.current?.scrollToOffset({ offset: jumpOffset, animated: false });
+
+    // PASS 2: Once jump is finished and view is laid out, refine using exact screen coordinates
+    setTimeout(() => {
+      const rowRef = batchRefs.current[flashBatchId];
+      if (rowRef) {
+        rowRef.measureInWindow((x, y, width, height) => {
+          // 'y' is the raw screen position. We want it at ~300px from the screen top.
+          // 300px accounts for the app header + search strip + frontline panel.
+          const adjustment = y - 300;
+          const refinedOffset = Math.max(0, currentScrollY.current + adjustment);
+          flatRef.current?.scrollToOffset({ offset: refinedOffset, animated: true });
+        });
+      } else {
+        // Fallback: jump a tiny bit more if ref missing
+        flatRef.current?.scrollToOffset({ offset: jumpOffset + 50, animated: true });
+      }
+    }, 100); // 100ms is enough for layout to settle after instant jump
+  }, [flashBatchId, categories]);
+
   const triggerFeedback = (msg: string) => {
     setFeedback(msg);
     Animated.sequence([
@@ -79,7 +139,8 @@ export default function HomeScreen() {
     ]).start(() => setFeedback(null));
   };
 
-  const load = async () => {
+  const load = async (overrideCabinetId?: number | null) => {
+    const effectiveCabinetId = overrideCabinetId !== undefined ? overrideCabinetId : filterCabinetId;
     const hasPerms = await requestPermissions();
     if (hasPerms) {
        await scheduleMonthlyBriefing(db);
@@ -95,10 +156,11 @@ export default function HomeScreen() {
              cab.name as cab_name, cab.location as cab_location
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
-      LEFT JOIN Inventory inv ON i.id = inv.item_type_id ${filterCabinetId ? ` AND inv.cabinet_id = ${filterCabinetId}` : ''}
+      LEFT JOIN Inventory inv ON i.id = inv.item_type_id ${effectiveCabinetId ? ` AND inv.cabinet_id = ${effectiveCabinetId}` : ''}
       LEFT JOIN Cabinets cab ON inv.cabinet_id = cab.id
       ORDER BY c.name, i.name, inv.expiry_year, inv.expiry_month, inv.size
     `);
+
 
     const acc: any = {};
     allRows.forEach(row => {
@@ -221,14 +283,20 @@ export default function HomeScreen() {
     });
 
     setCategories(finalCategories);
-    const favs: any[] = [];
-    finalCategories.forEach(c => {
-      c.types.forEach((t: any) => {
-        if (t.is_favorite && t.items.length > 0) favs.push(t);
-      });
-    });
-    favs.sort((a, b) => b.interaction_count - a.interaction_count || a.name.localeCompare(b.name));
-    setFavorites(favs);
+
+    // FRONT LINE: Always load favorites from an UNFILTERED query so the belt
+    // is never affected by cabinet or expiry filters — it's a global quick-access rail.
+    const favRows = await db.getAllAsync<any>(`
+      SELECT it.id, it.name, it.interaction_count,
+             SUM(inv.quantity) as total_qty
+        FROM ItemTypes it
+        JOIN Inventory inv ON inv.item_type_id = it.id
+       WHERE it.is_favorite = 1
+       GROUP BY it.id
+      HAVING total_qty > 0
+       ORDER BY it.interaction_count DESC, it.name ASC
+    `);
+    setFavorites(favRows);
 
     // Run auto-backup check
     await BackupService.checkAndRunAutoBackup(db);
@@ -281,14 +349,80 @@ export default function HomeScreen() {
     load();
   };
 
-  const handleFavoriteAction = (type: any) => {
-    const soonest = [...type.items].sort((a, b) => {
-      const aStamp = (a.expiry_year && a.expiry_month) ? (a.expiry_year * 12 + a.expiry_month) : 999999;
-      const bStamp = (b.expiry_year && b.expiry_month) ? (b.expiry_year * 12 + b.expiry_month) : 999999;
-      return aStamp - bStamp;
-    })[0];
+  const handleFavoriteAction = async (type: any) => {
+    // Live DB lookup — fetch full context needed for navigation and flash
+    const soonest = await db.getFirstAsync<any>(`
+      SELECT inv.id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year,
+             inv.entry_month, inv.entry_year, inv.cabinet_id,
+             cab.name as cab_name, cab.location as cab_location,
+             it.category_id
+        FROM Inventory inv
+        LEFT JOIN Cabinets cab ON inv.cabinet_id = cab.id
+        LEFT JOIN ItemTypes it ON inv.item_type_id = it.id
+       WHERE inv.item_type_id = ?
+       ORDER BY 
+         CASE WHEN inv.expiry_year IS NULL THEN 1 ELSE 0 END,
+         inv.expiry_year ASC, inv.expiry_month ASC
+       LIMIT 1
+    `, type.id);
     setConfirmTarget(type); setConfirmBatch(soonest); setShowConfirmModal(true);
   };
+
+  const handleConfirmFavoriteUse = async () => {
+    if (!confirmBatch || !confirmTarget) return;
+    setShowConfirmModal(false);
+
+    // Snapshot values to avoid stale closure issues inside callbacks
+    const batchId = confirmBatch.id;
+    const typeId: number = confirmTarget.id;
+    const cabId: number | null = confirmBatch.cabinet_id ?? null;
+    const catId: number | null = confirmBatch.category_id ?? null;
+
+    // Perform deduction — now handles the last unit directly without an intermediate modal hop
+    if (confirmBatch.quantity <= 1) {
+      await deductQuantity(batchId, 1, typeId, true);
+      // No animation for deletion, just navigate and load
+      if (filterCabinetId !== null && cabId !== null) setFilterCabinetId(cabId);
+
+      if (catId !== null) setExpandedCatIds(new Set([catId] as number[]));
+      setExpandedTypeIds(new Set([typeId]));
+      await load(filterCabinetId === null ? null : (cabId ?? null));
+      return;
+    }
+
+    // PHASE 1: Navigate + expand — load with ORIGINAL quantity so user sees old number first
+    // Only switch cabinet if currently filtered to a specific cabinet; 
+    // if 'ALL SITES', keep it global so we don't surprise the user.
+    const effectiveCab = filterCabinetId === null ? null : (cabId ?? null);
+    if (filterCabinetId !== null && cabId !== null) setFilterCabinetId(cabId);
+
+    if (catId !== null) setExpandedCatIds(new Set([catId as number]));
+    setExpandedTypeIds(new Set([typeId]));
+    await load(effectiveCab);
+
+    // Mark badge for glow and trigger the scroll via useEffect
+    setFlashBatchId(batchId);
+    flashAnim.setValue(0);
+
+    // Wait for scroll to fully settle BEFORE starting the animation.
+    // This ensures the user sees the ORIGINAL quantity highlighted, then the drop.
+    setTimeout(() => {
+      Animated.timing(flashAnim, { toValue: 1, duration: 350, useNativeDriver: false }).start(async () => {
+        // Deduct at peak of glow — number drops while badge is still green
+        await db.runAsync('UPDATE Inventory SET quantity = quantity - 1 WHERE id = ?', batchId);
+        await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
+        await markModified(db);
+        await load(cabId);
+
+        // Hold glow briefly then fade
+        Animated.sequence([
+          Animated.delay(400),
+          Animated.timing(flashAnim, { toValue: 0, duration: 700, useNativeDriver: false }),
+        ]).start(() => setFlashBatchId(null));
+      });
+    }, 700); // 700ms ≈ scroll settle time (100ms reset + ~500ms animated scroll + buffer)
+  };
+
 
   const getStatusColor = (m: number | null, y: number | null) => {
     if (!m || !y) return '#94a3b8';
@@ -437,12 +571,18 @@ export default function HomeScreen() {
                 <>
                   {!hasItems && <Text style={styles.emptyText}>No matching inventory.</Text>}
                   {hasItems && type.items.map((inv: any) => (
-                    <View key={inv.id} style={styles.inventoryRow}>
+                    <View key={inv.id} ref={(r) => { batchRefs.current[inv.id] = r; }} style={styles.inventoryRow}>
                       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
                          <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
                       </View>
                       <View style={styles.rowMain}>
-                        <View style={styles.qtyBadge}><Text style={styles.qtyText}>{inv.quantity}</Text></View>
+                        {inv.id === flashBatchId ? (
+                          <Animated.View style={[styles.qtyBadge, { backgroundColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['#1e293b', '#166534'] }), borderWidth: 1.5, borderColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['transparent', '#22c55e'] }) }]}>
+                            <Text style={styles.qtyText}>{inv.quantity}</Text>
+                          </Animated.View>
+                        ) : (
+                          <View style={styles.qtyBadge}><Text style={styles.qtyText}>{inv.quantity}</Text></View>
+                        )}
                         <Text style={styles.sizeText} numberOfLines={1}>{formatSizeDisplay(inv.size)}</Text>
                         <View style={styles.actionsGroup}>
                           <TouchableOpacity 
@@ -526,7 +666,54 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <FlatList ref={flatRef} data={categories} keyExtractor={(item) => item.id.toString()} renderItem={renderCategory} contentContainerStyle={{ padding: 16, paddingBottom: 100 }} />
+      {/* ─── ACTIVE FILTER PILL ROW ─── */}
+      {(filterCabinetId !== null || filterExpiryMode !== 'ALL') && (
+        <View style={styles.filterPillRow}>
+          {filterCabinetId !== null && (
+            <View style={[styles.filterPill, { backgroundColor: '#1e3a5f', borderColor: '#3b82f6' }]}>
+              <MaterialCommunityIcons name="warehouse" size={13} color="#3b82f6" style={{ marginRight: 5 }} />
+              <Text style={[styles.filterPillText, { color: '#3b82f6' }]}>
+                {cabinets.find(c => c.id === filterCabinetId)?.name?.toUpperCase() ?? 'CABINET'}
+              </Text>
+              <TouchableOpacity onPress={() => setFilterCabinetId(null)} style={{ marginLeft: 6 }}>
+                <MaterialCommunityIcons name="close-circle" size={14} color="#3b82f6" />
+              </TouchableOpacity>
+            </View>
+          )}
+          {filterExpiryMode !== 'ALL' && (() => {
+            const modeMap: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+              'EXPIRED':    { label: 'EXPIRED',    color: '#ef4444', bg: '#3f0f0f', icon: 'alert-circle' },
+              'THIS_MONTH': { label: 'THIS MONTH', color: '#f97316', bg: '#3f1f0f', icon: 'calendar-alert' },
+              '<3M':        { label: 'DUE < 3M',   color: '#eab308', bg: '#3f350f', icon: 'calendar-clock' },
+            };
+            const def = modeMap[filterExpiryMode] ?? { label: filterExpiryMode, color: '#94a3b8', bg: '#1e293b', icon: 'calendar-search' };
+            return (
+              <View style={[styles.filterPill, { backgroundColor: def.bg, borderColor: def.color }]}>
+                <MaterialCommunityIcons name={def.icon as any} size={13} color={def.color} style={{ marginRight: 5 }} />
+                <Text style={[styles.filterPillText, { color: def.color }]}>{def.label}</Text>
+                <TouchableOpacity onPress={() => setFilterExpiryMode('ALL')} style={{ marginLeft: 6 }}>
+                  <MaterialCommunityIcons name="close-circle" size={14} color={def.color} />
+                </TouchableOpacity>
+              </View>
+            );
+          })()}
+        </View>
+      )}
+
+      <FlatList
+        ref={flatRef}
+        data={categories}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={renderCategory}
+        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+        onScroll={(e) => { currentScrollY.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
+        onScrollToIndexFailed={() => {
+          // Fallback when item heights aren't known yet — go to top of list
+          flatRef.current?.scrollToOffset({ offset: 0, animated: true });
+        }}
+      />
+
 
       <Modal visible={showFilterModal} transparent animationType="fade">
         <View style={styles.modalOverlay}><View style={styles.modalContent}>
@@ -563,7 +750,33 @@ export default function HomeScreen() {
       <Modal visible={showDeleteModal} transparent animationType="slide">
         <View style={styles.modalOverlay}><View style={styles.modalContent}>
           <Text style={styles.modalTitle}>CONFIRM DELETION</Text>
-          <Text style={{color: '#94a3b8', textAlign: 'center', marginBottom: 20}}>Delete {deleteTarget?.name} batch?</Text>
+          <Text style={{color: '#f8fafc', textAlign: 'center', fontSize: 16, fontWeight: 'bold', marginBottom: 12}}>{deleteTarget?.name}</Text>
+          {deleteBatch && (
+            <View style={{ backgroundColor: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16, width: '100%' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                <MaterialCommunityIcons name="warehouse" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                  {deleteBatch.cab_name?.toUpperCase() || 'GLOBAL'}
+                  {deleteBatch.cab_location ? ` • ${deleteBatch.cab_location.toUpperCase()}` : ''}
+                </Text>
+              </View>
+              {deleteBatch.size && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>{deleteBatch.size}</Text>
+                </View>
+              )}
+              {deleteBatch.expiry_month && deleteBatch.expiry_year && (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="calendar-clock" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    EXPIRES {String(deleteBatch.expiry_month).padStart(2,'0')}/{deleteBatch.expiry_year}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+          <Text style={{color: '#64748b', textAlign: 'center', fontSize: 12, marginBottom: 16}}>Are you sure you want to remove this batch from stock?</Text>
           <TouchableOpacity style={[styles.confirmBtn, {backgroundColor: '#ef4444'}]} onPress={() => { deductQuantity(deleteBatch.id, deleteBatch.quantity, deleteTarget.id, true); setShowDeleteModal(false); }}>
             <Text style={{color: 'white', fontWeight: 'bold'}}>CONFIRM DELETE</Text>
           </TouchableOpacity>
@@ -574,9 +787,44 @@ export default function HomeScreen() {
       <Modal visible={showConfirmModal} transparent animationType="slide">
         <View style={styles.modalOverlay}><View style={styles.modalContent}>
           <Text style={styles.modalTitle}>CONFIRM USE</Text>
-          <Text style={{color: '#94a3b8', textAlign: 'center', marginBottom: 20}}>Use 1 unit of {confirmTarget?.name}?</Text>
-          <TouchableOpacity style={styles.confirmBtn} onPress={() => { deductQuantity(confirmBatch.id, confirmBatch.quantity, confirmTarget.id); setShowConfirmModal(false); }}>
-            <Text style={styles.confirmBtnText}>CONFIRM USE</Text>
+          <Text style={{color: '#f8fafc', textAlign: 'center', fontSize: 16, fontWeight: 'bold', marginBottom: 12}}>{confirmTarget?.name}</Text>
+          {confirmBatch && (
+            <View style={{ backgroundColor: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16, width: '100%' }}>
+              {confirmBatch.cab_name && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="warehouse" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    {confirmBatch.cab_name.toUpperCase()}
+                    {confirmBatch.cab_location ? ` • ${confirmBatch.cab_location.toUpperCase()}` : ''}
+                  </Text>
+                </View>
+              )}
+              {confirmBatch.size && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>{confirmBatch.size}</Text>
+                </View>
+              )}
+              {confirmBatch.expiry_month && confirmBatch.expiry_year && (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="calendar-clock" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    EXPIRES {String(confirmBatch.expiry_month).padStart(2,'0')}/{confirmBatch.expiry_year}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+          <Text style={{color: confirmBatch?.quantity <= 1 ? '#ef4444' : '#64748b', textAlign: 'center', fontSize: 12, marginBottom: 16}}>
+            {confirmBatch?.quantity <= 1 
+              ? "THIS IS THE FINAL UNIT. Confirmed use will remove this batch from stock."
+              : "Deduct 1 unit from the soonest-expiring batch?"}
+          </Text>
+          <TouchableOpacity 
+            style={[styles.confirmBtn, confirmBatch?.quantity <= 1 && { backgroundColor: '#ef4444' }]} 
+            onPress={handleConfirmFavoriteUse}
+          >
+            <Text style={styles.confirmBtnText}>{confirmBatch?.quantity <= 1 ? 'USE & DELETE BATCH' : 'CONFIRM USE'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.cancelLink} onPress={() => setShowConfirmModal(false)}><Text style={{color: '#64748b'}}>CANCEL</Text></TouchableOpacity>
         </View></View>
@@ -593,6 +841,10 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
+  filterPillRow: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
+  filterPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
+  filterPillText: { fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
+
   appHeader: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: '#1e293b', paddingTop: 50, paddingBottom: 15, paddingHorizontal: 10, position: 'relative' },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc', textAlign: 'center' },
   settingsBtn: { position: 'absolute', right: 16, bottom: 12 },
