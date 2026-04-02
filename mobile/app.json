@@ -8,7 +8,12 @@
     "scheme": "mobile",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "supportsDocumentBrowser": true,
+      "infoPlist": {
+        "LSSupportsOpeningDocumentsInPlace": true,
+        "UISupportsDocumentBrowser": true
+      }
     },
     "android": {
       "package": "com.laurencemolloy.warcabinet",
@@ -35,7 +40,8 @@
             "imageWidth": 76
           }
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

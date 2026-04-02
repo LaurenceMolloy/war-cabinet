@@ -5,6 +5,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { Link, useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { requestPermissions, scheduleMonthlyBriefing } from '../services/notifications';
+import { initializeDatabase, markModified } from '../db/sqlite';
+import { BackupService } from '../services/BackupService';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
@@ -40,15 +42,15 @@ export default function HomeScreen() {
        setFilterExpiryMode('<3M');
        router.setParams({ forceFilter: undefined });
     }
-    if (params.setCabinetId) {
+    if (params.setCabinetId !== undefined) {
       const cabID = Number(params.setCabinetId);
       setFilterCabinetId(cabID);
-      const cabName = params.setCabinetName || cabinets.find(c => c.id === cabID)?.name || 'CABINET';
+      const cabName = params.setCabinetName || cabinets.find(c => c.id === cabID)?.name || 'DESTINATION';
       triggerFeedback(`SWITCHED TO ${cabName.toString().toUpperCase()}`);
-      router.setParams({ setCabinetId: undefined, setCabinetName: undefined });
+      router.setParams({ setCabinetId: undefined, setCabinetName: undefined, timestamp: undefined });
     }
 
-    if (params.targetCatId) {
+    if (params.targetCatId !== undefined) {
        const catId = Number(params.targetCatId);
        setExpandedCatIds(new Set([catId]));
        router.setParams({ targetCatId: undefined });
@@ -61,12 +63,12 @@ export default function HomeScreen() {
        }, 500);
     }
 
-    if (params.targetTypeId) {
+    if (params.targetTypeId !== undefined) {
        const typeId = Number(params.targetTypeId);
        setExpandedTypeIds(new Set([typeId]));
        router.setParams({ targetTypeId: undefined });
     }
-  }, [params.forceFilter, params.setCabinetId, params.setCabinetName, params.targetCatId, params.targetTypeId, cabinets, categories]);
+  }, [params.forceFilter, params.setCabinetId, params.setCabinetName, params.targetCatId, params.targetTypeId, params.timestamp, cabinets, categories]);
 
   const triggerFeedback = (msg: string) => {
     setFeedback(msg);
@@ -227,6 +229,9 @@ export default function HomeScreen() {
     });
     favs.sort((a, b) => b.interaction_count - a.interaction_count || a.name.localeCompare(b.name));
     setFavorites(favs);
+
+    // Run auto-backup check
+    await BackupService.checkAndRunAutoBackup(db);
   };
 
   useFocusEffect(useCallback(() => { load(); }, [filterCabinetId, filterExpiryMode, searchQuery]));
@@ -265,12 +270,14 @@ export default function HomeScreen() {
     if (currentQty <= 1 || forceDelete) await db.runAsync('DELETE FROM Inventory WHERE id = ?', invId);
     else await db.runAsync('UPDATE Inventory SET quantity = quantity - 1 WHERE id = ?', invId);
     if (typeId) await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
+    await markModified(db);
     load();
   };
 
   const addQuantity = async (invId: number, typeId?: number) => {
     await db.runAsync('UPDATE Inventory SET quantity = quantity + 1 WHERE id = ?', invId);
     if (typeId) await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
+    await markModified(db);
     load();
   };
 
@@ -438,7 +445,20 @@ export default function HomeScreen() {
                         <View style={styles.qtyBadge}><Text style={styles.qtyText}>{inv.quantity}</Text></View>
                         <Text style={styles.sizeText} numberOfLines={1}>{formatSizeDisplay(inv.size)}</Text>
                         <View style={styles.actionsGroup}>
-                          <TouchableOpacity onPress={() => router.push({ pathname: '/add', params: { typeId: type.id.toString(), editBatchId: inv.id.toString(), categoryId: cat.id.toString() } })} style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]}><MaterialCommunityIcons name="pencil" size={16} color="white" /></TouchableOpacity>
+                          <TouchableOpacity 
+                            onPress={() => router.push({ 
+                              pathname: '/add', 
+                              params: { 
+                                typeId: type.id.toString(), 
+                                editBatchId: inv.id.toString(), 
+                                categoryId: cat.id.toString(),
+                                inheritedCabinetId: filterCabinetId ?? undefined
+                              } 
+                            })} 
+                            style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]}
+                          >
+                            <MaterialCommunityIcons name="pencil" size={16} color="white" />
+                          </TouchableOpacity>
                           <TouchableOpacity onPress={() => handleDeductRequest(inv, type)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}><MaterialCommunityIcons name="minus" size={16} color="white" /></TouchableOpacity>
                           <TouchableOpacity onPress={() => addQuantity(inv.id, type.id)} style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}><MaterialCommunityIcons name="plus" size={16} color="white" /></TouchableOpacity>
                         </View>

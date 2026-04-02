@@ -94,6 +94,12 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     if (!setRes || (setRes as any).count === 0) {
       await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'month_brief_enabled', '1');
     }
+    
+    // Backup settings
+    await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'auto_backup_enabled', '1');
+    await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'last_modified_time', Date.now().toString());
+    await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'last_backup_time', '0');
+
   } catch(e) {
     console.error('Migration failed:', e);
   }
@@ -137,4 +143,8 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
   }
 
   // Returns nothing
+}
+
+export async function markModified(db: any) {
+  await db.runAsync("UPDATE Settings SET value = ? WHERE key = 'last_modified_time'", Date.now().toString());
 }

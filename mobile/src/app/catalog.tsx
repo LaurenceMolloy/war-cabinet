@@ -1,8 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
+import { BackupService, BackupMetadata } from '../services/BackupService';
+import { markModified } from '../db/sqlite';
 
 export default function CatalogScreen() {
   const router = useRouter();
@@ -28,8 +30,11 @@ export default function CatalogScreen() {
   const [editingCabName, setEditingCabName] = useState('');
   const [editingCabLocation, setEditingCabLocation] = useState('');
   
-  const [activeTab, setActiveTab] = useState<'categories' | 'cabinets' | 'alerts'>('categories');
+  const [activeTab, setActiveTab] = useState<'categories' | 'cabinets' | 'alerts' | 'backups'>('categories');
   const [alertsEnabled, setAlertsEnabled] = useState(true);
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
+  const [mirrorUri, setMirrorUri] = useState<string | null>(null);
+  const [backups, setBackups] = useState<BackupMetadata[]>([]);
 
   const load = async () => {
     const rows = await db.getAllAsync(`
@@ -71,6 +76,15 @@ export default function CatalogScreen() {
 
     const setRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'month_brief_enabled');
     setAlertsEnabled(setRes?.value === '1');
+
+    const backupRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'auto_backup_enabled');
+    setAutoBackupEnabled(backupRes?.value === '1');
+
+    const mirrorRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'persistence_mirror_uri');
+    setMirrorUri(mirrorRes?.value || null);
+
+    const backupList = await BackupService.getBackupsList();
+    setBackups(backupList);
   };
 
   useFocusEffect(
@@ -150,6 +164,81 @@ export default function CatalogScreen() {
     setAlertsEnabled(val);
     await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', val ? '1' : '0', 'month_brief_enabled');
     load();
+  };
+
+  const toggleAutoBackup = async (val: boolean) => {
+    setAutoBackupEnabled(val);
+    await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', val ? '1' : '0', 'auto_backup_enabled');
+    load();
+  };
+
+  const handleManualBackup = async () => {
+    try {
+      await BackupService.createBackup(db, true);
+      Alert.alert('Backup Successful', 'A new tactical snapshot has been added to the rolling archive.');
+      load();
+    } catch (e) {
+      Alert.alert('Backup Failed', 'Could not generate backup file.');
+    }
+  };
+
+  const handleLocalRestore = async (item: BackupMetadata) => {
+    Alert.alert(
+      'Tactical Recovery',
+      `Recover system from snapshot: ${item.name.replace('war-cabinet-backup-', '')}?\n\nThis will OVERWRITE all current data.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'RESTORE', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const content = await BackupService.readLocalBackup(item.uri);
+              const data = JSON.parse(content);
+              const success = await BackupService.restore(db, data);
+              if (success) {
+                Alert.alert('Success', 'System state recovered.');
+                load();
+              }
+            } catch (e: any) {
+              Alert.alert('Restore Failed', e.message || 'Corrupt snapshot.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handlePersistentMirrorSetup = async () => {
+    const uri = await BackupService.pickPersistentFolder(db);
+    if (uri) {
+        Alert.alert('Mirroring Active', 'Automated shadow copies will now be mirrored to your chosen folder.');
+        load();
+    }
+  };
+
+  const handleRestore = async () => {
+    Alert.alert(
+      'System Recovery',
+      'This will WIPE all current stock and restore from the selected file. This action cannot be undone. Proceed?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'SELECT FILE', 
+          onPress: async () => {
+            try {
+              const success = await BackupService.pickAndRestore(db);
+              if (success) {
+                Alert.alert('Restore Complete', 'System state has been successfully recovered.');
+                load();
+              }
+            } catch (e: any) {
+              Alert.alert('Restore Failed', e.message || 'Invalid or corrupt backup file.');
+            }
+          } 
+        }
+      ]
+    );
   };
 
   const handleUpdateItemType = async (typeId: number) => {
@@ -397,6 +486,9 @@ export default function CatalogScreen() {
         <TouchableOpacity style={[styles.tab, activeTab === 'alerts' && styles.tabActive]} onPress={() => setActiveTab('alerts')}>
           <Text style={[styles.tabText, activeTab === 'alerts' && styles.tabTextActive]}>ALERTS</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => setActiveTab('backups')}>
+          <Text style={[styles.tabText, activeTab === 'backups' && styles.tabTextActive]}>BACKUPS</Text>
+        </TouchableOpacity>
       </View>
 
       {activeTab === 'categories' && (
@@ -474,6 +566,78 @@ export default function CatalogScreen() {
           </View>
         </View>
       )}
+
+      {activeTab === 'backups' && (
+        <View style={{padding: 10, flex: 1}}>
+          <View style={styles.prefRow}>
+            <View style={{flex: 1}}>
+              <Text style={styles.prefTitle}>Rolling Hourly Archive</Text>
+              <Text style={styles.prefSub}>Automatically capture a snapshot every hour if changes occur (Keeps last 5).</Text>
+            </View>
+            <Switch 
+                value={autoBackupEnabled} 
+                onValueChange={toggleAutoBackup}
+                trackColor={{ false: "#334155", true: "#22c55e" }}
+                thumbColor={autoBackupEnabled ? "#f8fafc" : "#94a3b8"}
+            />
+          </View>
+
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]} onPress={handleManualBackup}>
+              <MaterialCommunityIcons name="backup-restore" size={20} color="white" />
+              <Text style={styles.actionBtnText}>SNAPSHOT NOW</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actionBtn, {backgroundColor: '#ef4444'}]} onPress={handleRestore}>
+              <MaterialCommunityIcons name="file-import" size={20} color="white" />
+              <Text style={styles.actionBtnText}>IMPORT BACKUP</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.label}>Local Snapshot Archive (Rolling 5)</Text>
+          <FlatList
+            data={backups}
+            keyExtractor={item => item.name}
+            renderItem={({ item }) => (
+              <View style={styles.backupItem}>
+                <View style={{flex: 1}}>
+                  <Text style={styles.backupName}>
+                    {new Date(item.timestamp).toLocaleDateString()}
+                  </Text>
+                  <Text style={styles.backupMeta}>
+                    {new Date(item.timestamp).toLocaleTimeString()}
+                  </Text>
+                </View>
+                <View style={{flexDirection: 'row', gap: 8}}>
+                    <TouchableOpacity onPress={() => handleLocalRestore(item)} style={[styles.shareBtn, {backgroundColor: '#ef4444'}]}>
+                        <MaterialCommunityIcons name="backup-restore" size={20} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => BackupService.shareBackup(item.uri)} style={styles.shareBtn}>
+                        <MaterialCommunityIcons name="share-variant" size={20} color="#3b82f6" />
+                    </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            ListEmptyComponent={<Text style={{color: '#64748b', textAlign: 'center', marginTop: 20}}>No backups recorded yet.</Text>}
+            ListFooterComponent={Platform.OS === 'android' ? (
+                <View style={{marginTop: 24, paddingBottom: 40}}>
+                    <Text style={styles.prefTitle}>Strategic Shadow Mirroring</Text>
+                    <Text style={styles.prefSub}>
+                        On Android, auto-backups are wiped if the app is uninstalled. 
+                        Enable mirroring to a public folder (e.g. Downloads) for disaster recovery.
+                    </Text>
+                    <TouchableOpacity 
+                        style={[styles.testBtn, {marginTop: 12, backgroundColor: mirrorUri ? '#22c55e' : '#334155'}]} 
+                        onPress={handlePersistentMirrorSetup}
+                    >
+                        <MaterialCommunityIcons name="folder-sync" size={24} color="white" />
+                        <Text style={styles.testBtnText}>{mirrorUri ? 'MIRROR ACTIVE' : 'SETUP MIRROR FOLDER'}</Text>
+                    </TouchableOpacity>
+                    {mirrorUri && <Text style={[styles.backupMeta, {marginTop: 8, fontSize: 10}]}>Active: {mirrorUri}</Text>}
+                </View>
+            ) : null}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -518,5 +682,12 @@ const styles = StyleSheet.create({
   unitChip: { flex: 1, paddingVertical: 6, marginHorizontal: 2, alignItems: 'center', borderRadius: 6, backgroundColor: '#1e293b' },
   unitChipActive: { backgroundColor: '#3b82f6' },
   unitChipText: { color: '#64748b', fontSize: 12, fontWeight: 'bold' },
-  unitChipTextActive: { color: 'white' }
+  unitChipTextActive: { color: 'white' },
+  actionRow: { flexDirection: 'row', gap: 10, marginBottom: 24, marginTop: 10 },
+  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 10, gap: 8 },
+  actionBtnText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
+  backupItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', padding: 16, borderRadius: 10, marginBottom: 8 },
+  backupName: { color: '#f8fafc', fontSize: 14, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontWeight: 'bold' },
+  backupMeta: { color: '#64748b', fontSize: 11, marginTop: 2 },
+  shareBtn: { backgroundColor: '#334155', padding: 10, borderRadius: 8 }
 });

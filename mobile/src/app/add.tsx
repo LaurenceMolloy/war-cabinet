@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView,
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
+import { markModified } from '../db/sqlite';
 
 export default function AddInventoryScreen() {
   const { typeId, editBatchId, inheritedCabinetId, categoryId } = useLocalSearchParams();
@@ -171,7 +172,7 @@ export default function AddInventoryScreen() {
         q, finalSize, expMVal, expYVal, currentMonth, currentYear, selectedCabinetId, Number(editBatchId)
       );
     } else {
-      // New item, no match found
+      // Brand new batch, no existing match to merge into
       await db.runAsync(
         `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -179,23 +180,30 @@ export default function AddInventoryScreen() {
       );
     }
 
+    await markModified(db);
+
     // Strategic Navigation: Follow the action, isolate the category, and scroll into view
     const currentFilter = inheritedCabinetId ? Number(inheritedCabinetId) : null;
     const targetCatId = categoryId ? Number(categoryId) : null;
     const targetTypeIdNum = typeId ? Number(typeId) : null;
     
+    const navParams = { 
+      setCabinetId: (currentFilter !== null && selectedCabinetId !== currentFilter) ? (selectedCabinetId ?? undefined) : undefined,
+      setCabinetName: (currentFilter !== null && selectedCabinetId !== currentFilter) ? cabinets.find(c => c.id === selectedCabinetId)?.name : undefined,
+      targetCatId: targetCatId ?? undefined,
+      targetTypeId: targetTypeIdNum ?? undefined,
+      timestamp: Date.now().toString()
+    };
+
     if (!editBatchId) {
-        router.replace({ 
-          pathname: '/', 
-          params: { 
-            setCabinetId: (currentFilter !== null && selectedCabinetId !== currentFilter) ? selectedCabinetId : undefined,
-            setCabinetName: (currentFilter !== null && selectedCabinetId !== currentFilter) ? cabinets.find(c => c.id === selectedCabinetId)?.name : undefined,
-            targetCatId: targetCatId ?? undefined,
-            targetTypeId: targetTypeIdNum ?? undefined
-          } 
-        });
+        router.replace({ pathname: '/', params: navParams });
     } else {
-        router.back();
+        // Even for edits/moves, we use replace to ensure the params are processed by the Dashboard if the cabinet changed
+        if (currentFilter !== null && selectedCabinetId !== currentFilter) {
+          router.replace({ pathname: '/', params: navParams });
+        } else {
+          router.back();
+        }
     }
   };
 

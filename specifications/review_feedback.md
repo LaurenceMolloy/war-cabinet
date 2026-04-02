@@ -11,6 +11,63 @@ The following strategic features were lost during an unintended source code reve
 4. **Tactical Total Aggregation**: Restored the high-visibility Weight/Volume/Count totals in the Dashboard headers with unit-safe scaling (g -> kg, ml -> l).
 5. **Proactive Command Settings**: Re-integrated the ALERTS tab and the 'TEST STOCK ALERT' simulation engine into the Catalog.
 
+## Fifty-Fourth Iteration Feedback
+1. **Strategic Disaster Recovery (The Ocean-Proof Safe)**: Re-architected the backup system from a "Chocolate Teapot" (internal storage only) to a durable, multi-layered recovery suite.
+    *   **iOS Files App Gateway**: Enabled `UISupportsDocumentBrowser` to expose internal snapshots directly to the native iOS Files app, ensuring they are captured by iCloud system backups and survive app uninstallation.
+    *   **Android Shadow Mirroring**: Implemented a "Persistence Mirror" protocol using the Storage Access Framework (SAF). Android users can now designate a public directory (e.g. Downloads) to receive automated shadow copies of every snapshot, protecting data even if the application is wiped.
+2. **Waterfall Shift Protocol (The Rolling 5)**: Optimized the mirror folder to act as a chronological stack.
+    *   **Premier Naming**: Switched to a "Number-First" naming convention (e.g., `01-WC-BACKUP.json`). This ensures the snapshot ID is always visible in the Android file picker, bypassing filename truncation issues.
+    *   **Chronological Promotion**: Implemented a "Waterfall" shift where every new backup pushes existing files up (`01` -> `02`, `02` -> `03`, etc.). Slot **01** is guaranteed to be the most recent record at all times.
+3. **Strategic Intelligence Reports (CSV)**: Transformed the raw CSV export into a formatted audit tool.
+    *   **Tactical Status Flags**: Added a dynamic `Status` column in the CSV (EXPIRED, URGENT, WARNING, SAFE) to allow for instant situational auditing in Google Sheets or Excel.
+    *   **Slot Synchronization**: Reports are now mirrored following the same Waterfall protocol (`01-WC-REPORT.csv`), ensuring human-readable data is always in sync with the latest system restore point.
+4. **New Batch Persistence (Bug Fix)**: Resolved a critical regression where new stockpile batches were failing to persist to the database. The logic error was corrected to ensure all new inventory is securely committed to the SQLite store.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 54)
+**[TC-54.1] VERIFICATION: Waterfall Mirroring & Disaster Recovery (Android)**
+*   **Conditions**: Android device/emulator; No existing mirror set.
+*   **Actions**:
+    1. Navigate to **Settings > Backups**.
+    2. Tap **"SETUP MIRROR FOLDER"** and select a folder in `Downloads`.
+    3. Trigger **"SNAPSHOT NOW"** three times.
+    4. Verify: Locate the files in the physical `Downloads` folder using a File Manager.
+*   **Assertions**:
+    1. WATERFALL: `01-WC-BACKUP.json` is always the freshest file (check timestamp).
+    2. SHIFT: The file that was originally `01` is now `03` after three snapshots.
+    3. VISIBILITY: The numbers `01`, `02`, etc., are clearly visible at the start of the filenames in the system picker.
+
+## Fifty-Third Iteration Feedback
+1. **Dual-Packet Tactical Backup**: Implemented a resilient cross-platform backup system that generates two distinct artifacts: a **JSON Restore Ledger** (for 100% accurate system recovery) and a **Universal Inventory CSV** (for human-readable spreadsheet audits in Excel or Google Sheets).
+2. **Rolling Hourly Archive**: Added a "Black Box" backup regime that performs an automated check every hour. A new snapshot is only captured if the database state has changed since the last check, ensuring no wasted storage.
+3. **Snapshot Rotation (The Rolling Five)**: To manage local storage footprint, the system maintains a rolling stack of the last 5 snapshots. Manual backups are integrated into this same sliding window, ensuring the most recent state is always preserved.
+4. **Platform-Agnostic Recovery**: Designed the restore engine to be entirely file-driven. Users can "Import" any valid JSON backup file via the platform's native file picker, performing a total "Database Refresh" that wipes current records and re-normalizes the backup data into the live tables.
+5. **Tactical Transparency (Settings)**: Added a new "Backups" submenu in Settings that allows users to toggle the Auto-Backup heart-beat, view the status of the 5 rolling slots, and trigger immediate off-device exports using the native Share sheet.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 53)
+**[TC-53.1] VERIFICATION: Automated Check & Rotation**
+*   **Conditions**: Clean database; Auto-Backup enabled.
+*   **Actions**:
+    1. Add a single batch to any item.
+    2. SIMULATE: Trigger the hourly background check.
+    3. STRESS: Perform 5 distinct edits (e.g., adding/deducting quantity) over 5 simulated hourly intervals.
+*   **Assertions**:
+    1. INITIAL: A new backup file (`war-cabinet-1.json`) is created after the first edit.
+    2. ROTATION: After 6 edits, the storage directory contains exactly 5 files; the oldest snapshot has been purged.
+    3. IDLE: Triggering the check when no changes have occurred results in zero new file creation.
+
+**[TC-53.2] VERIFICATION: Cross-Format Integrity (JSON/CSV)**
+*   **Conditions**: Database contains at least 3 categories, 2 cabinets, and 5 batches.
+*   **Actions**: 
+    1. Trigger "Manual Tactical Export" from Settings.
+    2. EXCEL AUDIT: Open the exported `.csv` in a spreadsheet viewer.
+    3. SYSTEM RESTORE: Perform a "Factory Reset" in Settings, then "Import" the generated `.json` backup.
+*   **Assertions**:
+    1. CSV READABILITY: The CSV correctly "flattens" the data (e.g. `Category | Item | Cabinet | Qty`) into a single legible sheet.
+    2. DATA INTEGRITY: After Restore, every Category, Item Type, and Batch (including quantities and expiry dates) is 100% identical to the pre-reset state.
+    3. RELATIONSHIPS: Cabinet associations and Item Type unit-settings are perfectly preserved.
+
 ## Fifty-Second Iteration Feedback
 1. **Deep Tactical Drill-Down**: Re-architected the inventory hierarchy from a two-tier expanded view into a three-tier "Drill-Down" system (Category → Item Type → Batch). This prevents dashboard overcrowding in large stockpiles.
 2. **Single-Batch Exemption (Zero-Friction Access)**: To avoid unnecessary tapping, any Item Type containing only one single batch is exempt from the collapsible drawer and is displayed at full resolution by default.
