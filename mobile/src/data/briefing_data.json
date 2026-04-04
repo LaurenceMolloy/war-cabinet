@@ -92,5 +92,38 @@
     "title": "Duplicate Batch Aggregation (Upsert)",
     "text": "To maintain a clean and uncluttered inventory, the system intelligently merges identical stock records. If you submit a new batch with the exact same Size, Location, and Expiry Date as an existing batch, the system will seamlessly aggregate them into a single row, boosting the quantity while refreshing the entry date.",
     "tags": ["batch", "aggregate", "upsert", "merge", "duplicate", "clutter", "clean", "add"]
+  },
+  {
+    "id": "TC-59.1",
+    "test_marker": "TC-59.1",
+    "iteration": 59,
+    "screen": "logistics",
+    "entity": "resupply",
+    "action": "calculate",
+    "title": "Strategic Resupply & Unit-Count Guidance",
+    "text": "The Restocking List transforms your inventory data into actionable purchase orders. By configuring 'MIN' and 'MAX' unit-count thresholds in the Catalog, the system automatically calculates physical shortfalls. If a 'Default Size' is defined (e.g., 175ml), the list provides the exact number of units required to reach your target (e.g., 3 x 175ml), ensuring precise replenishment.",
+    "tags": ["logistics", "resupply", "min", "max", "threshold", "purchase", "guidance", "default-size"]
+  },
+  {
+    "id": "TC-59.2",
+    "test_marker": "TC-59.2",
+    "iteration": 59,
+    "screen": "catalog",
+    "entity": "setting",
+    "action": "persist",
+    "title": "Logistics Recipient & Streamlined Sharing",
+    "text": "To minimize repetitive data entry, you can store a default email recipient for your replenishment briefings. In the 'SYSTEM' tab of the Catalog, enter your preferred address (e.g. self or supply officer). This field automatically pre-fills your email client whenever you tap 'SHARE' from the Restocking List. You can still manually change or add recipients at the point of dispatch as needed.",
+    "tags": ["logistics", "email", "share", "recipient", "setting", "system", "persistence"]
+  },
+  {
+    "id": "TC-60.1",
+    "test_marker": "TC-60.1",
+    "iteration": 60,
+    "screen": "logistics",
+    "entity": "alert",
+    "action": "silence",
+    "title": "Strategic Silence & Operational Noise Reduction",
+    "text": "To minimize cognitive load, the restocking engine follows a 'Strategic Silence' protocol. Items remain hidden from the Restocking List while they are within their safe operational range (between MIN and MAX thresholds). An alert is only triggered once the 'MIN' survival threshold is breached, at which point both the immediate MIN shortfall and long-term MAX goal are surfaced for escalation.",
+    "tags": ["logistics", "silence", "noise", "min", "breach", "escalation", "operational", "efficiency"]
   }
 ]

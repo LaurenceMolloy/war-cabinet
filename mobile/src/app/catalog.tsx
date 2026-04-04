@@ -22,6 +22,11 @@ export default function CatalogScreen() {
   const [editingTypeDefaultSize, setEditingTypeDefaultSize] = useState('');
   const [editingTypeUnit, setEditingTypeUnit] = useState('weight');
   const [editingTypeDefaultCabinet, setEditingTypeDefaultCabinet] = useState<number | null>(null);
+  const [editingTypeMinStock, setEditingTypeMinStock] = useState('');
+  const [editingTypeMaxStock, setEditingTypeMaxStock] = useState('');
+
+  const [newItemMinStock, setNewItemMinStock] = useState('');
+  const [newItemMaxStock, setNewItemMaxStock] = useState('');
 
   const [cabinets, setCabinets] = useState<any[]>([]);
   const [newCabName, setNewCabName] = useState('');
@@ -30,15 +35,17 @@ export default function CatalogScreen() {
   const [editingCabName, setEditingCabName] = useState('');
   const [editingCabLocation, setEditingCabLocation] = useState('');
   
-  const [activeTab, setActiveTab] = useState<'categories' | 'cabinets' | 'alerts' | 'backups'>('categories');
+  const [activeTab, setActiveTab] = useState<'categories' | 'cabinets' | 'system' | 'backups'>('categories');
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
+  const [logisticsEmail, setLogisticsEmail] = useState('');
   const [mirrorUri, setMirrorUri] = useState<string | null>(null);
   const [backups, setBackups] = useState<BackupMetadata[]>([]);
 
   const load = async () => {
     const rows = await db.getAllAsync(`
       SELECT c.id as cat_id, c.name as cat_name, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size,
+             i.min_stock_level, i.max_stock_level,
              (SELECT COUNT(*) FROM Inventory v WHERE v.item_type_id = i.id) as type_stock_count
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
@@ -59,7 +66,9 @@ export default function CatalogScreen() {
             is_favorite: row.is_favorite || 0,
             interaction_count: row.interaction_count || 0,
             default_size: row.type_default_size || '',
-            stock_count: row.type_stock_count || 0
+            stock_count: row.type_stock_count || 0,
+            min_stock: row.min_stock_level,
+            max_stock: row.max_stock_level
         });
       }
       return acc;
@@ -82,6 +91,9 @@ export default function CatalogScreen() {
 
     const mirrorRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'persistence_mirror_uri');
     setMirrorUri(mirrorRes?.value || null);
+
+    const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'logistics_email');
+    setLogisticsEmail(emailRes?.value || '');
 
     const backupList = await BackupService.getBackupsList();
     setBackups(backupList);
@@ -111,11 +123,22 @@ export default function CatalogScreen() {
       else finalDefaultSize = `${rawNumber} Unit`;
     }
 
-    await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size) VALUES (?, ?, ?, ?)', catId, newItemName, newItemUnit, finalDefaultSize);
+    if (newItemMinStock && newItemMaxStock && parseInt(newItemMaxStock) < parseInt(newItemMinStock)) {
+      Alert.alert('Logistics Error', 'Max target must be greater than or equal to Min threshold.');
+      return;
+    }
+
+    await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size, min_stock_level, max_stock_level) VALUES (?, ?, ?, ?, ?, ?)', 
+        catId, newItemName, newItemUnit, finalDefaultSize, 
+        newItemMinStock ? parseInt(newItemMinStock) : null,
+        newItemMaxStock ? parseInt(newItemMaxStock) : null
+    );
     setNewItemName('');
     setNewItemDefaultSize('');
     setSelectedCat(null);
     setNewItemUnit('weight');
+    setNewItemMinStock('');
+    setNewItemMaxStock('');
     load();
   };
 
@@ -255,8 +278,16 @@ export default function CatalogScreen() {
       else finalDefaultSize = `${rawNumber} Unit`;
     }
 
-    await db.runAsync('UPDATE ItemTypes SET name = ?, unit_type = ?, default_size = ?, default_cabinet_id = ? WHERE id = ?', 
-        editingTypeName, editingTypeUnit, finalDefaultSize, editingTypeDefaultCabinet, typeId);
+    if (editingTypeMinStock && editingTypeMaxStock && parseInt(editingTypeMaxStock) < parseInt(editingTypeMinStock)) {
+      Alert.alert('Logistics Error', 'Max target must be greater than or equal to Min threshold.');
+      return;
+    }
+
+    await db.runAsync('UPDATE ItemTypes SET name = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ? WHERE id = ?', 
+        editingTypeName, editingTypeUnit, finalDefaultSize, editingTypeDefaultCabinet, 
+        editingTypeMinStock ? parseInt(editingTypeMinStock) : null,
+        editingTypeMaxStock ? parseInt(editingTypeMaxStock) : null,
+        typeId);
     setEditingTypeId(null);
     load();
   };
@@ -323,6 +354,30 @@ export default function CatalogScreen() {
                   <MaterialCommunityIcons name="check" size={20} color="white" />
                 </TouchableOpacity>
               </View>
+              <View style={{flexDirection: 'row', gap: 10}}>
+                <View style={{flex: 1}}>
+                  <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4}}>MIN UNITS</Text>
+                  <TextInput 
+                    style={styles.inputSmall} 
+                    value={editingTypeMinStock} 
+                    onChangeText={setEditingTypeMinStock} 
+                    keyboardType="numeric"
+                    placeholder="Min count"
+                    placeholderTextColor="#64748b" 
+                  />
+                </View>
+                <View style={{flex: 1}}>
+                  <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4}}>MAX UNITS</Text>
+                  <TextInput 
+                    style={styles.inputSmall} 
+                    value={editingTypeMaxStock} 
+                    onChangeText={setEditingTypeMaxStock} 
+                    keyboardType="numeric"
+                    placeholder="Max target"
+                    placeholderTextColor="#64748b" 
+                  />
+                </View>
+              </View>
               <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 10}}>
                 <TextInput 
                   style={[styles.inputSmall, {flex: 1}]} 
@@ -360,7 +415,10 @@ export default function CatalogScreen() {
                 </TouchableOpacity>
                 <View style={{flex: 1}}>
                   <Text style={styles.typeText}>{type.name}</Text>
-                  <Text style={{fontSize: 11, color: '#64748b', textTransform: 'capitalize'}}>{type.unit_type} unit {type.default_size ? `• Default: ${type.default_size}` : ''}</Text>
+                  <Text style={{fontSize: 11, color: '#64748b', textTransform: 'capitalize'}}>
+                    {type.unit_type} unit {type.default_size ? `• Default: ${type.default_size}` : ''}
+                    {type.min_stock !== null || type.max_stock !== null ? ` • Targets: ${type.min_stock || 0}/${type.max_stock || 0}` : ''}
+                  </Text>
                 </View>
               </View>
               <View style={styles.catActions}>
@@ -369,6 +427,8 @@ export default function CatalogScreen() {
                     setEditingTypeName(type.name); 
                     setEditingTypeUnit(type.unit_type || 'weight'); 
                     setEditingTypeDefaultSize(type.default_size || '');
+                    setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : '');
+                    setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : '');
                     setEditingTypeDefaultCabinet(null);
                 }} style={{marginRight: 10, marginTop: 4}}>
                   <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
@@ -412,6 +472,30 @@ export default function CatalogScreen() {
             <Text style={{color: '#64748b', marginLeft: 10, fontSize: 13, fontWeight: 'bold'}}>
               {newItemUnit === 'volume' ? 'ml' : newItemUnit === 'weight' ? 'g' : 'Unit'}
             </Text>
+          </View>
+          <View style={{flexDirection: 'row', gap: 10, marginTop: 10}}>
+             <View style={{flex: 1}}>
+                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4}}>MIN UNITS</Text>
+                <TextInput 
+                  style={styles.inputSmall} 
+                  value={newItemMinStock} 
+                  onChangeText={setNewItemMinStock} 
+                  keyboardType="numeric"
+                  placeholder="Min count"
+                  placeholderTextColor="#64748b" 
+                />
+             </View>
+             <View style={{flex: 1}}>
+                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4}}>MAX UNITS</Text>
+                <TextInput 
+                  style={styles.inputSmall} 
+                  value={newItemMaxStock} 
+                  onChangeText={setNewItemMaxStock} 
+                  keyboardType="numeric"
+                  placeholder="Max target"
+                  placeholderTextColor="#64748b" 
+                />
+             </View>
           </View>
           <View style={styles.unitChipRow}>
             <TouchableOpacity style={[styles.unitChip, newItemUnit === 'weight' && styles.unitChipActive]} onPress={() => setNewItemUnit('weight')}>
@@ -483,8 +567,8 @@ export default function CatalogScreen() {
         <TouchableOpacity style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')}>
           <Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tab, activeTab === 'alerts' && styles.tabActive]} onPress={() => setActiveTab('alerts')}>
-          <Text style={[styles.tabText, activeTab === 'alerts' && styles.tabTextActive]}>ALERTS</Text>
+        <TouchableOpacity style={[styles.tab, activeTab === 'system' && styles.tabActive]} onPress={() => setActiveTab('system')}>
+          <Text style={[styles.tabText, activeTab === 'system' && styles.tabTextActive]}>SYSTEM</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => setActiveTab('backups')}>
           <Text style={[styles.tabText, activeTab === 'backups' && styles.tabTextActive]}>BACKUPS</Text>
@@ -536,7 +620,7 @@ export default function CatalogScreen() {
         />
       )}
 
-      {activeTab === 'alerts' && (
+      {activeTab === 'system' && (
         <View style={{padding: 10}}>
           <View style={styles.prefRow}>
             <View style={{flex: 1}}>
@@ -549,6 +633,26 @@ export default function CatalogScreen() {
                 trackColor={{ false: "#334155", true: "#22c55e" }}
                 thumbColor={alertsEnabled ? "#f8fafc" : "#94a3b8"}
             />
+          </View>
+
+          <View style={{marginTop: 20}}>
+            <Text style={styles.label}>Logistics Recipient</Text>
+            <View style={styles.newRow}>
+                <TextInput 
+                    style={styles.inputMedium} 
+                    value={logisticsEmail} 
+                    onChangeText={async (val) => {
+                        setLogisticsEmail(val);
+                        await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', 'logistics_email', val);
+                        await markModified(db);
+                    }} 
+                    placeholder="email@example.com"
+                    placeholderTextColor="#64748b"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                />
+            </View>
+            <Text style={[styles.prefSub, {marginTop: 8}]}>Pre-fills the recipient field when sharing Strategic Resupply briefings.</Text>
           </View>
 
           <View style={{marginTop: 40}}>

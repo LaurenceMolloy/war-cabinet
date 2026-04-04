@@ -1,0 +1,53 @@
+[2m[WebServer] [22m[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+[2m[WebServer] [22mFailed to initialize devtools client ReferenceError: window is not defined
+[2m[WebServer] [22m    at getConnectionInfo [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4m@expo\devtools[24m\build\getConnectionInfo.js:6:48[90m)[39m
+[2m[WebServer] [22m    at getDevToolsPluginClientAsync [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4m@expo\devtools[24m\build\DevToolsPluginClientFactory.js:24:45[90m)[39m
+[2m[WebServer] [22m    at maybeInitClientAsync [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4mexpo-sqlite[24m\build\SQLiteDevToolsClient.js:28:24[90m)[39m
+[2m[WebServer] [22m    at registerDatabaseForDevToolsAsync [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4mexpo-sqlite[24m\build\SQLiteDevToolsClient.js:12:5[90m)[39m
+
+Running 1 test using 1 worker
+
+[2m[WebServer] [22m[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+[2m[WebServer] [22mFailed to initialize devtools client ReferenceError: window is not defined
+[2m[WebServer] [22m    at getConnectionInfo [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4m@expo\devtools[24m\build\getConnectionInfo.js:6:48[90m)[39m
+[2m[WebServer] [22m    at getDevToolsPluginClientAsync [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4m@expo\devtools[24m\build\DevToolsPluginClientFactory.js:24:45[90m)[39m
+[2m[WebServer] [22m    at maybeInitClientAsync [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4mexpo-sqlite[24m\build\SQLiteDevToolsClient.js:28:24[90m)[39m
+[2m[WebServer] [22m    at registerDatabaseForDevToolsAsync [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4mexpo-sqlite[24m\build\SQLiteDevToolsClient.js:12:5[90m)[39m
+[2m[WebServer] [22m[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+[2m[WebServer] [22mFailed to initialize devtools client ReferenceError: window is not defined
+[2m[WebServer] [22m    at getConnectionInfo [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4m@expo\devtools[24m\build\getConnectionInfo.js:6:48[90m)[39m
+[2m[WebServer] [22m    at getDevToolsPluginClientAsync [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4m@expo\devtools[24m\build\DevToolsPluginClientFactory.js:24:45[90m)[39m
+[2m[WebServer] [22m    at maybeInitClientAsync [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4mexpo-sqlite[24m\build\SQLiteDevToolsClient.js:28:24[90m)[39m
+[2m[WebServer] [22m    at registerDatabaseForDevToolsAsync [90m(C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\[39mnode_modules\[4mexpo-sqlite[24m\build\SQLiteDevToolsClient.js:12:5[90m)[39m
+  ✘  1 [chromium] › e2e\TC-60.1.spec.ts:63:7 › [TC-60.1] Strategic Silence (Logistics) › only shows items that have breached MIN threshold (9.8s)
+
+
+  1) [chromium] › e2e\TC-60.1.spec.ts:63:7 › [TC-60.1] Strategic Silence (Logistics) › only shows items that have breached MIN threshold 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeHidden[2m([22m[2m)[22m failed
+
+    Locator:  getByTestId('save-stock-btn')
+    Expected: hidden
+    Received: visible
+    Timeout:  5000ms
+
+    Call log:
+    [2m  - Expect "toBeHidden" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('save-stock-btn')[22m
+    [2m    9 × locator resolved to <div tabindex="0" data-testid="save-stock-btn" class="css-view-g5y9jx r-transitionProperty-1i6wzkk r-userSelect-lrvibr r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-backgroundColor-1h8ng64 r-borderRadius-1xfd6ze r-marginTop-1x0uki6 r-padding-whuqzp">…</div>[22m
+    [2m      - unexpected value "visible"[22m
+
+
+      52 |     await page.getByTestId('qty-input').fill('3');
+      53 |     await page.getByTestId('save-stock-btn').click();
+    > 54 |     await expect(page.getByTestId('save-stock-btn')).toBeHidden();
+         |                                                      ^
+      55 |
+      56 |     // Sugar: Stock 2 (Breach [Min 3])
+      57 |     await page.getByTestId('add-btn-sugar').click();
+        at C:\Users\Laurence Molloy\Desktop\GIT\Personal_Github\war-cabinet\mobile\e2e\TC-60.1.spec.ts:54:54
+
+    Error Context: test-results\TC-60.1--TC-60-1-Strategic-7821d-have-breached-MIN-threshold-chromium\error-context.md
+
+  1 failed
+    [chromium] › e2e\TC-60.1.spec.ts:63:7 › [TC-60.1] Strategic Silence (Logistics) › only shows items that have breached MIN threshold 

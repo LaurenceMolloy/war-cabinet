@@ -1,0 +1,6 @@
+
+Running 1 test using 1 worker
+
+  ✓  1 [chromium] › e2e\TC-59.1.spec.ts:64:7 › [TC-59.1] Strategic Resupply & Logistics › calculates accurate logistics deficits for unit-balanced inventory (8.2s)
+
+  1 passed (11.2s)

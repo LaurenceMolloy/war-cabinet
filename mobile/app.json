@@ -41,7 +41,8 @@
           }
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "expo-mail-composer"
     ],
     "experiments": {
       "typedRoutes": true,

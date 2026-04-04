@@ -74,6 +74,16 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN interaction_count INTEGER DEFAULT 0');
     }
 
+    const hasMinStock = columnsRes.some(col => col.name === 'min_stock_level');
+    if (!hasMinStock) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN min_stock_level INTEGER');
+    }
+
+    const hasMaxStock = columnsRes.some(col => col.name === 'max_stock_level');
+    if (!hasMaxStock) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN max_stock_level INTEGER');
+    }
+
     const invCols = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
     const hasCabinetId = invCols.some(col => col.name === 'cabinet_id');
     if (!hasCabinetId) {

@@ -59,6 +59,7 @@ export const BackupService = {
       let csvContent = "";
       const flatRows = await db.getAllAsync<any>(`
         SELECT c.name as Category, it.name as Item, i.size as Size, i.quantity as Qty, 
+               it.min_stock_level as MinThreshold, it.max_stock_level as MaxThreshold,
                cab.name as Cabinet, cab.location as Location,
                i.entry_month || '/' || i.entry_year as EntryDate,
                CASE WHEN i.expiry_month IS NOT NULL THEN i.expiry_month || '/' || i.expiry_year ELSE 'N/A' END as ExpiryDate,
@@ -271,7 +272,14 @@ export const BackupService = {
 
         const { tables } = jsonData;
         for (const cat of tables.Categories) await db.runAsync("INSERT INTO Categories (id, name, icon) VALUES (?, ?, ?)", cat.id, cat.name, cat.icon);
-        for (const it of tables.ItemTypes) await db.runAsync("INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", it.id, it.category_id, it.name, it.unit_type, it.default_size, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0);
+        for (const it of tables.ItemTypes) {
+          await db.runAsync(
+            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            it.id, it.category_id, it.name, it.unit_type, it.default_size, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0,
+            it.min_stock_level !== undefined ? it.min_stock_level : null,
+            it.max_stock_level !== undefined ? it.max_stock_level : null
+          );
+        }
         for (const cab of tables.Cabinets) await db.runAsync("INSERT INTO Cabinets (id, name, location) VALUES (?, ?, ?)", cab.id, cab.name, cab.location);
         for (const inv of tables.Inventory) await db.runAsync("INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", inv.id, inv.item_type_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.cabinet_id);
         for (const s of tables.Settings) await db.runAsync("INSERT INTO Settings (key, value) VALUES (?, ?)", s.key, s.value);

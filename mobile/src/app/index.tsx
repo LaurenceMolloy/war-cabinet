@@ -564,7 +564,7 @@ export default function HomeScreen() {
                 </View>
                 {!isTypeExpanded && type.tactical_total ? <Text style={[styles.totalLabel, {marginRight: 10}]}>{type.tactical_total}</Text> : null}
                 <Link href={{ pathname: "/add", params: { typeId: type.id, categoryId: cat.id, inheritedCabinetId: filterCabinetId ?? undefined } }} asChild>
-                  <TouchableOpacity style={styles.addButton}><Text style={styles.addText}>+ ADD</Text></TouchableOpacity>
+                  <TouchableOpacity style={styles.addButton} testID={`add-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><Text style={styles.addText}>+ ADD</Text></TouchableOpacity>
                 </Link>
               </TouchableOpacity>
               {isTypeExpanded && (
@@ -621,12 +621,21 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.appHeader}>
+        <Link href="/logistics" asChild>
+          <TouchableOpacity style={styles.logisticsBtn} testID="logistics-btn">
+            <MaterialCommunityIcons name="truck-delivery" size={26} color="#22c55e" />
+          </TouchableOpacity>
+        </Link>
         <Text style={styles.headerTitle}>War Cabinet</Text>
         <Link href="/briefing" asChild>
-          <TouchableOpacity style={styles.briefingBtn}><MaterialCommunityIcons name="information-outline" size={26} color="#3b82f6" /></TouchableOpacity>
+          <TouchableOpacity style={styles.briefingBtn} testID="briefing-btn">
+            <MaterialCommunityIcons name="information-outline" size={26} color="#3b82f6" />
+          </TouchableOpacity>
         </Link>
         <Link href="/catalog" asChild>
-          <TouchableOpacity style={styles.settingsBtn}><MaterialCommunityIcons name="cog" size={26} color="#cbd5e1" /></TouchableOpacity>
+          <TouchableOpacity style={styles.settingsBtn} testID="settings-btn">
+            <MaterialCommunityIcons name="cog" size={26} color="#cbd5e1" />
+          </TouchableOpacity>
         </Link>
       </View>
 
@@ -849,6 +858,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc', textAlign: 'center' },
   settingsBtn: { position: 'absolute', right: 16, bottom: 12 },
   briefingBtn: { position: 'absolute', right: 56, bottom: 12 },
+  logisticsBtn: { position: 'absolute', left: 16, bottom: 12 },
   categoryCard: { backgroundColor: '#1e293b', borderRadius: 8, marginBottom: 12, overflow: 'hidden' },
   categoryHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#334155' },
   categoryTitle: { fontSize: 20, color: '#f8fafc', fontWeight: 'bold' },
@@ -878,8 +888,8 @@ const styles = StyleSheet.create({
   iconFilterBtn: { padding: 10 },
   frontLineCard: { marginHorizontal: 16, marginTop: 20, marginBottom: 6, borderWidth: 1, borderColor: '#334155', borderRadius: 8, backgroundColor: '#1e293b', overflow: 'hidden' },
   frontLineHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#334155' },
-  frontLineTitle: { color: '#64748b', fontSize: 11, fontWeight: 'bold', marginLeft: 6 },
-  frontLineSub: { color: '#475569', fontSize: 11, marginLeft: 6 },
+  frontLineTitle: { color: '#cbd5e1', fontSize: 11, fontWeight: 'bold', marginLeft: 6 },
+  frontLineSub: { color: '#94a3b8', fontSize: 11, marginLeft: 6 },
   favChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#334155' },
   favText: { color: 'white', fontSize: 13, fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },

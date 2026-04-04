@@ -2,6 +2,13 @@
 
 This document tracks items that were strictly specified in the `requirements.md` but were initially overlooked during the first iteration of development.
 
+## Iteration 60: Logistics & Restocking Refinement
+- [x] Restocking list logic: Silent until MIN breach
+- [x] Streamlined nomenclature: "Restocking List", "Current Stock", "Suggested Unit Size:"
+- [x] Removed redundant navigation header (white banner) from Logistics screen
+- [x] Conditional buy-count suggestions (only shown when Default Size exists)
+- [x] Persistence: All logistics settings captured in Backup/Restore
+
 ## RESTORED CAPABILITIES (Post-Rollback Recovery)
 The following strategic features were lost during an unintended source code revert and were manually restored from the Agent's persistent memory:
 
@@ -11,7 +18,13 @@ The following strategic features were lost during an unintended source code reve
 4. **Tactical Total Aggregation**: Restored the high-visibility Weight/Volume/Count totals in the Dashboard headers with unit-safe scaling (g -> kg, ml -> l).
 5. **Proactive Command Settings**: Re-integrated the ALERTS tab and the 'TEST STOCK ALERT' simulation engine into the Catalog.
 
+## Iteration 59: Strategic Resupply & Logistics
+> [!NOTE]
+> This iteration marked the transition to a Red/Green TDD development workflow. 
+> Detailed specifications and verification logic have been moved to [red_green_tdd.md](file:///c:/Users/Laurence%20Molloy/Desktop/GIT/Personal_Github/war-cabinet/specifications/red_green_tdd.md).
+
 ## Fifty-Eighth Iteration Feedback
+
 1. **Pixel-Perfect "Ref-Scroll" System**: Replaced the unreliable distance-estimation scroll with a coordinate-based "Two-Pass" measurement system for 100% landing accuracy.
     *   **Two-Pass Refinement**: The list first performs an instant "Pass 1" jump (using a guess) to ensure the target is rendered, then a "Pass 2" measurement using `measureInWindow` to calculate the exact pixel offset required.
     *   **Laser Landing**: Target batches now land exactly **300px** from the top of the viewport, consistently clearing the Search Bar and Front Line panel regardless of item heights or list position.
