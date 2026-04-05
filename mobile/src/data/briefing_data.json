@@ -125,5 +125,16 @@
     "title": "Strategic Silence & Operational Noise Reduction",
     "text": "To minimize cognitive load, the restocking engine follows a 'Strategic Silence' protocol. Items remain hidden from the Restocking List while they are within their safe operational range (between MIN and MAX thresholds). An alert is only triggered once the 'MIN' survival threshold is breached, at which point both the immediate MIN shortfall and long-term MAX goal are surfaced for escalation.",
     "tags": ["logistics", "silence", "noise", "min", "breach", "escalation", "operational", "efficiency"]
+  },
+  {
+    "id": "TC-61.1",
+    "test_marker": "TC-61.1",
+    "iteration": 61,
+    "screen": "recipes",
+    "entity": "prompt",
+    "action": "generate",
+    "title": "Mess Hall Recipes & AI Kitchen Intelligence",
+    "text": "The system provides an offline-first Recipe Prompt Generator to help you utilize your soon-to-expire stockpile. By configuring dietary preferences and ingredient overrides, the app dynamically structures an optimized markdown prompt containing your exact inventory status. You can copy this prompt and paste it into any Allied AI to instantly receive actionable, prioritized recipes perfectly tailored to your tactical kitchen.",
+    "tags": ["recipes", "prompt", "clipboard", "ai", "dietary", "expiring"]
   }
 ]

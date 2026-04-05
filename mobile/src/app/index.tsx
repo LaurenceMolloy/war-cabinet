@@ -10,6 +10,13 @@ import { BackupService } from '../services/BackupService';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
+  
+  // Tactical Bridge (E2E Only)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__E2E_DB__ = db;
+    }
+  }, [db]);
   const router = useRouter();
   const flatRef = React.useRef<FlatList>(null);
   const batchRefs = React.useRef<Record<number, View | null>>({});
@@ -319,7 +326,7 @@ export default function HomeScreen() {
   const bulkToggleTypes = (cat: any, expand: boolean) => {
     const next = new Set(expandedTypeIds);
     cat.types.forEach((t: any) => {
-      if (t.items.length > 1) {
+      if (t.items.length > 0) {
         if (expand) next.add(t.id); else next.delete(t.id);
       }
     });
@@ -485,7 +492,11 @@ export default function HomeScreen() {
     const isExpanded = expandedCatIds.has(cat.id);
     return (
       <View style={styles.categoryCard}>
-        <TouchableOpacity style={[styles.categoryHeader, (isEmpty && !isExpanded) && { opacity: 0.5 }]} onPress={() => toggleCategory(cat.id)}>
+        <TouchableOpacity 
+          style={[styles.categoryHeader, (isEmpty && !isExpanded) && { opacity: 0.5 }]} 
+          onPress={() => toggleCategory(cat.id)}
+          testID={`category-header-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
+        >
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}>
             <View style={[styles.statusDot, { backgroundColor: getStatusColor(cat.soonest_month, cat.soonest_year), marginRight: 12, marginTop: 8 }, isEmpty && { backgroundColor: '#334155' }]} />
             <View style={{ flex: 1 }}>
@@ -508,17 +519,17 @@ export default function HomeScreen() {
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {isExpanded && cat.types.some((t: any) => t.items.length > 1) && (
+            {isExpanded && cat.types.some((t: any) => t.items.length > 0) && (
               <TouchableOpacity 
                 onPress={() => {
-                  const itemsToToggle = cat.types.filter((t: any) => t.items.length > 1);
+                  const itemsToToggle = cat.types.filter((t: any) => t.items.length > 0);
                   const allExpanded = itemsToToggle.every((t: any) => expandedTypeIds.has(t.id));
                   bulkToggleTypes(cat, !allExpanded);
                 }} 
                 style={{padding: 8}}
               >
                 <MaterialCommunityIcons 
-                  name={cat.types.filter((t: any) => t.items.length > 1).every((t: any) => expandedTypeIds.has(t.id)) ? "unfold-less-horizontal" : "unfold-more-horizontal"} 
+                  name={cat.types.filter((t: any) => t.items.length > 0).every((t: any) => expandedTypeIds.has(t.id)) ? "unfold-less-horizontal" : "unfold-more-horizontal"} 
                   size={20} 
                   color="#3b82f6" 
                 />
@@ -530,16 +541,20 @@ export default function HomeScreen() {
 
         {isExpanded && cat.types.map((type: any) => {
           const hasItems = type.items.length > 0;
-          const isMultiBatch = type.items.length > 1;
-          const isTypeExpanded = !isMultiBatch || expandedTypeIds.has(type.id);
+          const isTypeExpanded = expandedTypeIds.has(type.id);
           const uniqueSites = Array.from(new Set(type.items.map((it: any) => it.cab_name || 'Global'))).length;
           const totalItems = type.items.reduce((acc: number, it: any) => acc + (it.quantity || 0), 0);
           
           return (
             <View key={type.id} style={styles.typeBlock}>
-              <TouchableOpacity style={styles.typeHeader} activeOpacity={isMultiBatch ? 0.7 : 1} onPress={() => isMultiBatch && toggleType(type.id)}>
+              <TouchableOpacity 
+                style={styles.typeHeader} 
+                activeOpacity={hasItems ? 0.7 : 1} 
+                onPress={() => hasItems && toggleType(type.id)}
+                testID={`type-header-${type.name.toLowerCase().replace(/\s+/g, '-')}`}
+              >
                 <View style={[{flexDirection: 'row', alignItems: 'center', flex: 1}, !hasItems && {opacity: 0.5}]}>
-                  {isMultiBatch && <MaterialCommunityIcons name={isTypeExpanded ? "chevron-down" : "menu-right"} size={22} color="#3b82f6" style={{marginRight: 4}} />}
+                   <MaterialCommunityIcons name={isTypeExpanded ? "chevron-down" : "menu-right"} size={22} color="#3b82f6" style={{marginRight: 4, opacity: hasItems ? 1 : 0}} />
                   <View style={{flex: 1}}>
                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
                       <View style={[styles.statusDot, { width: 8, height: 8, borderRadius: 4, marginRight: 8 }, {backgroundColor: getStatusColor(type.soonest_month, type.soonest_year)}]} />
@@ -547,17 +562,23 @@ export default function HomeScreen() {
                     </View>
                     {!isTypeExpanded && (
                       <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 2, flexWrap: 'wrap'}}>
-                        <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{totalItems} {totalItems === 1 ? 'ITEM' : 'ITEMS'}</Text>
-                        <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                        <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{type.items.length} {type.items.length === 1 ? 'BATCH' : 'BATCHES'}</Text>
-                        <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                        <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{uniqueSites} {uniqueSites === 1 ? 'SITE' : 'SITES'}</Text>
-                        {type.soonest_month && type.soonest_year && (
-                        <>
-                          <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                          {getUrgencyPhrasing(type.soonest_month, type.soonest_year, false)}
-                        </>
-                      )}
+                        {hasItems ? (
+                          <>
+                            <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{totalItems} {totalItems === 1 ? 'ITEM' : 'ITEMS'}</Text>
+                            <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
+                            <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{type.items.length} {type.items.length === 1 ? 'BATCH' : 'BATCHES'}</Text>
+                            <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
+                            <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{uniqueSites} {uniqueSites === 1 ? 'SITE' : 'SITES'}</Text>
+                            {type.soonest_month && type.soonest_year && (
+                            <>
+                              <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
+                              {getUrgencyPhrasing(type.soonest_month, type.soonest_year, false)}
+                            </>
+                            )}
+                          </>
+                        ) : (
+                          <Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>No stock</Text>
+                        )}
                       </View>
                     )}
                   </View>
@@ -567,23 +588,29 @@ export default function HomeScreen() {
                   <TouchableOpacity style={styles.addButton} testID={`add-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><Text style={styles.addText}>+ ADD</Text></TouchableOpacity>
                 </Link>
               </TouchableOpacity>
-              {isTypeExpanded && (
+              {isTypeExpanded && hasItems && (
                 <>
-                  {!hasItems && <Text style={styles.emptyText}>No matching inventory.</Text>}
-                  {hasItems && type.items.map((inv: any) => (
-                    <View key={inv.id} ref={(r) => { batchRefs.current[inv.id] = r; }} style={styles.inventoryRow}>
+                  {type.items.map((inv: any) => (
+                    <View 
+                      key={inv.id} 
+                      ref={(r) => { batchRefs.current[inv.id] = r; }} 
+                      style={styles.inventoryRow}
+                      testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}`}
+                    >
                       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
                          <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
                       </View>
                       <View style={styles.rowMain}>
                         {inv.id === flashBatchId ? (
                           <Animated.View style={[styles.qtyBadge, { backgroundColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['#1e293b', '#166534'] }), borderWidth: 1.5, borderColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['transparent', '#22c55e'] }) }]}>
-                            <Text style={styles.qtyText}>{inv.quantity}</Text>
+                            <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
                           </Animated.View>
                         ) : (
-                          <View style={styles.qtyBadge}><Text style={styles.qtyText}>{inv.quantity}</Text></View>
+                          <View style={styles.qtyBadge}>
+                            <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
+                          </View>
                         )}
-                        <Text style={styles.sizeText} numberOfLines={1}>{formatSizeDisplay(inv.size)}</Text>
+                        <Text style={styles.sizeText} numberOfLines={1} testID="size-text">{formatSizeDisplay(inv.size)}</Text>
                         <View style={styles.actionsGroup}>
                           <TouchableOpacity 
                             onPress={() => router.push({ 
@@ -626,7 +653,12 @@ export default function HomeScreen() {
             <MaterialCommunityIcons name="truck-delivery" size={26} color="#22c55e" />
           </TouchableOpacity>
         </Link>
-        <Text style={styles.headerTitle}>War Cabinet</Text>
+        <Link href="/recipes" asChild>
+          <TouchableOpacity style={StyleSheet.flatten([styles.logisticsBtn, { left: 56 }])} testID="recipes-btn">
+            <MaterialCommunityIcons name="chef-hat" size={26} color="#fbbf24" />
+          </TouchableOpacity>
+        </Link>
+        <Text style={styles.headerTitle} testID="app-header-title">War Cabinet</Text>
         <Link href="/briefing" asChild>
           <TouchableOpacity style={styles.briefingBtn} testID="briefing-btn">
             <MaterialCommunityIcons name="information-outline" size={26} color="#3b82f6" />

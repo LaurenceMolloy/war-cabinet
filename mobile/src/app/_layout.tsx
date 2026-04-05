@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { Suspense } from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { SQLiteProvider } from 'expo-sqlite';
+import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
 import { initializeDatabase } from '../db/sqlite';
 import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
@@ -23,16 +23,16 @@ export default function RootLayout() {
   return (
     <Suspense fallback={
       <View style={{ flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#22c55e" />
+        <ActivityIndicator size="large" color="#3b82f6" />
       </View>
     }>
-      <SQLiteProvider databaseName="warcabinet.db" onInit={initializeDatabase} useSuspense>
-        <Stack>
-          <Stack.Screen name="index" options={{ headerShown: false }} />
-          <Stack.Screen name="add" options={{ presentation: 'modal', headerShown: false }} />
-          <Stack.Screen name="catalog" options={{ headerShown: false }} />
-          <Stack.Screen name="logistics" options={{ headerShown: false }} />
-        </Stack>
+      <SQLiteProvider databaseName="war_cabinet.db" onInit={initializeDatabase}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: 'slide_from_right'
+          }}
+        />
       </SQLiteProvider>
     </Suspense>
   );

@@ -59,4 +59,27 @@ This document tracks the implementation of new features and bug fixes using the 
 ### 🟢 Phase 2: GREEN (Implementation)
 *   **Status**: [PENDING]
 
+
+---
+
+## Iteration 61: Rations Briefing (Prompt Generator)
+
+### 🔴 Phase 1: RED (Requirement & Test)
+**Goal**: Implement a tactical recipe prompt generator that allows users to leverage external LLMs for restocking guidance. The feature must persist dietary and ingredient preferences and compile a comprehensive strategic briefing including the 50 soonest-expiring items.
+
+**[TC-61.1] VERIFICATION: Prompt Compilation & Clipboard (Web/Playwright)**
+*   **App Status**: Web Deployment (Playwright)
+*   **Conditions**: 
+    1. 2 items exist: "Tuna" (Expiring tomorrow) and "Rice" (Expiring next year).
+    2. Preferences set: "Pescetarian", Preferred: "Lemon", Avoid: "Olives".
+*   **Expected Behavior**:
+    1. Navigation to `/rations` reveals the configuration form.
+    2. Setting preferences persists them (verified by page reload).
+    3. Tapping **GENERATE BRIEFING** copies text to the clipboard.
+    4. Compiled text includes: "Tuna" under Expiring, "Rice" under Available, plus the Lemon/Olives overrides.
+*   **Status**: 🔴 [RED] (Verification pending)
+
+### 🟢 Phase 2: GREEN (Implementation)
+*   **Status**: [PENDING]
+
 ---

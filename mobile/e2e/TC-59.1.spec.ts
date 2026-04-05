@@ -16,8 +16,15 @@ test.describe('[TC-59.1] Strategic Resupply & Logistics', () => {
 
     await page.goto('/');
 
-    // 1. Setup Data Environment
-    await page.getByTestId('settings-btn').click();
+    // 1. TACTICAL PURGE BEFORE PROVISIONING
+    await page.getByTestId('settings-btn').first().click();
+    await page.getByText('SYSTEM', { exact: true }).first().click();
+    await page.getByTestId('debug-purge-db').first().click();
+    await page.waitForURL('**/?timestamp=*', { timeout: 10000 }).catch(() => {});
+    await page.goto('/');
+
+    // 2. Setup Data Environment
+    await page.getByTestId('settings-btn').first().click();
     
     // Create Pantry
     await page.getByText('CABINETS', { exact: true }).click();

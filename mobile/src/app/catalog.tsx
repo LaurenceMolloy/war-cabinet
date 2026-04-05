@@ -498,13 +498,13 @@ export default function CatalogScreen() {
              </View>
           </View>
           <View style={styles.unitChipRow}>
-            <TouchableOpacity style={[styles.unitChip, newItemUnit === 'weight' && styles.unitChipActive]} onPress={() => setNewItemUnit('weight')}>
+            <TouchableOpacity style={[styles.unitChip, newItemUnit === 'weight' && styles.unitChipActive]} onPress={() => setNewItemUnit('weight')} testID="unit-selector-weight">
               <Text style={[styles.unitChipText, newItemUnit === 'weight' && styles.unitChipTextActive]}>Weight (g)</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.unitChip, newItemUnit === 'volume' && styles.unitChipActive]} onPress={() => setNewItemUnit('volume')}>
+            <TouchableOpacity style={[styles.unitChip, newItemUnit === 'volume' && styles.unitChipActive]} onPress={() => setNewItemUnit('volume')} testID="unit-selector-volume">
               <Text style={[styles.unitChipText, newItemUnit === 'volume' && styles.unitChipTextActive]}>Volume (ml)</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.unitChip, newItemUnit === 'count' && styles.unitChipActive]} onPress={() => setNewItemUnit('count')}>
+            <TouchableOpacity style={[styles.unitChip, newItemUnit === 'count' && styles.unitChipActive]} onPress={() => setNewItemUnit('count')} testID="unit-selector-count">
               <Text style={[styles.unitChipText, newItemUnit === 'count' && styles.unitChipTextActive]}>Count (Unit)</Text>
             </TouchableOpacity>
           </View>
@@ -668,6 +668,63 @@ export default function CatalogScreen() {
               <Text style={styles.testBtnText}>TEST STOCK ALERT</Text>
             </TouchableOpacity>
           </View>
+
+          {/* ☢️ TACTICAL PURGE (E2E ONLY) */}
+          <TouchableOpacity 
+              testID="debug-purge-db"
+              style={{ padding: 2, marginTop: 10, opacity: 0.1 }}
+              onPress={async () => {
+                  try {
+                    await db.runAsync('DELETE FROM Inventory');
+                    await db.runAsync('DELETE FROM ItemTypes');
+                    await db.runAsync('DELETE FROM Categories');
+                    await db.runAsync('DELETE FROM Settings WHERE key = ?', 'persistence_mirror_uri');
+                    if (typeof window !== 'undefined') window.location.reload();
+                  } catch (e) {
+                    console.error("Purge Error:", e);
+                  }
+              }}
+          >
+            <Text style={{fontSize: 8, color: '#334155'}}>PURGE</Text>
+          </TouchableOpacity>
+
+          {/* 🌱 TACTICAL SEED (E2E ONLY) */}
+          <TouchableOpacity 
+              testID="debug-seed-db"
+              style={{ padding: 2, marginTop: 10, opacity: 0.1 }}
+              onPress={async () => {
+                  try {
+                    const catRes = await db.runAsync('INSERT INTO Categories (name, icon) VALUES (?, ?)', 'Store Cupboard', 'box');
+                    const catId = catRes.lastInsertRowId;
+                    
+                    const tunaRes = await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type) VALUES (?, ?, ?)', catId, 'Tuna', 'count');
+                    const tunaId = tunaRes.lastInsertRowId;
+                    
+                    const peanutRes = await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type) VALUES (?, ?, ?)', catId, 'Peanut Butter', 'weight');
+                    const peanutId = peanutRes.lastInsertRowId;
+                    
+                    const riceRes = await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type) VALUES (?, ?, ?)', catId, 'Rice', 'weight');
+                    const riceId = riceRes.lastInsertRowId;
+                    
+                    const now = new Date();
+                    await db.runAsync('INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                       tunaId, 1, '1 Unit', now.getMonth() + 1, now.getFullYear(), now.getMonth() + 1, now.getFullYear(), 1);
+
+                    await db.runAsync('INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                       peanutId, 1, '500g', now.getMonth() + 1, now.getFullYear(), now.getMonth() + 1, now.getFullYear(), 1);
+                       
+                    await db.runAsync('INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                       riceId, 1, '1000g', 12, 2030, now.getMonth() + 1, now.getFullYear(), 1);
+                    
+                    load();
+                    alert('Seeded');
+                  } catch (e) {
+                    console.error("Seed Error:", e);
+                  }
+              }}
+          >
+            <Text style={{fontSize: 8, color: '#334155'}}>SEED</Text>
+          </TouchableOpacity>
         </View>
       )}
 
