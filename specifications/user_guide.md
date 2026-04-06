@@ -90,5 +90,17 @@ The app actively "learns" your logistics habits. When you enter a custom size (e
 Your Catalog is the "Master Blueprint." Items only appear as selectable options in the "Add Stock" form once they have been defined in the Catalog settings. To protect your data, the Catalog will **block** the deletion of any item type if you currently have stock of it in your cupboards—preventing unmanageable "Ghost Stock."
 
 ---
+ 
+## 8. THE MESS HALL (AI CULINARY INTELLIGENCE) 🍱
+The **Mess Hall Recipe Generator** is a tactical bridge between your stockpile and professional culinary archives.
+*   **The Workflow:** The system pulls **Expiring** and **Available** stock directly from your cupboards. You add your **Preferred** and **Avoid** lists (comma-separated), choose a culinary expert, and select one of three generation modes.
+*   **Generation Modes:**
+    *   🔬 **EXPERIMENTAL:** Zero-waste AI improvisation.
+    *   🧂 **INSPIRED:** Adoption of a specific chef's culinary philosophy and voice.
+    *   📚 **AUTHENTIC:** Archival research to find real, published recipe matches with 404 recovery protocols.
+*   **The Conflict Guardian:** The system automatically flags security and logic risks (e.g. trying to use an Expiring item that is on your Allergy or Avoid list) before you generate the prompt.
+*   **Deployment:** Copy the generated results and paste them into any modern Large Language Model (Gemini, ChatGPT, or Claude) to finalize your meal mission.
+
+---
 
 **"If you are prepared, you shall not fear."** 🛡️

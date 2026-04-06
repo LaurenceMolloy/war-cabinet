@@ -136,5 +136,49 @@
     "title": "Mess Hall Recipes & AI Kitchen Intelligence",
     "text": "The system provides an offline-first Recipe Prompt Generator to help you utilize your soon-to-expire stockpile. By configuring dietary preferences and ingredient overrides, the app dynamically structures an optimized markdown prompt containing your exact inventory status. You can copy this prompt and paste it into any Allied AI to instantly receive actionable, prioritized recipes perfectly tailored to your tactical kitchen.",
     "tags": ["recipes", "prompt", "clipboard", "ai", "dietary", "expiring"]
+  },
+  {
+    "id": "TC-61.2",
+    "test_marker": "TC-61.2",
+    "iteration": 61,
+    "screen": "recipes",
+    "entity": "mode",
+    "action": "pivot",
+    "title": "3-Mode Culinary Strategy",
+    "text": "The engine supports three tactical modes: EXPERIMENTAL (Zero-waste AI improv), INSPIRED ( Adoption of a specific chef's seasonal style/voice), and AUTHENTIC (Archival research to find real, published recipe matches). Each mode dynamically restructures the prompt constraints to prioritize either creative improvisation or high-fidelity professional matches.",
+    "tags": ["recipes", "experimental", "inspired", "authentic", "mode", "pivot", "archival"]
+  },
+  {
+    "id": "TC-61.3",
+    "test_marker": "TC-61.3",
+    "iteration": 61,
+    "screen": "recipes",
+    "entity": "alert",
+    "action": "guard",
+    "title": "The Conflict Guardian (Safety First)",
+    "text": "The system acts as an automated safety officer. It cross-references your current 'Expiring' stock with your dietary doctrine and 'Allergy' list. If a required item conflicts with a safety constraint, high-contrast alerts will trigger to warn you before the prompt is finalized, ensuring every meal mission remains safe.",
+    "tags": ["recipes", "conflict", "guard", "safety", "allergy", "dietary", "alert"]
+  },
+  {
+    "id": "TC-61.4",
+    "test_marker": "TC-61.4",
+    "iteration": 61,
+    "screen": "recipes",
+    "entity": "search",
+    "action": "verify",
+    "title": "Archival Search & 404 Recovery",
+    "text": "In AUTHENTIC mode, the AI uses a 'Brutal' validation protocol. It must confirm that each recipe URL returns a valid HTTP 200 status. If an official link is dead, the AI is commanded to pivot to a verified archive or trusted 'copycat' record of that specific recipe, ensuring max archival fidelity.",
+    "tags": ["recipes", "authentic", "search", "404", "recovery", "copycat", "verification"]
+  },
+  {
+    "id": "TC-61.5",
+    "test_marker": "TC-61.5",
+    "iteration": 61,
+    "screen": "recipes",
+    "entity": "expert",
+    "action": "inspire",
+    "title": "Culinary Expert & Archive Library",
+    "text": "You can anchor your recipes to one of 10+ legendary experts and archives, including Ramsay, Oliver, BBC Good Food, and many more. This influences the AI's seasoning style, technique priorities, and voice—transforming raw ingredients into professional-grade briefings.",
+    "tags": ["recipes", "chef", "inspiration", "library", "expert", "archive"]
   }
 ]

@@ -1,5 +1,5 @@
-export const RECIPE_PROMPT_TEMPLATE = `## Task
-Generate **3 distinct, beginner-friendly recipes** using the ingredients below, prioritising those that need to be used soon.
+export const RECIPE_PROMPT_TEMPLATE = `## Tactical Task
+[GEN_TASK_DESCRIPTION]
 
 **Dietary Preference:** [DIETARY_PREF]
 **Allergies:** [LIST_ALLERGENS]
@@ -8,7 +8,7 @@ Generate **3 distinct, beginner-friendly recipes** using the ingredients below, 
 
 ## Ingredients
 
-### Expiring (must prioritise)
+### Expiring (mandatory focus)
 [LIST_EXPIRING]
 
 ### Available (optional pantry)
@@ -19,6 +19,15 @@ Generate **3 distinct, beginner-friendly recipes** using the ingredients below, 
 
 ### Avoid (strictly forbidden)
 [LIST_AVOID]
+
+### Additional user requests (optional, best-effort):
+[EXTRA_REQUESTS]
+
+---
+
+## Culinary Strategy
+- **Mode:** [RECIPE_MODE]
+[CHEF_STRATEGY_LINE]
 
 ---
 
@@ -33,63 +42,18 @@ Generate **3 distinct, beginner-friendly recipes** using the ingredients below, 
 
 ---
 
-## Recipe Constraints
-1. Each recipe must use **[MANDATORY_COUNT_RULE]** (not garnish)  
-2. Recipes must be clearly different (e.g., cuisine, cooking method, flavour profile)  
-3. Keep recipes simple, quick, and beginner-friendly  
-4. Avoid niche or expensive ingredients unless preferred  
-5. Do not assume prior prep knowledge  
+[MODE_SPECIFIC_CONSTRAINTS]
 
 ---
 
-## Ingredient Labelling
-
-Every ingredient must include:
-- Quantity (**metric: g / ml**)  
-- State (e.g., raw, cooked, drained, sliced)  
-- Marker, one of:
-  - \`(expiring)\`
-  - \`(preferred)\`
-  - \`(available)\`
-  - \`(pantry)\` → common cupboard items not listed above (e.g., salt, pepper)
-  - \`(fresh)\` → newly introduced perishable items  
-
----
-
-## Ingredient Ordering (strict)
-
-List ingredients in this exact order:
-1. Expiring  
-2. Preferred  
-3. Available  
-4. Pantry  
-5. Fresh  
-
----
-
-## Output Format (exact structure required)
-
-### Recipe Name: [Title]
-
-### Ingredients
-
-| Ingredient | Quantity | State | Marker |
-|------------|----------|--------|---------|
-| rice | 200 g | uncooked | (expiring) |
-
-### Steps
-- Step with precise instruction (include heat level, timing, quantities where relevant)  
-- Continue clearly, no ambiguity  
-- Avoid vague terms like “cook until done”  
-
-### Estimated prep/cook time
-[time]
+[DYNAMIC_OUTPUT_FORMAT]
 
 ---
 
 ## Conflict Handling
 
 If constraints conflict:
+- **Core Rules (Allergens/Avoids) MUST always be respected.**
 - Produce the closest valid recipes  
 - Briefly note compromises  
 
@@ -98,8 +62,8 @@ If constraints conflict:
 ## Final Self-Check (mandatory before output)
 
 - No forbidden ingredients used  
-- Each recipe uses [MANDATORY_COUNT_RULE_SHORT] properly  
-- All ingredients include quantity + state + marker  
-- Recipes are clearly different  
-- Steps are explicit, beginner-proof, and unambiguous  
+- Mandatory items utilized as primary components
+- Additional requests respected only where safe
+- Output matches structural requirements exactly  
+- Results are clearly different
 `;

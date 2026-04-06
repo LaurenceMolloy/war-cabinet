@@ -41,6 +41,11 @@ test.describe('[TC-61.1] Mess Hall Recipes Engine', () => {
     await page.getByText('Vegetarian', { exact: true }).first().click({ force: true });
     await page.getByTestId('fav-ingredients-input').first().fill('Spinach, Garlic');
     await page.getByTestId('avoid-ingredients-input').first().fill('Tuna, Peanuts');
+    await page.getByTestId('extra-requests-input').first().fill('Make it a spicy curry');
+    
+    // Select Mode & Chef
+    await page.getByTestId('mode-tab-inspired').first().click();
+    await page.getByTestId('chef-chip-gordon-ramsay').first().click();
     
     // Select Allergen
     await page.getByTestId('allergen-chip-peanuts').first().click();
@@ -63,6 +68,11 @@ test.describe('[TC-61.1] Mess Hall Recipes Engine', () => {
     await expect(page.getByTestId('allergen-chip-peanuts').first()).toHaveCSS('background-color', 'rgb(239, 68, 68)'); // red
     await expect(page.getByTestId('fav-ingredients-input').first()).toHaveValue('Spinach, Garlic');
     await expect(page.getByTestId('avoid-ingredients-input').first()).toHaveValue('Tuna, Peanuts');
+    await expect(page.getByTestId('extra-requests-input').first()).toHaveValue('Make it a spicy curry');
+    
+    // Verify Persistence
+    await expect(page.getByTestId('mode-tab-inspired').first()).toHaveCSS('background-color', 'rgb(51, 65, 85)'); // active tab color
+    await expect(page.getByTestId('chef-chip-gordon-ramsay').first()).toHaveCSS('background-color', 'rgb(59, 130, 246)'); // active chip color (blue)
 
     // Step 1: Generate Prompt (Changes view to Preview)
     await page.getByTestId('generate-prompt-btn').first().click({ force: true });
@@ -83,6 +93,9 @@ test.describe('[TC-61.1] Mess Hall Recipes Engine', () => {
     expect(clipboardText).toContain('Vegetarian'); // Preference matched
     expect(clipboardText).toContain('Peanuts'); // Allergen included
     expect(clipboardText).toContain('ALLERGIES must be taken into account'); // Safety rule included
+    expect(clipboardText).toContain('spicy curry'); // Extra preference included
+    expect(clipboardText).toContain('INSPIRED'); // Mode included
+    expect(clipboardText).toContain('Gordon Ramsay'); // Chef matched
     expect(clipboardText).toContain('Tuna'); // Soon to expire item should be included
     expect(clipboardText).toContain('Rice'); // Should be included
   });

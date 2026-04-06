@@ -23,6 +23,15 @@ export default function RecipesScreen() {
   const [excludedExpiring, setExcludedExpiring] = useState<string[]>([]);
   const [preferred, setPreferred] = useState("");
   const [avoid, setAvoid] = useState("");
+  const [extraRequests, setExtraRequests] = useState("");
+  const [recipeMode, setRecipeMode] = useState<"experimental" | "inspired" | "authentic">("experimental");
+  const [selectedChef, setSelectedChef] = useState("Jamie Oliver");
+
+  const chefs = [
+    "BBC Good Food", "Jamie Oliver", "Gordon Ramsay", "Nigella Lawson", 
+    "Hairy Bikers", "Ottolenghi", "Rick Stein", "Heston Blumenthal", 
+    "Nick Nairn", "James Martin"
+  ];
 
   const [feedback, setFeedback] = useState<string | null>(null);
   const [renderedPrompt, setRenderedPrompt] = useState<string | null>(null);
@@ -31,11 +40,16 @@ export default function RecipesScreen() {
 
   useEffect(() => {
     async function load() {
-      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key IN (?, ?, ?, ?, ?, ?)', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring');
+      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+        'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_extra', 'recipe_mode', 'recipe_chef'
+      );
       rows.forEach(r => {
         if (r.key === 'dietary_pref') setDietary(r.value);
         if (r.key === 'recipe_preferred') setPreferred(r.value);
         if (r.key === 'recipe_avoided') setAvoid(r.value);
+        if (r.key === 'recipe_extra') setExtraRequests(r.value);
+        if (r.key === 'recipe_mode') setRecipeMode(r.value as any);
+        if (r.key === 'recipe_chef') setSelectedChef(r.value);
         if (r.key === 'recipe_allergens') setSelectedAllergens(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_expiring') setExcludedExpiring(r.value ? r.value.split(',') : []);
       });
@@ -125,7 +139,7 @@ export default function RecipesScreen() {
     };
 
     const activeExpiringCount = activeExpiring.length;
-    let mandateRule = "at least 2 expiring ingredients meaningfully";
+    let mandateRule = "at least 2 expiring ingredients";
     let mandateShort = "≥2 expiring ingredients";
 
     if (activeExpiringCount === 1) {
@@ -136,6 +150,81 @@ export default function RecipesScreen() {
       mandateShort = "available ingredients";
     }
 
+    // Dynamic Section Definitions
+    let genTaskDescription = "";
+    let modeSpecificConstraints = "";
+    let dynamicOutputFormat = "";
+
+    if (recipeMode === "authentic") {
+      genTaskDescription = `Identify **3 real, published recipes** from **${selectedChef}** that meaningfully utilize the **Mandatory Expiring Stock** as primary components. Ignore minor missing ingredients in the real recipes so long as the mandatory items are present.`;
+      
+      modeSpecificConstraints = `## Hard Archival Search & Verification Rules (NON-NEGOTIABLE)
+1. **Pilot Your Search Capabilities:** Use your integrated web browsing/search tools specifically on the ${selectedChef} archive and reputable third-party records to locate real recipes. 
+2. **Hard URL Validation:** You **MUST** confirm that each provided URL returns a valid HTTP 200 status and loads a full recipe page. If you cannot verify this through your search tools, you **MUST** discard the result. 
+3. **No Guesswork / Hallucination:** NEVER guess or predict a URL based on common patterns. If you provide a broken, generic, or predicted URL, your **ENTIRE RESPONSE** is considered invalid and must be discarded and regenerated.
+4. **404 Recovery Protocol:** If an official recipe URL is broken, attempt to locate a verified archive or trusted "copycat" record (e.g. from a reputable cooking blog) that precisely documents the chef's original version. Verify these alternative URLs with the same level of brutality.
+5. **Direct Links Only:** Always provide the most direct, tested recipe-page URL found during this process.
+6. **Search Intel Fallback:** A precise search string MUST be provided for every result as a final tactical redundancy.`;
+
+      dynamicOutputFormat = `## Output Format (Search-Ready Records)
+
+### Recipe Name: [Official Title]
+**Source:** ${selectedChef} (via [Site Name if archival/copycat])
+**The Appeal:** 1–3 sentences describing the experience, textures, and flavors... sell it in the style of ${selectedChef}!
+**Why it fits:** 1 sentence explaining how it utilizes your mandatory stock.
+**Adjustments for you:** 1-2 tactical tips on how to swap or omit ingredients to better fit your inventory or dietary constraints.
+**Direct URL:** [A verified HTTP 200 direct URL from your search results]
+**Search Intel (Fallback):** [A precise search string (e.g. "Search for: ${selectedChef} [Recipe Name]") in case the URL moves in the future]
+
+---
+(Repeat for 3 results)`;
+    } else {
+      // Experimental or Inspired (Creative)
+      genTaskDescription = `Generate **3 distinct, beginner-friendly recipes** using the ingredients below, prioritising those that need to be used soon.`;
+      
+      modeSpecificConstraints = `## Recipe Constraints
+1. Each recipe must use **${mandateRule}** (not garnish)  
+2. Recipes must be clearly different (e.g., cuisine, cooking method, flavour profile)  
+3. Keep recipes simple, quick, and beginner-friendly  
+4. Avoid niche or expensive ingredients unless preferred  
+5. Do not assume prior prep knowledge  
+6. **Additional requests** are best-effort; **NEVER** override Core Rules.
+
+---
+
+## Ingredient Labelling
+Every ingredient must include:
+- Quantity (**metric: g / ml**)  
+- State (e.g., raw, cooked, drained, sliced)  
+- Marker, one of: (expiring), (preferred), (available), (pantry), (fresh)
+
+---
+
+## Ingredient Ordering (strict)
+List ingredients in this exact order: 1. Expiring, 2. Preferred, 3. Available, 4. Pantry, 5. Fresh`;
+
+      dynamicOutputFormat = `## Output Format (exact structure required)
+
+### Recipe Name: [Title]
+
+### Ingredients
+| Ingredient | Quantity | State | Marker |
+|------------|----------|--------|---------|
+| rice | 200 g | uncooked | (expiring) |
+
+### Steps
+- Step with precise instruction (include heat level, timing, quantities where relevant)  
+- Avoid vague terms like “cook until done”  
+
+### Estimated prep/cook time
+[time]
+
+${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the style of ${selectedChef} explaining a key technique, flavour decision, or cooking principle used in this specific recipe].`}
+
+---
+(Repeat for 3 recipes)`;
+    }
+
     return RECIPE_PROMPT_TEMPLATE
       .replace('[DIETARY_PREF]', dietary)
       .replace('[LIST_ALLERGENS]', selectedAllergens.length > 0 ? selectedAllergens.map(a => `- ${a}`).join('\n') : "None declared.")
@@ -143,8 +232,15 @@ export default function RecipesScreen() {
       .replace('[LIST_AVAILABLE]', availableList)
       .replace('[LIST_PREFERRED]', formatCsvList(preferred))
       .replace('[LIST_AVOID]', formatCsvList(avoid))
-      .replace('[MANDATORY_COUNT_RULE]', mandateRule)
-      .replace('[MANDATORY_COUNT_RULE_SHORT]', mandateShort);
+      .replace('[EXTRA_REQUESTS]', extraRequests ? extraRequests : "None declared.")
+      .replace('[RECIPE_MODE]', recipeMode.toUpperCase())
+      .replace('[CHEF_STRATEGY_LINE]', 
+        recipeMode === "experimental" ? "- **Influence:** No specific influence. Focus on zero-waste improvisation." : 
+        (recipeMode === "authentic" ? `- **Target Source:** ${selectedChef}` : `- **Chef Influence:** Adopt the culinary philosophy, seasoning style, and voice of ${selectedChef}.`)
+      )
+      .replace('[GEN_TASK_DESCRIPTION]', genTaskDescription)
+      .replace('[MODE_SPECIFIC_CONSTRAINTS]', modeSpecificConstraints)
+      .replace('[DYNAMIC_OUTPUT_FORMAT]', dynamicOutputFormat);
   };
 
   const handleCopy = async () => {
@@ -204,10 +300,14 @@ export default function RecipesScreen() {
            </Markdown>
         </ScrollView>
         <View style={styles.footer}>
-           <TouchableOpacity style={styles.generateBtn} onPress={async () => {
+           <TouchableOpacity 
+             style={styles.generateBtn} 
+             onPress={async () => {
                await Clipboard.setStringAsync(renderedPrompt);
                triggerFeedback("PROMPT COPIED TO CLIPBOARD!");
-           }}>
+             }}
+             testID="copy-to-clipboard-btn"
+           >
               <MaterialCommunityIcons name="clipboard-text" size={24} color="black" style={{marginRight: 10}} />
               <Text style={styles.generateText}>COPY TO CLIPBOARD</Text>
            </TouchableOpacity>
@@ -239,7 +339,7 @@ export default function RecipesScreen() {
              <Text style={styles.cardTitle}>MESS HALL MISSION</Text>
           </View>
           <Text style={styles.cardBody}>
-            Turn your soon-to-expire ingredients into something worth eating. This tool translates your current inventory and any dietary requirements into a <Text style={{fontWeight: 'bold', color: '#f8fafc'}}>precision AI prompt</Text> designed to minimize waste. Simply generate the prompt, paste it into a free AI tool like ChatGPT or Claude, and get recipe suggestions that actually match both your cupboard stock and ingredient preferences.
+            Turn your soon-to-expire ingredients into something worth eating. This tool translates your current inventory and any dietary requirements into a <Text style={{fontWeight: 'bold', color: '#f8fafc'}}>precision AI prompt</Text> designed to minimize waste. Simply generate the prompt, copy it to your clipboard, and paste it into a free AI tool like ChatGPT or Claude, and get recipe suggestions that actually match both your cupboard stock and ingredient preferences.
             {"\n\n"}
             <Text style={{color: '#22c55e', fontWeight: 'bold'}}>STRATEGIC BENEFITS</Text>
             {"\n"}
@@ -251,6 +351,48 @@ export default function RecipesScreen() {
           </Text>
         </View>
 
+        <View style={styles.inputGroup}>
+           <Text style={styles.sectionTitle}>RECIPE MODE</Text>
+           <View style={styles.modeTabs}>
+              {(['experimental', 'inspired', 'authentic'] as const).map(mode => (
+                <TouchableOpacity 
+                  key={mode} 
+                  style={[styles.modeTab, recipeMode === mode && styles.modeTabActive]} 
+                  onPress={() => { setRecipeMode(mode); savePref('recipe_mode', mode); }}
+                  testID={`mode-tab-${mode}`}
+                >
+                  <Text style={[styles.modeTabText, recipeMode === mode && styles.modeTabTextActive]}>
+                    {mode.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+           </View>
+           <Text style={[styles.sectionSubtitle, {marginTop: 12}]}>
+             {recipeMode === 'experimental' && "The 'What’s in the cupboard?' option: Resourceful, zero-waste, and 100% focused on using your leftovers cleverly. No specific chef influence."}
+             {recipeMode === 'inspired' && "The AI builds a custom recipe just for your ingredients, but it mimics the seasoning and culinary philosophy of your chosen chef (e.g., Jamie Oliver's 'simple/bold' or Ottolenghi's 'middle-eastern/vibrant')."}
+             {recipeMode === 'authentic' && "Instead of inventing a new dish, the AI identifies actual, published recipes from the chef's professional archive that best fit your requirements. Great for when you want a proven classic."}
+           </Text>
+        </View>
+
+        {(recipeMode === "inspired" || recipeMode === "authentic") && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.sectionTitle}>LEGENDARY CHEF INTEL</Text>
+            <Text style={styles.sectionSubtitle}>Adopt the philosophy and style of a culinary expert.</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop: 10}}>
+              {chefs.map(chef => (
+                <TouchableOpacity 
+                  key={chef} 
+                  style={[styles.chefChip, selectedChef === chef && styles.chefChipActive]} 
+                  onPress={() => { setSelectedChef(chef); savePref('recipe_chef', chef); }}
+                  testID={`chef-chip-${chef.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <Text style={[styles.chefChipText, selectedChef === chef && styles.chefChipTextActive]}>{chef}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         <Text style={styles.sectionTitle}>DIETARY DOCTRINE</Text>
         <View style={styles.prefGroup}>
           {DIETARY_CHOICES.map(c => (
@@ -261,6 +403,7 @@ export default function RecipesScreen() {
               accessibilityRole="radio"
               accessibilityState={{ checked: dietary === c }}
               accessibilityLabel={c}
+              testID={`dietary-chip-${c.toLowerCase()}`}
             >
                <MaterialCommunityIcons 
                  name={dietary === c ? "radiobox-marked" : "radiobox-blank"} 
@@ -334,6 +477,20 @@ export default function RecipesScreen() {
              testID="avoid-ingredients-input"
            />
         </View>
+
+        <View style={styles.inputGroup}>
+           <Text style={styles.sectionTitle}>EXTRA PREFERENCES (OPTIONAL)</Text>
+           <Text style={styles.sectionSubtitle}>Add any extra direction (cuisine, flavour, or style).</Text>
+           <TextInput 
+             style={[styles.input, {borderColor: '#334155'}]} 
+             placeholder='e.g. "one-pot meal", "under 30 minutes", "spicy"'
+             placeholderTextColor="#475569"
+             value={extraRequests}
+             onChangeText={(val) => { setExtraRequests(val); savePref('recipe_extra', val); }}
+             multiline
+             testID="extra-requests-input"
+           />
+        </View>
         
         <View style={{height: 40}} />
       </ScrollView>
@@ -381,6 +538,53 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   cardTitle: { color: '#3b82f6', fontSize: 13, fontWeight: 'bold' },
   cardBody: { color: '#cbd5e1', fontSize: 14, lineHeight: 20 },
+  chefChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#111827',
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: '#374151',
+    marginRight: 10,
+  },
+  chefChipActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#60a5fa',
+  },
+  chefChipText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  chefChipTextActive: {
+    color: '#ffffff',
+  },
+  modeTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    padding: 2,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  modeTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 10,
+  },
+  modeTabActive: {
+    backgroundColor: '#334155',
+  },
+  modeTabText: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  modeTabTextActive: {
+    color: '#f8fafc',
+  },
   sectionTitle: { color: '#fbbf24', fontSize: 11, fontWeight: 'bold', letterSpacing: 1.5, marginBottom: 15, marginTop: 10 },
   prefGroup: { backgroundColor: '#1e293b', borderRadius: 12, padding: 12, marginBottom: 24, borderWidth: 1, borderColor: '#334155' },
   radioRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#334155' },
