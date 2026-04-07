@@ -241,13 +241,9 @@ export default function HomeScreen() {
         t.items.forEach((it: any) => {
           const qty = it.quantity || 0;
           const sz = it.size || "";
-          const num = parseFloat(sz);
+          const num = parseFloat(sz.replace(/[^0-9]/g, ''));
           if (!isNaN(num)) {
-            let val = num;
-            if (sz.toLowerCase().endsWith('kg') || (sz.toLowerCase().endsWith('l') && !sz.toLowerCase().endsWith('ml')) || sz.toLowerCase().endsWith('ltr')) {
-              val = num * 1000;
-            }
-            totalValue += (val * qty);
+            totalValue += (num * qty);
           }
         });
 
@@ -474,17 +470,18 @@ export default function HomeScreen() {
     );
   };
 
-  const formatSizeDisplay = (rawSize: string) => {
+  const formatSizeDisplay = (rawSize: string, unitType: string = 'weight') => {
     if (!rawSize) return 'N/A';
-    const numMatch = rawSize.match(/^(\d+(\.\d+)?)/);
-    if (!numMatch) return rawSize;
-    const num = parseFloat(numMatch[0]);
-    const unit = rawSize.replace(numMatch[0], '').trim().toLowerCase();
+    const num = parseFloat(rawSize);
+    if (isNaN(num)) return rawSize;
+
     if (num >= 1000) {
-      if (unit === 'g') return (num / 1000).toLocaleString() + 'kg';
-      if (unit === 'ml') return (num / 1000).toLocaleString() + 'l';
+      if (unitType === 'weight') return (num / 1000) + 'kg';
+      if (unitType === 'volume') return (num / 1000) + 'l';
     }
-    return rawSize;
+
+    const suffix = unitType === 'weight' ? 'g' : unitType === 'volume' ? 'ml' : '';
+    return num + suffix;
   };
 
   const renderCategory = ({ item: cat }: any) => {
@@ -610,7 +607,7 @@ export default function HomeScreen() {
                             <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
                           </View>
                         )}
-                        <Text style={styles.sizeText} numberOfLines={1} testID="size-text">{formatSizeDisplay(inv.size)}</Text>
+                        <Text style={styles.sizeText} numberOfLines={1} testID="size-text">{formatSizeDisplay(inv.size, type.unit_type)}</Text>
                         <View style={styles.actionsGroup}>
                           <TouchableOpacity 
                             onPress={() => router.push({ 
@@ -623,6 +620,7 @@ export default function HomeScreen() {
                               } 
                             })} 
                             style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]}
+                            testID={`edit-batch-${inv.id}`}
                           >
                             <MaterialCommunityIcons name="pencil" size={16} color="white" />
                           </TouchableOpacity>

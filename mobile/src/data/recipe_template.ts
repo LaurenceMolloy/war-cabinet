@@ -14,6 +14,9 @@ export const RECIPE_PROMPT_TEMPLATE = `## Tactical Task
 ### Available (optional pantry)
 [LIST_AVAILABLE]
 
+### Fridge Staples (available/fresh)
+[LIST_STAPLES]
+
 ### Preferred (use if possible)
 [LIST_PREFERRED]
 
@@ -37,7 +40,7 @@ export const RECIPE_PROMPT_TEMPLATE = `## Tactical Task
 3. Maximise use of expiring ingredients  
 4. Use preferred ingredients where reasonable  
 5. Keep extra ingredients common and low-cost  
-6. Available ingredients are optional support only  
+6. Available ingredients and fridge staples are optional support only  
 7. Assume fresh ingredients (veg, protein, etc.) can be added if needed  
 
 ---

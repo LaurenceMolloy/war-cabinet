@@ -115,13 +115,10 @@ export default function CatalogScreen() {
   const handleAddItemType = async (catId: number) => {
     if (!newItemName.trim() || selectedCat !== catId) return;
 
+    // Iteration 65: Data Sovereignty - store only numeric value
     let finalDefaultSize = null;
-    const rawNumber = newItemDefaultSize.replace(/[^0-9]/g, '');
-    if (rawNumber) {
-      if (newItemUnit === 'volume') finalDefaultSize = `${rawNumber}ml`;
-      else if (newItemUnit === 'weight') finalDefaultSize = `${rawNumber}g`;
-      else finalDefaultSize = `${rawNumber} Unit`;
-    }
+    const rawNumber = newItemDefaultSize.replace(/[^0-9.]/g, '');
+    if (rawNumber) finalDefaultSize = rawNumber;
 
     if (newItemMinStock && newItemMaxStock && parseInt(newItemMaxStock) < parseInt(newItemMinStock)) {
       Alert.alert('Logistics Error', 'Max target must be greater than or equal to Min threshold.');
@@ -270,13 +267,10 @@ export default function CatalogScreen() {
       return;
     }
 
+    // Iteration 65: Data Sovereignty - store only numeric value
     let finalDefaultSize = null;
-    const rawNumber = editingTypeDefaultSize.replace(/[^0-9]/g, '');
-    if (rawNumber) {
-      if (editingTypeUnit === 'volume') finalDefaultSize = `${rawNumber}ml`;
-      else if (editingTypeUnit === 'weight') finalDefaultSize = `${rawNumber}g`;
-      else finalDefaultSize = `${rawNumber} Unit`;
-    }
+    const rawNumber = editingTypeDefaultSize.replace(/[^0-9.]/g, '');
+    if (rawNumber) finalDefaultSize = rawNumber;
 
     if (editingTypeMinStock && editingTypeMaxStock && parseInt(editingTypeMaxStock) < parseInt(editingTypeMinStock)) {
       Alert.alert('Logistics Error', 'Max target must be greater than or equal to Min threshold.');
@@ -340,9 +334,9 @@ export default function CatalogScreen() {
         )}
       </View>
       {cat.types.map((type: any) => (
-        <View key={type.id} style={styles.typeRow}>
+        <View key={type.id} style={[styles.typeRow, {flexDirection: 'column', alignItems: 'flex-start'}]} testID={`type-row-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
           {editingTypeId === type.id ? (
-            <View style={{flexDirection: 'column', flex: 1, backgroundColor: '#0f172a', padding: 8, borderRadius: 6, gap: 10}}>
+            <View style={{flexDirection: 'column', flex: 1, backgroundColor: '#0f172a', padding: 8, borderRadius: 6, gap: 10, width: '100%'}}>
               <View style={{flexDirection: 'row', flex: 1}}>
                 <TextInput 
                   style={[styles.inputSmall, {flex: 1}]} 
@@ -350,7 +344,7 @@ export default function CatalogScreen() {
                   onChangeText={setEditingTypeName} 
                   autoFocus
                 />
-                <TouchableOpacity onPress={() => handleUpdateItemType(type.id)} style={styles.saveActionBtn}>
+                <TouchableOpacity onPress={() => handleUpdateItemType(type.id)} style={styles.saveActionBtn} testID="save-item-type-btn">
                   <MaterialCommunityIcons name="check" size={20} color="white" />
                 </TouchableOpacity>
               </View>
@@ -386,26 +380,27 @@ export default function CatalogScreen() {
                   keyboardType="numeric"
                   placeholder="Default Size (e.g. 500)"
                   placeholderTextColor="#64748b" 
+                  testID="edit-item-default-size-input"
                 />
-                <Text style={{color: '#64748b', marginLeft: 10, fontSize: 13, fontWeight: 'bold'}}>
+                <Text style={{color: '#64748b', marginLeft: 10, fontSize: 13, fontWeight: 'bold'}} testID="edit-item-unit-label">
                   {editingTypeUnit === 'volume' ? 'ml' : editingTypeUnit === 'weight' ? 'g' : 'Unit'}
                 </Text>
               </View>
               <View style={styles.unitChipRowMini}>
-                <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'weight' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('weight')}>
+                <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'weight' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('weight')} testID="edit-unit-weight">
                   <Text style={[styles.unitChipText, editingTypeUnit === 'weight' && styles.unitChipTextActive]}>Weight (g)</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'volume' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('volume')}>
+                <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'volume' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('volume')} testID="edit-unit-volume">
                   <Text style={[styles.unitChipText, editingTypeUnit === 'volume' && styles.unitChipTextActive]}>Volume (ml)</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'count' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('count')}>
+                <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'count' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('count')} testID="edit-unit-count">
                   <Text style={[styles.unitChipText, editingTypeUnit === 'count' && styles.unitChipTextActive]}>Count (Unit)</Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
             <>
-              <View style={{flex: 1, flexDirection: 'row', alignItems: 'center'}}>
+              <View style={{width: '100%', flexDirection: 'row', alignItems: 'center'}}>
                 <TouchableOpacity onPress={() => toggleFavorite(type.id, type.is_favorite)} style={{marginRight: 12}}>
                   <MaterialCommunityIcons 
                     name={type.is_favorite ? "star" : "star-outline"} 
@@ -413,37 +408,66 @@ export default function CatalogScreen() {
                     color={type.is_favorite ? "#eab308" : "#334155"} 
                   />
                 </TouchableOpacity>
-                <View style={{flex: 1}}>
-                  <Text style={styles.typeText}>{type.name}</Text>
-                  <Text style={{fontSize: 11, color: '#64748b', textTransform: 'capitalize'}}>
-                    {type.unit_type} unit {type.default_size ? `• Default: ${type.default_size}` : ''}
-                    {type.min_stock !== null || type.max_stock !== null ? ` • Targets: ${type.min_stock || 0}/${type.max_stock || 0}` : ''}
-                  </Text>
+                <Text style={styles.typeText}>{type.name}</Text>
+                <View style={styles.catActions}>
+                  <TouchableOpacity onPress={() => { 
+                      setEditingTypeId(type.id); 
+                      setEditingTypeName(type.name); 
+                      setEditingTypeUnit(type.unit_type || 'weight'); 
+                      setEditingTypeDefaultSize(type.default_size ? type.default_size.toString().replace(/[^0-9]/g, '') : '');
+                      setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : '');
+                      setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : '');
+                      setEditingTypeDefaultCabinet(null);
+                  }} style={{marginRight: 10, marginTop: 4}} testID={`edit-type-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
+                    <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                      disabled={type.stock_count > 0}
+                      onPress={() => handleDeleteItemType(type.id)} 
+                      style={{marginTop: 4}}
+                  >
+                    <MaterialCommunityIcons 
+                      name="delete" 
+                      size={20} 
+                      color={type.stock_count > 0 ? "#334155" : "#ef4444"} 
+                    />
+                  </TouchableOpacity>
                 </View>
               </View>
-              <View style={styles.catActions}>
-                <TouchableOpacity onPress={() => { 
-                    setEditingTypeId(type.id); 
-                    setEditingTypeName(type.name); 
-                    setEditingTypeUnit(type.unit_type || 'weight'); 
-                    setEditingTypeDefaultSize(type.default_size || '');
-                    setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : '');
-                    setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : '');
-                    setEditingTypeDefaultCabinet(null);
-                }} style={{marginRight: 10, marginTop: 4}}>
-                  <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
-                </TouchableOpacity>
-                <TouchableOpacity 
-                    disabled={type.stock_count > 0}
-                    onPress={() => handleDeleteItemType(type.id)} 
-                    style={{marginTop: 4}}
-                >
+              
+              <View style={styles.statBadgeRow}>
+                <View style={styles.statBadge} accessibilityLabel="Unit Type" testID="unit-type-badge">
                   <MaterialCommunityIcons 
-                    name="delete" 
-                    size={20} 
-                    color={type.stock_count > 0 ? "#334155" : "#ef4444"} 
+                    name={type.unit_type === 'volume' ? 'water' : type.unit_type === 'weight' ? 'scale-balance' : 'numeric-1-box-outline'} 
+                    size={12} 
+                    color="#94a3b8" 
                   />
-                </TouchableOpacity>
+                  <Text style={styles.statBadgeText}>{type.unit_type || 'count'}</Text>
+                </View>
+
+                {type.default_size && (
+                  <View style={styles.statBadge} testID="default-size-badge">
+                    <MaterialCommunityIcons name="package-variant-closed" size={12} color="#94a3b8" />
+                    <Text style={styles.statBadgeText}>
+                      {(() => {
+                        const num = parseFloat(type.default_size);
+                        if (isNaN(num)) return type.default_size;
+                        if (type.unit_type === 'weight') return num >= 1000 ? `${num/1000}kg` : `${num}g`;
+                        if (type.unit_type === 'volume') return num >= 1000 ? `${num/1000}l` : `${num}ml`;
+                        return type.default_size;
+                      })()}
+                    </Text>
+                  </View>
+                )}
+
+                {(type.min_stock !== null || type.max_stock !== null) && (
+                  <View style={styles.statBadge} accessibilityLabel="Stock Targets (Min/Max)">
+                    <MaterialCommunityIcons name="target" size={12} color="#94a3b8" />
+                    <Text style={styles.statBadgeText}>
+                      {type.min_stock || 0} / {type.max_stock || 0}
+                    </Text>
+                  </View>
+                )}
               </View>
             </>
           )}
@@ -466,10 +490,11 @@ export default function CatalogScreen() {
               value={newItemDefaultSize} 
               onChangeText={setNewItemDefaultSize} 
               keyboardType="numeric"
-              placeholder="Default Size (e.g. 500) - Optional"
+              placeholder="Default size (e.g. 500)"
               placeholderTextColor="#64748b" 
+              testID="new-item-default-size-input"
             />
-            <Text style={{color: '#64748b', marginLeft: 10, fontSize: 13, fontWeight: 'bold'}}>
+            <Text style={{color: '#64748b', marginLeft: 10, fontSize: 13, fontWeight: 'bold'}} testID="new-item-unit-label">
               {newItemUnit === 'volume' ? 'ml' : newItemUnit === 'weight' ? 'g' : 'Unit'}
             </Text>
           </View>
@@ -561,13 +586,13 @@ export default function CatalogScreen() {
       </View>
 
       <View style={styles.tabRow}>
-        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'categories' && styles.tabActive]} onPress={() => setActiveTab('categories')}>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'categories' && styles.tabActive]} onPress={() => setActiveTab('categories')} testID="tab-categories">
           <Text style={[styles.tabText, activeTab === 'categories' && styles.tabTextActive]}>CATEGORIES</Text>
         </TouchableOpacity>
         <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')}>
           <Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text>
         </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'system' && styles.tabActive]} onPress={() => setActiveTab('system')}>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'system' && styles.tabActive]} onPress={() => setActiveTab('system')} testID="tab-system">
           <Text style={[styles.tabText, activeTab === 'system' && styles.tabTextActive]}>SYSTEM</Text>
         </TouchableOpacity>
         <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => setActiveTab('backups')}>
@@ -850,5 +875,17 @@ const styles = StyleSheet.create({
   backupItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', padding: 16, borderRadius: 10, marginBottom: 8 },
   backupName: { color: '#f8fafc', fontSize: 14, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontWeight: 'bold' },
   backupMeta: { color: '#64748b', fontSize: 11, marginTop: 2 },
-  shareBtn: { backgroundColor: '#334155', padding: 10, borderRadius: 8 }
+  shareBtn: { backgroundColor: '#334155', padding: 10, borderRadius: 8 },
+  statBadgeRow: { flexDirection: 'row', marginLeft: 36, marginTop: 4, flexWrap: 'wrap', gap: 6 },
+  statBadge: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#0f172a', 
+    paddingHorizontal: 8, 
+    paddingVertical: 3, 
+    borderRadius: 4, 
+    borderWidth: 1, 
+    borderColor: '#334155' 
+  },
+  statBadgeText: { color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginLeft: 4, textTransform: 'uppercase' }
 });

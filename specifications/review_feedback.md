@@ -2,6 +2,27 @@
 
 This document tracks items that were strictly specified in the `requirements.md` but were initially overlooked during the first iteration of development.
 
+## Iteration 66: Fridge Staples & Authentic Recipe Formatting
+1. **Fridge Staples Engine**: Integrated a dedicated "Fridge Staples (often found in your fridge)" text input allowing users to freely enter comma-separated fast-moving perishables. These staples are treated mathematically alongside pantry "Available Ingredients" as optional support components.
+2. **"Generate-Action" Memory Catch (Bug Fix)**: Resolved a race condition where tapping "Generate Prompt" immediately after typing custom variables failed to register the string if the field had not explicitly blurred. The 'Generate' engine now actively intercepts, captures, and commits pending text box sequences prior to payload construction.
+3. **Shopping List Generation**: Upgraded the Authentic Recipe Mode framework to require the LLM to cross-reference the generated recipe against the combined Expiry/Pantry/Staples context, explicitly printing an exclusionary "Shopping List" for items requiring purchase.
+4. **Aggressive Markdown Formatting (Authentic Mode)**: Hardened the Authentic Recipe AI instructional prompt to rigorously utilize structural plain-text Markdown (`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━` dividers, `> *` blockquotes, and `[Fallback URL](...search?q=...)` dynamic Google linkages) ensuring premium visual outputs in third-party chatbots without relying on emojis.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 66)
+**[TC-66.1] VERIFICATION: Fridge Staples Instant Memory & Catch Compilation**
+*   **Conditions**: Clean database; zero previous fridge staples logged.
+*   **Actions**:
+    1. Navigate to **Mess Hall Recipes**.
+    2. Tap into the Fridge Staples input field.
+    3. Type "Garlic, onions, Spinach" (with varied cases and spacing).
+    4. **CRITICAL:** Do NOT tap away (blur). Immediately tap **GENERATE PROMPT**.
+    5. Close the prompt.
+*   **Assertions**:
+    1. MEMORY CATCH: The active text box string was successfully intercepted and commited before generation.
+    2. ALPHABETIZATION & FORMATTING: The input was parsed, lowercased, alphabetically sorted, and rendered as distinct selectable chips ("garlic", "onions", "spinach").
+    3. PROMPT ACCURACY: The generated briefing text correctly registers the staples as "Available" optional support.
+
 ## Iteration 64: Memorized Chef Selection
 1. **Curated Chef List Refinement**: Streamlined the "Legendary Chef Intel" picker to a high-impact set of 5 core experts (BBC Good Food, Ramsay, Oliver, Nigella, Ottolenghi) for faster operational selection.
 2. **"Suggest a Chef" Input**: Added a tactical text input field to the recipe configuration screen, allowing users to define any custom culinary expert for the AI to emulate.

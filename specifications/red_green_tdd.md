@@ -83,3 +83,30 @@ This document tracks the implementation of new features and bug fixes using the 
 *   **Status**: [PENDING]
 
 ---
+
+## Iteration 66: Fridge Staples & Formatting Engine
+
+### 🔴 Phase 1: RED (Requirement & Test)
+**Goal**: Integrate user-defined "Fridge Staples" into the prompt engine, ensuring robust instant-catch memory persistence without explicit blur events. Enhance Authentic UI structural output with clean markdown.
+
+**[TC-66.1] VERIFICATION: Fridge Staples Memory (generate-without-blur)**
+*   **App Status**: Native Deployment
+*   **Test Platform**: Playwright (Mobile)
+*   **Conditions**: 
+    1. Zero fridge staples logged. User types uncommitted text immediately prior to prompt generation.
+*   **Expected Behavior**:
+    1. System intercepts uncommitted text instantly upon tapping Generate.
+    2. Output text strictly reflects alphabetical injection of custom staples.
+*   **Status**: 🟢 [PASSING] (Playwright Suite Hardened)
+
+### 🟢 Phase 2: GREEN (Implementation)
+*   **Action**: Implemented `handleStaplesBlurInternal` interceptor within `recipes.tsx` to commit strings synchronously during `handleView()`.
+*   **Status**: 🟢 [COMPLETED]
+
+### ⚙️ Phase 3: REFACTOR (Refinement)
+*   **Action**: Upgraded the Authentic Recipe Mode format to rigorously utilize structural markdown (Horizontal block dividers, italicized blockquotes).
+*   **Action**: Required exclusion-based Shopping List compilation explicitly.
+*   **Action**: Transformed Fallback search strings into dynamically structured Markdown URLs (`[Fallback URL](https://www.google.com/search?q=...)`).
+*   **Status**: [COMPLETED]
+
+---

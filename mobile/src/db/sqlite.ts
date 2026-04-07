@@ -109,6 +109,40 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'auto_backup_enabled', '1');
     await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'last_modified_time', Date.now().toString());
     await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'last_backup_time', '0');
+    
+    /*
+    ## Sixty-Fifth Iteration Feedback
+    1. **Data Sovereignty (Unit Decoupling)**: To resolve data integrity issues and improve UX, the system now separates numeric values from their unit labels in the database.
+        *   **Self-Healing Migration**: A one-time migration has stripped all manual unit suffixes (`g`, `ml`, `UNIT`) from existing database records, converting them to clean numeric strings.
+        *   **Numeric-Only Editing**: Form fields for "Size" and "Default Size" now exclusively handle numbers. Users are no longer forced to manually delete unit characters when updating stock.
+        *   **Display Metadata Standard**: Units are now treated as UI-level metadata. The application intelligently appends the correct suffix (`g`, `ml`, or `Unit`) based on the item's `unit_type` during rendering, ensuring a consistent and "clutter-free" interface.
+        *   **AI Culinary Compliance**: The recipe generation engine continues to provide full context to the AI by re-attaching units to the prompt string, maintaining accuracy in meal suggestions.
+    */
+
+    // Iteration 65: Data Sovereignty Migration (Strip units from DB)
+    const i65Migrated = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'migration_v65_complete');
+    if (!i65Migrated || (i65Migrated as any).count === 0) {
+      // 1. Clean ItemTypes.default_size
+      const types = await db.getAllAsync<{id: number, default_size: string}>('SELECT id, default_size FROM ItemTypes WHERE default_size IS NOT NULL');
+      for (const t of types) {
+        const clean = t.default_size.replace(/[^0-9]/g, '');
+        if (clean !== t.default_size) {
+          await db.runAsync('UPDATE ItemTypes SET default_size = ? WHERE id = ?', clean, t.id);
+        }
+      }
+
+      // 2. Clean Inventory.size
+      const inv = await db.getAllAsync<{id: number, size: string}>('SELECT id, size FROM Inventory WHERE size IS NOT NULL');
+      for (const i of inv) {
+        const clean = i.size.replace(/[^0-9]/g, '');
+        if (clean !== i.size) {
+          await db.runAsync('UPDATE Inventory SET size = ? WHERE id = ?', clean, i.id);
+        }
+      }
+
+      await db.runAsync('INSERT INTO Settings (key, value) VALUES (?, ?)', 'migration_v65_complete', '1');
+      console.log('Migration v65 (Data Sovereignty) complete.');
+    }
 
   } catch(e) {
     console.error('Migration failed:', e);

@@ -13,6 +13,8 @@ const ALLERGENS = [
   "Molluscs", "Mustard", "Tree Nuts", "Peanuts", "Sesame", "Soya", "Sulphites"
 ];
 
+const FRIDGE_STAPLES_PRESETS = ["Butter", "Carrots", "Eggs", "Leeks", "Milk", "Peppers"];
+
 export default function RecipesScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -28,6 +30,10 @@ export default function RecipesScreen() {
   const [selectedChef, setSelectedChef] = useState("Gordon Ramsay");
   const [customChefs, setCustomChefs] = useState<string[]>([]);
   const [customInput, setCustomInput] = useState("");
+  
+  const [selectedStaples, setSelectedStaples] = useState<string[]>([]);
+  const [persistentStaples, setPersistentStaples] = useState<string[]>(FRIDGE_STAPLES_PRESETS);
+  const [staplesInput, setStaplesInput] = useState("");
   const chefs = [
     "BBC Good Food", "Gordon Ramsay", "Jamie Oliver", "Nigella Lawson", "Ottolenghi"
   ];
@@ -47,8 +53,8 @@ export default function RecipesScreen() {
 
   useEffect(() => {
     async function load() {
-      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs'
+      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs', 'recipe_fridge_staples_selected', 'recipe_fridge_staples_persistent'
       );
       rows.forEach(r => {
         if (r.key === 'dietary_pref') setDietary(r.value);
@@ -61,6 +67,11 @@ export default function RecipesScreen() {
         if (r.key === 'recipe_excluded_expiring') setExcludedExpiring(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_hide_deploy_guide') setHideDeployGuide(r.value === 'true');
         if (r.key === 'recipe_custom_chefs') setCustomChefs(r.value ? r.value.split(',').filter(x => x) : []);
+        if (r.key === 'recipe_fridge_staples_selected') setSelectedStaples(r.value ? r.value.split(',').filter(x => x) : []);
+        if (r.key === 'recipe_fridge_staples_persistent') {
+          const loaded = r.value ? r.value.split(',').filter(x => x) : [];
+          if (loaded.length > 0) setPersistentStaples([...new Set([...FRIDGE_STAPLES_PRESETS, ...loaded])]);
+        }
         
         for (let i = 1; i <= 3; i++) {
           if (r.key === `recipe_deploy_${i}_name`) {
@@ -146,6 +157,58 @@ export default function RecipesScreen() {
     savePref('recipe_excluded_expiring', next.join(','));
   };
 
+  const toggleStaple = (s: string) => {
+    const next = selectedStaples.includes(s)
+      ? selectedStaples.filter(x => x !== s)
+      : [...selectedStaples, s];
+    setSelectedStaples(next);
+    savePref('recipe_fridge_staples_selected', next.join(','));
+  };
+
+  const handleStaplesBlur = () => {
+    if (!staplesInput.trim()) return;
+    
+    const newItems = staplesInput.split(',')
+      .map(x => x.trim())
+      .filter(x => x && x.length > 1)
+      .map(x => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase());
+    
+    if (newItems.length > 0) {
+      const updatedPersistent = [...new Set([...persistentStaples, ...newItems])].sort();
+      const updatedSelected = [...new Set([...selectedStaples, ...newItems])].sort();
+      
+      setPersistentStaples(updatedPersistent);
+      setSelectedStaples(updatedSelected);
+      setStaplesInput("");
+      
+      const persistentToSave = updatedPersistent.filter(x => !FRIDGE_STAPLES_PRESETS.includes(x));
+      savePref('recipe_fridge_staples_persistent', persistentToSave.join(','));
+      savePref('recipe_fridge_staples_selected', updatedSelected.join(','));
+    }
+  };
+
+  const handleStaplesBlurInternal = (input: string) => {
+    if (!input.trim()) return;
+    
+    const newItems = input.split(',')
+      .map(x => x.trim())
+      .filter(x => x && x.length > 1)
+      .map(x => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase());
+    
+    if (newItems.length > 0) {
+      const updatedPersistent = [...new Set([...persistentStaples, ...newItems])].sort();
+      const updatedSelected = [...new Set([...selectedStaples, ...newItems])].sort();
+      
+      setPersistentStaples(updatedPersistent);
+      setSelectedStaples(updatedSelected);
+      setStaplesInput("");
+      
+      const persistentToSave = updatedPersistent.filter(x => !FRIDGE_STAPLES_PRESETS.includes(x));
+      savePref('recipe_fridge_staples_persistent', persistentToSave.join(','));
+      savePref('recipe_fridge_staples_selected', updatedSelected.join(','));
+    }
+  };
+
   const triggerStatus = (msg: string) => {
     setMissionStatus(msg);
     statusAnim.setValue(0);
@@ -180,15 +243,42 @@ export default function RecipesScreen() {
     const allStockedNames = allItems.map(it => it.name);
 
     const activeExpiring = expiringNames.filter(name => !excludedExpiring.includes(name));
-    const availableNames = allStockedNames.filter(name => !activeExpiring.includes(name));
+    const availableStock = allItems.filter(item => !activeExpiring.includes(item.name));
 
-    const activeExpiringList = activeExpiring.length > 0 
-      ? activeExpiring.map(name => `- ${name}`).join('\n')
-      : "None recorded.";
+    const formatIngredientList = (items: {name: string, unit_type: string, default_size: string}[]) => {
+      if (items.length === 0) return "None recorded.";
+      return items.map(item => {
+        let sizePart = "";
+        if (item.default_size) {
+           const num = parseFloat(item.default_size);
+           if (!isNaN(num)) {
+             if (num >= 1000) {
+               if (item.unit_type === 'weight') sizePart = ` (${num / 1000}kg)`;
+               else if (item.unit_type === 'volume') sizePart = ` (${num / 1000}l)`;
+               else sizePart = ` (${num})`;
+             } else {
+               const suffix = item.unit_type === 'volume' ? 'ml' : item.unit_type === 'weight' ? 'g' : '';
+               sizePart = ` (${num}${suffix})`;
+             }
+           } else {
+             sizePart = ` (${item.default_size})`;
+           }
+        }
+        return `- ${item.name}${sizePart}`;
+      }).join('\n');
+    };
 
-    const availableList = availableNames.length > 0
-      ? availableNames.map(name => `- ${name}`).join('\n')
-      : "None recorded.";
+    const activeExpiringFull = await db.getAllAsync<{name: string, unit_type: string, default_size: string}>(`
+      SELECT i.name, i.unit_type, i.default_size
+      FROM Inventory inv
+      JOIN ItemTypes i ON i.id = inv.item_type_id
+      WHERE inv.expiry_year IS NOT NULL
+        AND (inv.expiry_year * 12 + inv.expiry_month) <= ${thresholdMonths}
+    `);
+    const activeExpiringFiltered = activeExpiringFull.filter(it => !excludedExpiring.includes(it.name));
+
+    const activeExpiringList = formatIngredientList(activeExpiringFiltered);
+    const availableList = formatIngredientList(availableStock as any);
 
     const formatCsvList = (csv: string) => {
       if (!csv) return "None recorded.";
@@ -218,20 +308,28 @@ export default function RecipesScreen() {
 3. **No Guesswork / Hallucination:** NEVER guess or predict a URL based on common patterns. If you provide a broken, generic, or predicted URL, your **ENTIRE RESPONSE** is considered invalid and must be discarded and regenerated.
 4. **404 Recovery Protocol:** If an official recipe URL is broken, attempt to locate a verified archive or trusted "copycat" record (e.g. from a reputable cooking blog) that precisely documents the chef's original version. Verify these alternative URLs with a strict level of rigor.
 5. **Direct Links Only:** Always provide the most direct, tested recipe-page URL found during this process.
-6. **Search Intel Fallback:** A precise search string MUST be provided for every result as a final tactical redundancy.`;
+6. **Google Search Fallback:** An active Google search URL link using the Chef name and Recipe Title MUST be provided as a final tactical redundancy.
+7. **Shopping List Generation:** You must compile a list of ingredients required by the recipe that are NOT present in the provided context (Expiring, Available, Fridge Staples, Preferred). Be sure to factor in your suggested Adjustments/substitutions when calculating this list.`;
 
       dynamicOutputFormat = `## Output Format (Search-Ready Records)
-
-### Recipe Name: [Official Title]
-**Source:** ${selectedChef} (via [Site Name if archival/copycat])
-**The Appeal:** 1–3 sentences describing the experience, textures, and flavors... sell it in the style of ${selectedChef}!
-**Why it fits:** 1 sentence explaining how it utilizes your mandatory stock.
-**Adjustments for you:** 1-2 tactical tips on how to swap or omit ingredients to better fit your inventory or dietary constraints.
-**Direct URL:** [A verified HTTP 200 direct URL from your search results]
-**Search Intel (Fallback):** [A precise search string (e.g. "Search for: ${selectedChef} [Recipe Name]") in case the URL moves in the future]
+You must strictly follow this exact markdown formatting to simulate a clean recipe card layout:
 
 ---
-(Repeat for 3 results)`;
+### [Official Recipe Title]
+> *[1–3 sentences describing the appeal, textures, and flavors... sell it in the style of ${selectedChef}! This section MUST be formatted as an italicized blockquote]*
+
+**Source:** ${selectedChef} (via [Site Name if archival/copycat])
+**Why it fits:** [1 sentence explaining how it utilizes your mandatory stock]
+**Adjustments:** [1-2 tactical tips on how to swap or omit ingredients to better fit inventory or dietary constraints]
+
+**Shopping List:** [Comma-separated list of items to purchase, or "None required"]
+
+**Direct URL:** [A verified HTTP 200 direct URL from your search results]
+**Fallback URL:** [Search Google for this Recipe](A precisely generated www.google.com/search?q= URL for this chef and recipe)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(Repeat for exactly 3 results, ensuring you output the bold separating line above between each recipe)
+`;
     } else {
       genTaskDescription = `Generate **3 distinct, beginner-friendly recipes** using the ingredients below, prioritising those that need to be used soon.`;
       
@@ -280,7 +378,8 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
 
     return RECIPE_PROMPT_TEMPLATE
       .replace('[DIETARY_PREF]', dietary)
-      .replace('[LIST_ALLERGENS]', selectedAllergens.length > 0 ? selectedAllergens.map(a => `- ${a}`).join('\n') : "None declared.")
+      .replace('[LIST_ALLERGENS]', selectedAllergens.length > 0 ? selectedAllergens.map(a => `- ${a}`).sort().join('\n') : "None declared.")
+      .replace('[LIST_STAPLES]', selectedStaples.length > 0 ? selectedStaples.sort().map(s => `- ${s}`).join('\n') : "No fresh staples defined.")
       .replace('[LIST_EXPIRING]', activeExpiringList)
       .replace('[LIST_AVAILABLE]', availableList)
       .replace('[LIST_PREFERRED]', formatCsvList(preferred))
@@ -324,6 +423,10 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
         savePref('recipe_custom_chefs', next.join(','));
         return next;
       });
+    }
+
+    if (staplesInput.trim()) {
+      handleStaplesBlurInternal(staplesInput);
     }
 
     if (activeExpiringList.length === 0 && !showConfirm) {
@@ -455,7 +558,7 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
           </View>
         </View>
 
-        <ScrollView style={{flex: 1, padding: 16}} contentContainerStyle={{paddingBottom: 60}}>
+        <ScrollView style={{flex: 1, padding: 16}} contentContainerStyle={{paddingBottom: 60}} testID="prompt-text">
            <Markdown style={markdownStyles}>
              {renderedPrompt}
            </Markdown>
@@ -616,6 +719,39 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
           ) : (
             <Text style={styles.sectionSubtitle}>No stock items are due to expire soon.</Text>
           )}
+        </View>
+
+        <View style={{marginTop: 10, marginBottom: 24}}>
+            <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 8}}>
+              <Text style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0}]} testID="fridge-staples-title">FRIDGE STAPLES </Text>
+              <Text style={[styles.sectionSubtitle, {marginBottom: 0, marginTop: 0, fontSize: 11}]}>(often found in your fridge)</Text>
+            </View>
+            <Text style={styles.sectionSubtitle}>Select as many as you like or add your own.</Text>
+            <View style={styles.allergenGrid}>
+              {persistentStaples.sort().map(s => (
+                <TouchableOpacity 
+                  accessibilityRole="button"
+                  key={s} 
+                  style={[styles.allergenChip, selectedStaples.includes(s) && styles.allergenChipActive]} 
+                  onPress={() => toggleStaple(s)}
+                  testID={`fridge-staple-chip-${s.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                   <Text style={[styles.allergenChipText, selectedStaples.includes(s) && styles.allergenChipTextActive]}>{s}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{marginTop: 10, marginBottom: 10}}>
+                <Text style={{color: '#94a3b8', fontSize: 11, marginBottom: 8}}>Add your own fridge staples (comma separated):</Text>
+                <TextInput 
+                  style={[styles.input, {minHeight: 45, height: 45, fontSize: 14}]} 
+                  placeholder="e.g. Garlic, Onions, Spinach"
+                  placeholderTextColor="#475569"
+                  value={staplesInput}
+                  onChangeText={setStaplesInput}
+                  onBlur={handleStaplesBlur}
+                  testID="fridge-staples-input"
+                />
+            </View>
         </View>
 
         <View style={styles.inputGroup}>

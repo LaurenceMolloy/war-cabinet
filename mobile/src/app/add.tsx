@@ -77,27 +77,16 @@ export default function AddInventoryScreen() {
         );
         if (batch) {
           setQuantity(batch.quantity.toString());
-          const rawSize = batch.size || '';
-          const suffix = getUnitSuffix(typeRes?.unit_type || 'weight');
-          if (suffix && rawSize.endsWith(suffix)) {
-            setSize(rawSize.slice(0, -suffix.length).trim());
-          } else {
-            setSize(rawSize);
-          }
+          setSize(batch.size?.toString().replace(/[^0-9]/g, '') || '');
           setExpiryMonth(batch.expiry_month?.toString() || '');
           setExpiryYear(batch.expiry_year?.toString() || '');
           if (batch.cabinet_id) setSelectedCabinetId(batch.cabinet_id);
         }
       } else {
         if (typeRes && typeRes.default_size) {
-          const suffix = getUnitSuffix(typeRes.unit_type || 'weight');
-          if (suffix && typeRes.default_size.endsWith(suffix)) {
-            setSize(typeRes.default_size.slice(0, -suffix.length).trim());
-          } else {
-            setSize(typeRes.default_size);
-          }
+           setSize(typeRes.default_size.toString().replace(/[^0-9]/g, '') || '');
         } else if (res && res.length > 0) {
-          setSize(res[0].size);
+          setSize(res[0].size.toString().replace(/[^0-9]/g, '') || '');
         }
       }
     }
@@ -116,10 +105,8 @@ export default function AddInventoryScreen() {
     }
 
     let finalSize = s;
-    const suffix = getUnitSuffix(unitType);
-    if (suffix && !s.toLowerCase().endsWith(suffix.toLowerCase())) {
-        finalSize = s + suffix;
-    }
+    // Iteration 65: Data Sovereignty - Only store numeric value
+    finalSize = s.replace(/[^0-9]/g, '');
 
     if ((unitType === 'weight' || unitType === 'volume')) {
       if (!/^\d+(\.\d+)?$/.test(s)) {
