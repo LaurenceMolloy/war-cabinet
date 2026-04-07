@@ -561,16 +561,16 @@ export default function CatalogScreen() {
       </View>
 
       <View style={styles.tabRow}>
-        <TouchableOpacity style={[styles.tab, activeTab === 'categories' && styles.tabActive]} onPress={() => setActiveTab('categories')}>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'categories' && styles.tabActive]} onPress={() => setActiveTab('categories')}>
           <Text style={[styles.tabText, activeTab === 'categories' && styles.tabTextActive]}>CATEGORIES</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')}>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')}>
           <Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tab, activeTab === 'system' && styles.tabActive]} onPress={() => setActiveTab('system')}>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'system' && styles.tabActive]} onPress={() => setActiveTab('system')}>
           <Text style={[styles.tabText, activeTab === 'system' && styles.tabTextActive]}>SYSTEM</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => setActiveTab('backups')}>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => setActiveTab('backups')}>
           <Text style={[styles.tabText, activeTab === 'backups' && styles.tabTextActive]}>BACKUPS</Text>
         </TouchableOpacity>
       </View>

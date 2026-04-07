@@ -1,3 +1,6 @@
+/**
+ * NOTE: This test file primarily uses text-based selectors.
+ */
 import { test, expect } from '@playwright/test';
 
 test.describe('TC-61.2: Mess Hall Recipes - Prompt Content Auditing', () => {

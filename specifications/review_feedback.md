@@ -2,6 +2,44 @@
 
 This document tracks items that were strictly specified in the `requirements.md` but were initially overlooked during the first iteration of development.
 
+## Iteration 64: Memorized Chef Selection
+1. **Curated Chef List Refinement**: Streamlined the "Legendary Chef Intel" picker to a high-impact set of 5 core experts (BBC Good Food, Ramsay, Oliver, Nigella, Ottolenghi) for faster operational selection.
+2. **"Suggest a Chef" Input**: Added a tactical text input field to the recipe configuration screen, allowing users to define any custom culinary expert for the AI to emulate.
+3. **Persistent Chef Memory**: Implemented a 2-slot sliding window memory for custom chef suggestions. The last two unique experts entered are automatically promoted to the clickable chip row, ensuring rapid access to preferred niche styles in future sessions.
+4. **Settings Persistence**: Custom chef history and the last-used suggestion are now fully persisted in the `Settings` table, surviving application restarts or backgrounding.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 64)
+**[TC-64.1] VERIFICATION: Memorized Chef Selection & History**
+*   **Conditions**: Clean database; Recipes screen accessible.
+*   **Actions**:
+    1. Navigate to **Mess Hall Recipes**.
+    2. Enter "Marco Pierre White" into the **"SUGGEST A CHEF"** input.
+    3. Tap **"GENERATE PROMPT"**.
+    4. Confirm the prompt is generated, then tap **CLOSE** to return.
+    5. Verify: A new chip for "Marco Pierre White" appears in the chef grid.
+    6. Enter "Heston Blumenthal" into the suggestion box and tap **"GENERATE PROMPT"**.
+    7. Return and verify: Both "Heston Blumenthal" and "Marco Pierre White" chips are visible.
+    8. Enter "Alison Roman" and Generate.
+    9. Verify: The list now shows "Alison Roman" and "Heston Blumenthal" (Marco Pierre White has been evicted from the 2-slot memory).
+*   **Assertions**:
+    1. RECOGNITION: Custom chefs are promoted to the selection grid as clickable chips.
+    2. SLIDING WINDOW: Only the most recent TWO unique custom suggestions are retained.
+    3. SELECTION: Tapping a custom history chip correctly selects that chef and populates the prompt.
+
+## Iteration 63: Restock List Unit Fallback
+1. **Logistics Engine Default Sizes**: Fixed a UX issue in the Restocking List where minimum thresholds for items configured as 'weight' or 'volume' would incorrectly format their deficit totals as physical metric capacities (e.g., 'MIN 3g') if no `default_size` was specified in the Catalog. The engine now explicitly prioritizes tracking raw unit count deficits when a standard container size is absent, matching the user's operational reality.
+
+## Iteration 62: External Mirror Rolling 5
+1. **SAF Mirror Suffix Pileup**: Resolved an issue on Android where external database backups would indefinitely pile up with `(1)`, `(2)` numeric suffixes instead of overriding the previous files. The Storage Access Framework engine now aggressively filters and purges all previous matching target slots (e.g. `02-WC-BACKUP`) before shifting the waterfall, properly maintaining the strict 5-file rolling stack on external storage and cleaning up any legacy accumulated junk.
+
+## Iteration 61: Recipe Briefing Page
+1. **Anchored Command Panel**: Locked clickable elements (Copy, Close, and AI Deployment Stations) to the top of the generated briefing screen for immediate action without scrolling.
+2. **Configurable Deployment Stations**: A choice of 3 AI deployment stations added to the configuration screen. Users can configure the labels and URLs, and these match the deploy buttons dynamically (e.g. ChatGPT, Gemini, Claude).
+3. **Direct AI Launching**: Tapping a deployment station's button automatically copies the briefing text and routes the user directly to the target AI website via device linking.
+4. **Deployment Briefing Dialog**: Integrated a pop-up explanation dialog before launching the AI to inform users about the manual clipboard pasting process and the cost-saving rationale.
+5. **Dismissable Prompts**: The deployment briefing dialog includes a "Don't show this briefing again" checkbox, allowing users to opt out of the prompt on future launches through local persistence.
+
 ## Iteration 60: Logistics & Restocking Refinement
 - [x] Restocking list logic: Silent until MIN breach
 - [x] Streamlined nomenclature: "Restocking List", "Current Stock", "Suggested Unit Size:"

@@ -101,30 +101,35 @@ export const BackupService = {
               const currS = i.toString().padStart(2, '0');
               const nextS = (i + 1).toString().padStart(2, '0');
               
-              const currJSON = mirrorFiles.find(f => f.includes(`${currS}-WC-BACKUP.json`));
-              const currCSV = mirrorFiles.find(f => f.includes(`${currS}-WC-REPORT.csv`));
+              const currJSONs = mirrorFiles.filter(f => f.includes(`${currS}-WC-BACKUP`));
+              const currCSVs = mirrorFiles.filter(f => f.includes(`${currS}-WC-REPORT`));
 
-              if (currJSON) {
-                // Read and Migrate to next slot
-                const content = await FileSystem.readAsStringAsync(currJSON);
+              if (currJSONs.length > 0) {
+                // Delete existing targets to prevent (1) suffix pileup
+                const targetJSONs = mirrorFiles.filter(f => f.includes(`${nextS}-WC-BACKUP`));
+                for (const tgt of targetJSONs) await FileSystem.StorageAccessFramework.deleteAsync(tgt).catch(()=>{});
+                
+                const content = await FileSystem.readAsStringAsync(currJSONs[0]);
                 const nextFile = await FileSystem.StorageAccessFramework.createFileAsync(mirrorUri, `${nextS}-WC-BACKUP`, 'application/json');
                 await FileSystem.writeAsStringAsync(nextFile, content);
-                // The old currJSON will be cleared/overwritten later in the cascade or replaced by 01
               }
               
-              if (currCSV) {
-                const content = await FileSystem.readAsStringAsync(currCSV);
+              if (currCSVs.length > 0) {
+                const targetCSVs = mirrorFiles.filter(f => f.includes(`${nextS}-WC-REPORT`));
+                for (const tgt of targetCSVs) await FileSystem.StorageAccessFramework.deleteAsync(tgt).catch(()=>{});
+
+                const content = await FileSystem.readAsStringAsync(currCSVs[0]);
                 const nextFile = await FileSystem.StorageAccessFramework.createFileAsync(mirrorUri, `${nextS}-WC-REPORT`, 'text/csv');
                 await FileSystem.writeAsStringAsync(nextFile, content);
               }
             }
 
             // B. INSERT NEW DATA AT 01 (Clears previous 01 entries as part of write/create cycle)
-            // We MUST delete any existing slot 01 to prevent '01 (1).json' behavior
-            const p1JSON = mirrorFiles.find(f => f.includes(`01-WC-BACKUP.json`));
-            const p1CSV = mirrorFiles.find(f => f.includes(`01-WC-REPORT.csv`));
-            if (p1JSON) await FileSystem.StorageAccessFramework.deleteAsync(p1JSON);
-            if (p1CSV) await FileSystem.StorageAccessFramework.deleteAsync(p1CSV);
+            // We MUST delete ALL existing slot 01 files to prevent '01 (1)' behavior
+            const p1JSONs = mirrorFiles.filter(f => f.includes(`01-WC-BACKUP`));
+            const p1CSVs = mirrorFiles.filter(f => f.includes(`01-WC-REPORT`));
+            for (const tgt of p1JSONs) await FileSystem.StorageAccessFramework.deleteAsync(tgt).catch(()=>{});
+            for (const tgt of p1CSVs) await FileSystem.StorageAccessFramework.deleteAsync(tgt).catch(()=>{});
 
             const bFile = await FileSystem.StorageAccessFramework.createFileAsync(mirrorUri, `01-WC-BACKUP`, 'application/json');
             await FileSystem.writeAsStringAsync(bFile, jsonContent);

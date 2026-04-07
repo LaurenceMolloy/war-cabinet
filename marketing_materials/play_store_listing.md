@@ -1,8 +1,15 @@
 # War Cabinet: Strategic Inventory Command 🛡️
 
-**"Take Command of Your Logistics. Eliminate Expiry. Ensure Readiness."**
+**"Command Your Logistics. Eradicate Waste. Master Your Mess Hall."**
 
 ---
+
+### 🍳 THE MESS HALL (NEW: AI-POWERED CULINARY COMMAND)
+Don't just track your stock—**deploy** it. The **Mess Hall Recipes** engine transforms your expiring stockpile into mission-ready meals using advanced AI.
+*   **Legendary Chef Intel:** Emulate the culinary philosophy of experts like **Ramsay**, **Oliver**, or **Ottolenghi**. 
+*   **Custom Expert Memory:** Suggest any chef in the world. War Cabinet **memorizes your last 2 unique suggestions** for rapid, zero-friction access in future sessions.
+*   **Tactical Briefings:** Generate precise AI prompts that prioritize your soonest-expiring items and respect your dietary doctrine.
+*   **One-Click Deployment:** Seamlessly "Copy & Launch" briefings directly to your preferred AI command center (ChatGPT, Gemini, Claude).
 
 ### 🛡️ THE MISSION
 Is your pantry a logistics nightmare? Are you losing money to "Hidden Expiry" at the back of the shelf? **War Cabinet** was born from a singular vision: to provide a professional-grade command center for long-term stockpiling against **global supply chain disruptions** and **hyper-inflation**.
@@ -39,6 +46,8 @@ Stay battle-ready without even opening the app.
 *   **Multi-Cabinet Architecture:** Split your inventory by physical location.
 *   **Smart Selection:** The app remembers your history and suggests batch sizes before you type.
 *   **Tactical Totals:** Instant aggregates of kilos, liters, and units across all items.
-*   **Offline First:** Encrypted local SQLite database ensures your data is yours—even when the grid goes dark.
+*   **Mess Hall Recipes:** Transform stockpile items into michelin-star AI prompts.
+*   **Chef Intelligence:** Memorized history for your favorite custom culinary experts.
+*   **Offline First:** Local SQLite encryption ensures data sovereignty—even when the grid goes dark.
 
-**"Amateurs talk strategy. Professionals talk logistics. Take command today."**
+**"Amateurs talk strategy. Professionals talk logistics. Take command of your kitchen today."**

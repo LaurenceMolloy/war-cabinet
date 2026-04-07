@@ -1,3 +1,6 @@
+/**
+ * NOTE: This test file primarily uses text-based selectors.
+ */
 import { test, expect } from '@playwright/test';
 
 /**

@@ -167,7 +167,7 @@
     "entity": "search",
     "action": "verify",
     "title": "Archival Search & 404 Recovery",
-    "text": "In AUTHENTIC mode, the AI uses a 'Brutal' validation protocol. It must confirm that each recipe URL returns a valid HTTP 200 status. If an official link is dead, the AI is commanded to pivot to a verified archive or trusted 'copycat' record of that specific recipe, ensuring max archival fidelity.",
+    "text": "In AUTHENTIC mode, the AI uses a 'Robust' validation protocol. It must confirm that each recipe URL returns a valid HTTP 200 status. If an official link is dead, the AI is commanded to pivot to a verified archive or trusted 'copycat' record of that specific recipe, ensuring maximum archival fidelity.",
     "tags": ["recipes", "authentic", "search", "404", "recovery", "copycat", "verification"]
   },
   {
@@ -180,5 +180,27 @@
     "title": "Culinary Expert & Archive Library",
     "text": "You can anchor your recipes to one of 10+ legendary experts and archives, including Ramsay, Oliver, BBC Good Food, and many more. This influences the AI's seasoning style, technique priorities, and voice—transforming raw ingredients into professional-grade briefings.",
     "tags": ["recipes", "chef", "inspiration", "library", "expert", "archive"]
+  },
+  {
+    "id": "TC-61.6",
+    "test_marker": "TC-61.3",
+    "iteration": 61,
+    "screen": "recipes",
+    "entity": "deploy",
+    "action": "launch",
+    "title": "Rapid AI Deployment Stations",
+    "text": "The Recipe Engine allows you to configure up to three preferred AI deployment stations (e.g. ChatGPT, Gemini, Claude). Once your briefing is generated, tapping a station instantly copies the prompt and navigates you to that specific web portal. A Deployment Briefing dialog initially introduces this cost-free manual-paste process, but you can choose to bypass the dialog in the future for a true one-click blastoff experience.",
+    "tags": ["recipes", "deploy", "ai", "launch", "stations", "clipboard"]
+  },
+  {
+    "id": "TC-64.1",
+    "test_marker": "TC-64.1",
+    "iteration": 64,
+    "screen": "recipes",
+    "entity": "chef",
+    "action": "memorize",
+    "title": "Memorized Chef Intelligence",
+    "text": "The Recipe Engine allows you to define any custom culinary expert for the AI to emulate. By typing a name into the 'SUGGEST A CHEF' input, you can expand your culinary horizons beyond the curated list. The system automatically memorizes your last two unique suggestions, promoting them to the clickable chip row for rapid, zero-friction access in future sessions.",
+    "tags": ["recipes", "chef", "memory", "suggestion", "custom", "persistence"]
   }
 ]

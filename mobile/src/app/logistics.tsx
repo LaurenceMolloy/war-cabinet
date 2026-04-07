@@ -138,8 +138,9 @@ export default function LogisticsScreen() {
     data.forEach(cat => {
       textBody += `=== ${cat.title.toUpperCase()} ===\n\n`;
       cat.data.forEach((item: any) => {
-        const minI = calculateDeficitInfo(item.target_min_total, item.total_stored, item.unit_type, item.def_size_val);
-        const maxI = calculateDeficitInfo(item.target_max_total, item.total_stored, item.unit_type, item.def_size_val);
+        const effectiveUnit = item.default_size ? item.unit_type : 'unit';
+        const minI = calculateDeficitInfo(item.target_min_total, item.total_stored, effectiveUnit, item.def_size_val);
+        const maxI = calculateDeficitInfo(item.target_max_total, item.total_stored, effectiveUnit, item.def_size_val);
         const currentLabel = item.default_size ? formatQtyStr(item.total_stored, item.unit_type) : `${item.total_stored} ${item.total_stored === 1 ? 'unit' : 'units'}`;
         
         textBody += `• ${item.type_name}\n`;
@@ -186,8 +187,9 @@ export default function LogisticsScreen() {
         <Text style={styles.catTitle}>{cat.title.toUpperCase()}</Text>
       </View>
       {cat.data.map((item: any) => {
-        const minI = calculateDeficitInfo(item.target_min_total, item.total_stored, item.unit_type, item.def_size_val);
-        const maxI = calculateDeficitInfo(item.target_max_total, item.total_stored, item.unit_type, item.def_size_val);
+        const effectiveUnit = item.default_size ? item.unit_type : 'unit';
+        const minI = calculateDeficitInfo(item.target_min_total, item.total_stored, effectiveUnit, item.def_size_val);
+        const maxI = calculateDeficitInfo(item.target_max_total, item.total_stored, effectiveUnit, item.def_size_val);
 
         return (
           <View key={item.type_id} style={styles.resupplyRow} testID={`resupply-row-${item.type_id}`}>
