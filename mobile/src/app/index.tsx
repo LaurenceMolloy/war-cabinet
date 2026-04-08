@@ -448,24 +448,17 @@ export default function HomeScreen() {
     const color = isCritical ? rawColor : '#94a3b8';
     const weight = isCritical ? 'bold' : 'normal';
 
-    if (remaining < 0) {
-      const abs = Math.abs(remaining);
-      const label = isHeader ? "ITEMS EXPIRED " : "BATCHES EXPIRED ";
-      return (
-        <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>
-          {label}
-          <Text style={{ color: '#ef4444' }}>{abs} {abs === 1 ? 'MONTH' : 'MONTHS'} AGO</Text>
-        </Text>
-      );
-    }
-    
-    const label = isHeader ? "NEXT EXPIRY: " : "expires ";
-    const timeText = remaining === 0 ? "THIS MONTH" : `${remaining} ${remaining === 1 ? 'MONTH' : 'MONTHS'}`;
+    const isExpired = remaining < 0;
+    const label = isHeader ? (isExpired ? "" : "NEXT EXPIRY: ") : (isExpired ? "" : "expires ");
+    const abs = Math.abs(remaining);
+    const timeText = isExpired 
+      ? `expired ${abs} ${abs === 1 ? 'month' : 'months'} ago` 
+      : (remaining === 0 ? "THIS MONTH" : `${remaining} ${remaining === 1 ? 'month' : 'months'}`);
     
     return (
       <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>
         {label}
-        <Text style={{ color, fontWeight: weight }}>{timeText}</Text>
+        <Text style={{ color, fontWeight: weight }}>{isHeader ? timeText.toUpperCase() : timeText}</Text>
       </Text>
     );
   };

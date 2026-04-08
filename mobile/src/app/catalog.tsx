@@ -586,44 +586,22 @@ export default function CatalogScreen() {
       </View>
 
       <View style={styles.tabRow}>
-        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'categories' && styles.tabActive]} onPress={() => setActiveTab('categories')} testID="tab-categories">
-          <Text style={[styles.tabText, activeTab === 'categories' && styles.tabTextActive]}>CATEGORIES</Text>
-        </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')}>
-          <Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text>
-        </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'system' && styles.tabActive]} onPress={() => setActiveTab('system')} testID="tab-system">
-          <Text style={[styles.tabText, activeTab === 'system' && styles.tabTextActive]}>SYSTEM</Text>
-        </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => setActiveTab('backups')}>
-          <Text style={[styles.tabText, activeTab === 'backups' && styles.tabTextActive]}>BACKUPS</Text>
-        </TouchableOpacity>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'categories' && styles.tabActive]} onPress={() => setActiveTab('categories')} testID="tab-categories"><Text style={[styles.tabText, activeTab === 'categories' && styles.tabTextActive]}>CATEGORIES</Text></TouchableOpacity>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')}><Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text></TouchableOpacity>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'system' && styles.tabActive]} onPress={() => setActiveTab('system')} testID="tab-system"><Text style={[styles.tabText, activeTab === 'system' && styles.tabTextActive]}>SYSTEM</Text></TouchableOpacity>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => setActiveTab('backups')}><Text style={[styles.tabText, activeTab === 'backups' && styles.tabTextActive]}>BACKUPS</Text></TouchableOpacity>
       </View>
 
       {activeTab === 'categories' && (
-        <FlatList
-          data={categories}
-          keyExtractor={i => i.id.toString()}
-          renderItem={renderCategory}
-          ListHeaderComponent={(
+        <FlatList data={categories} keyExtractor={i => i.id.toString()} renderItem={renderCategory} ListHeaderComponent={(
             <View style={styles.newCatBlock}>
               <Text style={styles.label}>New Category</Text>
               <View style={styles.newRow}>
-                <TextInput 
-                  style={styles.inputMedium} 
-                  value={newCatName} 
-                  onChangeText={setNewCatName} 
-                  placeholder="Category Name"
-                  placeholderTextColor="#64748b"
-                  testID="new-cat-input"
-                />
-                <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge} testID="create-cat-btn">
-                  <Text style={styles.addSaveTextLarge}>CREATE</Text>
-                </TouchableOpacity>
+                <TextInput style={styles.inputMedium} value={newCatName} onChangeText={setNewCatName} placeholder="Category Name" placeholderTextColor="#64748b" testID="new-cat-input" />
+                <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge} testID="create-cat-btn"><Text style={styles.addSaveTextLarge}>CREATE</Text></TouchableOpacity>
               </View>
             </View>
-          )}
-        />
+          )} />
       )}
 
       {activeTab === 'cabinets' && (
