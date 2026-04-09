@@ -148,7 +148,11 @@ export default function HomeScreen() {
     ]).start(() => setFeedback(null));
   };
 
-  const load = async (overrideCabinetId?: number | null) => {
+  useEffect(() => {
+    load();
+  }, [searchQuery, filterCabinetId, filterExpiryMode]);
+
+  const load = useCallback(async (overrideCabinetId?: number | null) => {
     const effectiveCabinetId = overrideCabinetId !== undefined ? overrideCabinetId : filterCabinetId;
     const hasPerms = await requestPermissions();
     if (hasPerms) {
@@ -174,6 +178,7 @@ export default function HomeScreen() {
 
     const acc: any = {};
     allRows.forEach(row => {
+      // 1. Search Query Filter (Strict Removal)
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const isInName = row.type_name?.toLowerCase().includes(query);
@@ -182,6 +187,46 @@ export default function HomeScreen() {
         if (!isInName && !isInCat && !isInSite) return;
       }
 
+      // 2. Expiry Mode Filter (Strict Removal)
+      if (row.inv_id) {
+        const now = new Date();
+        const currentStamp = now.getFullYear() * 12 + (now.getMonth() + 1);
+        
+        // Calculate effective expiry for frozen items
+        let effMonth = row.expiry_month;
+        let effYear = row.expiry_year;
+
+        if (row.cab_type === 'freezer' && row.entry_month && row.entry_year) {
+          const limit = row.type_freeze_months ?? 6;
+          let m = row.entry_month + limit;
+          let y = row.entry_year;
+          while (m > 12) {
+            m -= 12;
+            y += 1;
+          }
+          effMonth = m;
+          effYear = y;
+        }
+
+        const expStamp = (effYear && effMonth) ? (effYear * 12 + effMonth) : null;
+        
+        let matchesExpiry = true;
+        if (filterExpiryMode === 'EXPIRED') matchesExpiry = !!expStamp && expStamp < currentStamp;
+        else if (filterExpiryMode === 'THIS_MONTH') matchesExpiry = !!expStamp && expStamp === currentStamp;
+        else if (filterExpiryMode === '<3M') matchesExpiry = !!expStamp && (expStamp >= currentStamp + 1 && expStamp <= currentStamp + 3);
+
+        if (!matchesExpiry) return; // Skip the batch completely if it doesn't match the urgency filter
+      } else {
+        // If there's no inventory row but a filter is active, we should skip this row unless it matches the search (handled above)
+        // If an Expiry Filter is active, an item with no batches CANNOT match.
+        if (filterExpiryMode !== 'ALL') return;
+        
+        // If a Cabinet Filter is active, and the SQL join failed (effectiveCabinetId was passed), inv_id will be null.
+        // So this row shouldn't be here in the results because of the outer join if we want strict removal.
+        if (effectiveCabinetId) return;
+      }
+
+      // 3. Populate accumulator
       if (!acc[row.cat_id]) {
         acc[row.cat_id] = { id: row.cat_id, name: row.cat_name, icon: row.cat_icon, types: {}, soonest_month: null, soonest_year: null };
       }
@@ -190,24 +235,13 @@ export default function HomeScreen() {
           acc[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, unit_type: row.type_unit, is_favorite: row.is_favorite, interaction_count: row.interaction_count, freeze_months: row.type_freeze_months ?? null, items: [] };
         }
         if (row.inv_id) {
-          const now = new Date();
-          const currentStamp = now.getFullYear() * 12 + (now.getMonth() + 1);
-          const expStamp = (row.expiry_year && row.expiry_month) ? (row.expiry_year * 12 + row.expiry_month) : null;
-          
-          let matchesFilter = true;
-          if (filterExpiryMode === 'EXPIRED') matchesFilter = !!expStamp && expStamp < currentStamp;
-          else if (filterExpiryMode === 'THIS_MONTH') matchesFilter = !!expStamp && expStamp === currentStamp;
-          else if (filterExpiryMode === '<3M') matchesFilter = !!expStamp && (expStamp <= currentStamp + 3);
-
-          if (matchesFilter) {
-            acc[row.cat_id].types[row.type_id].items.push({
-              id: row.inv_id, quantity: row.quantity, size: row.size,
-              expiry_month: row.expiry_month, expiry_year: row.expiry_year,
-              entry_month: row.entry_month, entry_year: row.entry_year,
-              cab_name: row.cab_name, cab_location: row.cab_location,
-              cab_type: row.cab_type,
-            });
-          }
+          acc[row.cat_id].types[row.type_id].items.push({
+            id: row.inv_id, quantity: row.quantity, size: row.size,
+            expiry_month: row.expiry_month, expiry_year: row.expiry_year,
+            entry_month: row.entry_month, entry_year: row.entry_year,
+            cab_name: row.cab_name, cab_location: row.cab_location,
+            cab_type: row.cab_type,
+          });
         }
       }
     });
@@ -224,15 +258,33 @@ export default function HomeScreen() {
         t.items.forEach((it: any) => {
           uniqueSitesSet.add(it.cab_name || 'Global');
           typeQty += it.quantity;
-          if (it.expiry_year && it.expiry_month) {
-            const stamp = it.expiry_year * 12 + it.expiry_month;
+
+          let effMonth = it.expiry_month;
+          let effYear = it.expiry_year;
+
+          if (it.cab_type === 'freezer' && it.entry_month && it.entry_year) {
+            const limit = t.freeze_months ?? 6;
+            let m = it.entry_month + limit;
+            let y = it.entry_year;
+            while (m > 12) {
+              m -= 12;
+              y += 1;
+            }
+            effMonth = m;
+            effYear = y;
+          }
+
+          if (effYear && effMonth) {
+            const stamp = effYear * 12 + effMonth;
             if (stamp < soonestTypeStamp) {
               soonestTypeStamp = stamp;
-              t.soonest_month = it.expiry_month;
-              t.soonest_year = it.expiry_year;
+              t.soonest_month = effMonth;
+              t.soonest_year = effYear;
+              t.soonest_is_freezer = it.cab_type === 'freezer';
               if (!c.soonest_year || stamp < (c.soonest_year * 12 + c.soonest_month)) {
-                c.soonest_month = it.expiry_month;
-                c.soonest_year = it.expiry_year;
+                c.soonest_month = effMonth;
+                c.soonest_year = effYear;
+                c.soonest_is_freezer = it.cab_type === 'freezer';
               }
             }
           }
@@ -276,12 +328,24 @@ export default function HomeScreen() {
       c.total_qty = totalQty;
       c.batch_count = totalBatches;
       c.site_count = uniqueSitesSet.size;
+
+      // STRICT NOISE REDUCTION: If filtering/searching, purge empty item types
+      if (effectiveCabinetId || filterExpiryMode !== 'ALL' || searchQuery) {
+        c.types = c.types.filter((t: any) => t.items.length > 0);
+      }
+
       const ttStamps = c.types.map((tt: any) => tt.soonest_stamp);
       c.cat_soonest_stamp = (ttStamps.length > 0) ? Math.min(...ttStamps) : Number.MAX_SAFE_INTEGER;
       return c;
     });
 
-    finalCategories.sort((a: any, b: any) => {
+    // FINAL FILTER: Purge categories that are now empty (if filtering/searching)
+    let finalFiltered = finalCategories;
+    if (effectiveCabinetId || filterExpiryMode !== 'ALL' || searchQuery) {
+      finalFiltered = finalCategories.filter((c: any) => c.types.length > 0);
+    }
+    
+    finalFiltered.sort((a: any, b: any) => {
       const aHasStock = a.items_stocked > 0;
       const bHasStock = b.items_stocked > 0;
       if (aHasStock !== bHasStock) return aHasStock ? -1 : 1;
@@ -289,7 +353,7 @@ export default function HomeScreen() {
       return a.name.localeCompare(b.name);
     });
 
-    setCategories(finalCategories);
+    setCategories(finalFiltered);
 
     // FRONT LINE: Always load favorites from an UNFILTERED query so the belt
     // is never affected by cabinet or expiry filters — it's a global quick-access rail.
@@ -307,7 +371,7 @@ export default function HomeScreen() {
 
     // Run auto-backup check
     await BackupService.checkAndRunAutoBackup(db);
-  };
+  }, [db, filterCabinetId, filterExpiryMode, searchQuery]);
 
   useFocusEffect(useCallback(() => { load(); }, [filterCabinetId, filterExpiryMode, searchQuery]));
 
@@ -435,7 +499,7 @@ export default function HomeScreen() {
     if (!m || !y) return '#94a3b8';
     const now = new Date();
     const remaining = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
-    if (remaining <= 0) return '#b91c1c';
+    if (remaining <= 0) return '#f43f5e';
     if (remaining < 4) return '#f97316';
     if (remaining < 7) return '#fde047';
     return '#22c55e';
@@ -449,18 +513,24 @@ export default function HomeScreen() {
     const remaining = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
     const rawColor = getStatusColor(m, y);
     const isCritical = remaining < 4;
-    const color = isCritical ? rawColor : '#94a3b8';
-    const weight = isCritical ? 'bold' : 'normal';
+    const color = isCritical ? rawColor : '#e2e8f0';
+    const weight = 'bold';
 
     const isExpired = remaining < 0;
-    const label = isHeader ? (isExpired ? "" : "NEXT EXPIRY: ") : (isExpired ? "" : "expires ");
+    const label = isExpired ? "" : (isHeader ? "NEXT EXPIRY: " : "expires ");
     const abs = Math.abs(remaining);
-    const timeText = isExpired 
-      ? `expired ${abs} ${abs === 1 ? 'month' : 'months'} ago` 
-      : (remaining === 0 ? "THIS MONTH" : `${remaining} ${remaining === 1 ? 'month' : 'months'}`);
+    
+    let timeText = "";
+    if (isExpired) {
+      timeText = `expired ${abs} ${abs === 1 ? 'month' : 'months'} ago`;
+    } else if (remaining === 0) {
+      timeText = 'THIS MONTH';
+    } else {
+      timeText = `${remaining} ${remaining === 1 ? 'month' : 'months'}`;
+    }
     
     return (
-      <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>
+      <Text style={{color: '#e2e8f0', fontSize: 12, fontWeight: 'bold'}}>
         {label}
         <Text style={{ color, fontWeight: weight }}>{isHeader ? timeText.toUpperCase() : timeText}</Text>
       </Text>
@@ -472,14 +542,24 @@ export default function HomeScreen() {
     const ageMonths = (now.getFullYear() - inv.entry_year) * 12 + ((now.getMonth() + 1) - inv.entry_month);
     const limit = type.freeze_months ?? 6;
     const remaining = limit - ageMonths;
-    const color = remaining <= 0 ? '#b91c1c' : remaining < 3 ? '#f97316' : remaining < 6 ? '#fde047' : '#22c55e';
-    if (remaining <= 0) {
-      const over = Math.abs(remaining);
-      return <Text style={{color: '#b91c1c', fontSize: 12, fontWeight: 'bold'}}>OVERDUE by {over}mo</Text>;
+    
+    const rawColor = remaining <= 0 ? '#f43f5e' : remaining < 4 ? '#f97316' : remaining < 7 ? '#fde047' : '#22c55e';
+    const color = (remaining < 4) ? rawColor : '#e2e8f0';
+    const weight = 'bold';
+
+    const abs = Math.abs(remaining);
+    let timeText = "";
+    if (remaining < 0) {
+      timeText = `expired ${abs} ${abs === 1 ? 'month' : 'months'} ago`;
+    } else if (remaining === 0) {
+      timeText = 'expires THIS MONTH';
+    } else {
+      timeText = `expires ${remaining} ${remaining === 1 ? 'month' : 'months'}`;
     }
+
     return (
-      <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>
-        frozen {ageMonths}mo · <Text style={{color}}>{remaining}mo left</Text>
+      <Text style={{color, fontSize: 12, fontWeight: weight}}>
+        {timeText}
       </Text>
     );
   };
@@ -605,11 +685,14 @@ export default function HomeScreen() {
                     <View 
                       key={inv.id} 
                       ref={(r) => { batchRefs.current[inv.id] = r; }} 
-                      style={styles.inventoryRow}
+                      style={[
+                        styles.inventoryRow,
+                        inv.cab_type === 'freezer' && { backgroundColor: '#1d4f87', borderBottomColor: '#2b63a3' }
+                      ]}
                       testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}`}
                     >
-                      <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
-                         <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
+                      <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
+                         <Text style={{color: '#60a5fa', fontSize: 12, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
                       </View>
                       <View style={styles.rowMain}>
                         {inv.id === flashBatchId ? (
@@ -617,9 +700,18 @@ export default function HomeScreen() {
                             <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
                           </Animated.View>
                         ) : (
-                          <View style={styles.qtyBadge}>
-                            <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
-                          </View>
+                          inv.cab_type === 'freezer' ? (
+                            <View style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                              <MaterialCommunityIcons name="snowflake" size={42} color="#bfdbfe" style={{ position: 'absolute' }} />
+                              <View style={{ backgroundColor: '#1e293b', width: 25, height: 25, borderRadius: 12.5, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
+                                <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
+                              </View>
+                            </View>
+                          ) : (
+                            <View style={styles.qtyBadge}>
+                              <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
+                            </View>
+                          )
                         )}
                         <Text style={styles.sizeText} numberOfLines={1} testID="size-text">{formatSizeDisplay(inv.size, type.unit_type)}</Text>
                         <View style={styles.actionsGroup}>
@@ -646,14 +738,15 @@ export default function HomeScreen() {
                         {inv.cab_type === 'freezer' ? (
                           <>
                             <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
-                              <MaterialCommunityIcons name="snowflake" size={10} color="#60a5fa" />
-                              <Text style={[styles.subText, {color:'#60a5fa'}]}>FROZEN {formatMonth(inv.entry_month)}/{inv.entry_year}</Text>
+                              <Text style={styles.subText}>FROZEN <Text style={{color: '#f8fafc'}}>{formatMonth(inv.entry_month)}/{inv.entry_year}</Text></Text>
+                              <Text style={styles.divider}>|</Text>
+                              <Text style={styles.subText}>LIFESPAN <Text style={{color: '#f8fafc'}}>{type.freeze_months ?? 6}m</Text></Text>
                             </View>
                             {getFreezerUrgency(inv, type)}
                           </>
                         ) : (
                           <>
-                            <Text style={styles.subText}>ENTRY: {formatMonth(inv.entry_month)}/{inv.entry_year}</Text>
+                            <Text style={styles.subText}>STORED {formatMonth(inv.entry_month)}/{inv.entry_year}</Text>
                             {inv.expiry_month ? getUrgencyPhrasing(inv.expiry_month, inv.expiry_year, false) : <Text style={styles.subText}>EXPIRY: N/A</Text>}
                           </>
                         )}
@@ -756,7 +849,7 @@ export default function HomeScreen() {
             const modeMap: Record<string, { label: string; color: string; bg: string; icon: string }> = {
               'EXPIRED':    { label: 'EXPIRED',    color: '#ef4444', bg: '#3f0f0f', icon: 'alert-circle' },
               'THIS_MONTH': { label: 'THIS MONTH', color: '#f97316', bg: '#3f1f0f', icon: 'calendar-alert' },
-              '<3M':        { label: 'DUE < 3M',   color: '#eab308', bg: '#3f350f', icon: 'calendar-clock' },
+              '<3M':        { label: '1-3 MONTHS', color: '#eab308', bg: '#3f350f', icon: 'calendar-clock' },
             };
             const def = modeMap[filterExpiryMode] ?? { label: filterExpiryMode, color: '#94a3b8', bg: '#1e293b', icon: 'calendar-search' };
             return (
@@ -810,10 +903,13 @@ export default function HomeScreen() {
             <Text style={[styles.modalItemText, filterExpiryMode === 'ALL' && styles.modalItemTextActive]}>ALL STOCK</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.modalItem, filterExpiryMode === 'EXPIRED' && styles.modalItemActive]} onPress={() => { setFilterExpiryMode('EXPIRED'); setShowExpiryModal(false); }}>
-            <Text style={[styles.modalItemText, filterExpiryMode === 'EXPIRED' && styles.modalItemTextActive]}>EXPIRED ONLY</Text>
+            <Text style={[styles.modalItemText, filterExpiryMode === 'EXPIRED' && styles.modalItemTextActive]}>EXPIRED</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.modalItem, filterExpiryMode === 'THIS_MONTH' && styles.modalItemActive]} onPress={() => { setFilterExpiryMode('THIS_MONTH'); setShowExpiryModal(false); }}>
+            <Text style={[styles.modalItemText, filterExpiryMode === 'THIS_MONTH' && styles.modalItemTextActive]}>EXPIRING THIS MONTH</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.modalItem, filterExpiryMode === '<3M' && styles.modalItemActive]} onPress={() => { setFilterExpiryMode('<3M'); setShowExpiryModal(false); }}>
-            <Text style={[styles.modalItemText, filterExpiryMode === '<3M' && styles.modalItemTextActive]}>DUE SOON</Text>
+            <Text style={[styles.modalItemText, filterExpiryMode === '<3M' && styles.modalItemTextActive]}>EXPIRING SOON (1-3 MONTHS)</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.modalClose} onPress={() => setShowExpiryModal(false)}><Text style={styles.modalCloseText}>CLOSE</Text></TouchableOpacity>
         </View></View>
@@ -944,16 +1040,16 @@ const styles = StyleSheet.create({
   addButton: { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#3b82f6', borderRadius: 4 },
   addText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
   emptyText: { color: '#64748b', fontStyle: 'italic', fontSize: 14, marginLeft: 16 },
-  inventoryRow: { padding: 12, backgroundColor: '#334155', borderRadius: 6, marginBottom: 8 },
+  inventoryRow: { paddingTop: 8, paddingBottom: 12, paddingHorizontal: 12, backgroundColor: '#475569', borderRadius: 6, marginBottom: 8 },
   totalLabel: { fontSize: 13, color: '#3b82f6', fontWeight: 'bold' },
   rowMain: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   qtyBadge: { backgroundColor: '#1e293b', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   qtyText: { color: 'white', fontSize: 13, fontWeight: 'bold' },
-  sizeText: { flex: 1, color: '#f8fafc', fontSize: 15, fontWeight: '500' },
+  sizeText: { flex: 1, color: '#ffffff', fontSize: 15, fontWeight: 'bold' },
   actionsGroup: { flexDirection: 'row', gap: 6 },
   rowSub: { flexDirection: 'row', alignItems: 'center' },
-  subText: { color: '#94a3b8', fontSize: 12, letterSpacing: 0.5 },
-  divider: { color: '#334155', marginHorizontal: 8, fontSize: 12 },
+  subText: { color: '#e2e8f0', fontSize: 12, fontWeight: 'bold', letterSpacing: 0.5 },
+  divider: { color: '#94a3b8', marginHorizontal: 8, fontSize: 12, fontWeight: 'bold' },
   actionBtn: { padding: 6, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
   commandStrip: { 
     flexDirection: 'row', 

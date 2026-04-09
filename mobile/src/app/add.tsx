@@ -42,6 +42,7 @@ export default function AddInventoryScreen() {
   const [showFreezeYearPicker, setShowFreezeYearPicker] = useState(false);
   const [freezeMonth, setFreezeMonth] = useState(currentMonth.toString());
   const [freezeYear, setFreezeYear] = useState(currentYear.toString());
+  const [freezeLimit, setFreezeLimit] = useState('6');
 
   // Derived: is the currently selected cabinet a freezer?
   const selectedCabinet = cabinets.find(c => c.id === selectedCabinetId);
@@ -49,11 +50,12 @@ export default function AddInventoryScreen() {
 
   useEffect(() => {
     async function loadData() {
-      const typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null}>('SELECT name, unit_type, default_size, default_cabinet_id FROM ItemTypes WHERE id = ?', Number(typeId));
+      const typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null}>('SELECT name, unit_type, default_size, default_cabinet_id, freeze_months FROM ItemTypes WHERE id = ?', Number(typeId));
       if (typeRes) {
         setUnitType(typeRes.unit_type || 'weight');
         setTypeName(typeRes.name);
         if (typeRes.default_cabinet_id) setSelectedCabinetId(typeRes.default_cabinet_id);
+        if (typeRes.freeze_months) setFreezeLimit(typeRes.freeze_months.toString());
       }
 
       const cabRows = await db.getAllAsync<any>('SELECT * FROM Cabinets');
@@ -139,6 +141,21 @@ export default function AddInventoryScreen() {
     const entryM = (isFreezerMode && !isNaN(freezeM)) ? freezeM : currentMonth;
     const entryY = (isFreezerMode && !isNaN(freezeY)) ? freezeY : currentYear;
 
+    if (isFreezerMode) {
+      if ((entryY * 12 + entryM) > (currentYear * 12 + currentMonth)) {
+        setErrorField('freezeDate');
+        setErrorMsg('Items cannot be frozen in the future');
+        return;
+      }
+    }
+
+    let fLimit = parseInt(freezeLimit);
+    if (isFreezerMode && (isNaN(fLimit) || fLimit <= 0)) {
+       setErrorField('freezeLimit');
+       setErrorMsg('Freeze limit must be a positive number of months');
+       return;
+    }
+
     // For freezer batches: skip merge — each freeze date is a distinct batch
     if (isFreezerMode) {
       if (editBatchId) {
@@ -152,6 +169,10 @@ export default function AddInventoryScreen() {
           Number(typeId), q, finalSize, entryM, entryY, selectedCabinetId
         );
       }
+      
+      // Persist the freeze limit up to the ItemType
+      await db.runAsync('UPDATE ItemTypes SET freeze_months = ? WHERE id = ?', fLimit, Number(typeId));
+      
       await markModified(db);
       const currentFilter = inheritedCabinetId ? Number(inheritedCabinetId) : null;
       router.replace({ pathname: '/', params: { targetCatId: categoryId ? Number(categoryId) : undefined, targetTypeId: typeId ? Number(typeId) : undefined, timestamp: Date.now().toString() } });
@@ -357,6 +378,7 @@ export default function AddInventoryScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+          {errorField === 'freezeDate' && <Text style={[styles.errorText, {marginTop: 4}]}>{errorMsg}</Text>}
           {showFreezeMonthPicker && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
               {Array.from({length: 12}, (_, i) => i + 1).map(m => (
@@ -375,6 +397,22 @@ export default function AddInventoryScreen() {
               ))}
             </ScrollView>
           )}
+
+          {/* Freeze Limit Editor */}
+          <View style={{ marginTop: 16 }}>
+             <Text style={styles.label}>Safe Freeze Lifespan (Months)</Text>
+             <TextInput 
+               style={[styles.input, { flex: 1 }, errorField === 'freezeLimit' && { borderColor: '#ef4444' }]} 
+               value={freezeLimit} 
+               onChangeText={(val) => { setFreezeLimit(val.replace(/[^0-9]/g, '')); setErrorField(null); }} 
+               placeholder="e.g. 6"
+               placeholderTextColor="#64748b"
+               keyboardType="numeric"
+               testID="freeze-limit-input"
+             />
+             {errorField === 'freezeLimit' && <Text style={styles.errorText}>{errorMsg}</Text>}
+             <Text style={{color: '#64748b', fontSize: 12, marginTop: 6}}>This updates the lifespan for all batches of this item type.</Text>
+          </View>
         </View>
       ) : (
         <View style={styles.formGroup}>

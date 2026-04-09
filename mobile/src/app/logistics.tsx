@@ -95,31 +95,7 @@ export default function LogisticsScreen() {
       return acc;
     }, [] as any[]);
 
-    // 6. Freezer overdue / approaching-limit batches
-    const freezerBatches = await db.getAllAsync<any>(`
-      SELECT i.id as type_id, i.name as type_name, i.unit_type, i.freeze_months,
-             inv.id as batch_id, inv.quantity, inv.size, inv.entry_month, inv.entry_year,
-             cab.name as cab_name
-      FROM Inventory inv
-      JOIN ItemTypes i ON inv.item_type_id = i.id
-      JOIN Cabinets cab ON inv.cabinet_id = cab.id
-      WHERE cab.cabinet_type = 'freezer'
-      ORDER BY i.name, inv.entry_year, inv.entry_month
-    `);
 
-    const now = new Date();
-    const coldAlerts: any[] = [];
-    freezerBatches.forEach(row => {
-      const ageMonths = (now.getFullYear() - row.entry_year) * 12 + ((now.getMonth() + 1) - row.entry_month);
-      const limit = row.freeze_months ?? 6;
-      const remaining = limit - ageMonths;
-      if (remaining <= 1) { // flag if ≤1 month left or overdue
-        coldAlerts.push({ ...row, age_months: ageMonths, remaining, is_critical: remaining <= 0 });
-      }
-    });
-    if (coldAlerts.length > 0) {
-      grouped.unshift({ title: '\u2744 COLD STORE', data: coldAlerts, isFreezer: true });
-    }
 
     setData(grouped);
     setLoading(false);

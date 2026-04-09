@@ -278,4 +278,85 @@ test.describe('[TC-67.1] Freezer Cabinet Mode', () => {
     // Urgency should be visible — either ″Xmo left″ or ″OVERDUE″
     await expect(page.getByText(/mo left|OVERDUE/)).toBeVisible({ timeout: 10000 });
   });
+  test('G: Save Freeze Lifespan on add form updates calculation and ripples to catalog', async ({ page }) => {
+    await purgeAndReset(page);
+
+    await createCategoryAndItem(page, 'Proteins', 'Beef', '6');
+
+    await page.goto('/');
+    await goToCatalogCabinets(page);
+    await createFreezerCabinet(page, 'Chest Freezer', 'Garage');
+
+    await page.goto('/');
+    const catHeader = page.getByTestId('category-header-proteins');
+    await expect(catHeader).toBeVisible({ timeout: 15000 });
+    await catHeader.click();
+    await page.getByTestId('add-btn-beef').click();
+
+    await expect(page.getByTestId('qty-input')).toBeVisible({ timeout: 10000 });
+    await switchCabinetInAddForm(page, 'Chest Freezer');
+    await page.getByTestId('size-input').fill('500');
+
+    // Change freeze limit from 6 to 12
+    const freezeLimitInput = page.getByTestId('freeze-limit-input');
+    await expect(freezeLimitInput).toHaveValue('6'); // loaded correctly
+    await freezeLimitInput.fill('12');
+    await page.getByTestId('save-stock-btn').click();
+    
+    await expect(page.getByTestId('app-header-title')).toBeVisible({ timeout: 15000 });
+
+    // Verify calculation on Home screen
+    await catHeader.click();
+    await page.getByTestId('type-header-beef').click();
+    
+    // If it was frozen this month with limit 12, it should say "frozen this month · 12 months left"
+    await expect(page.getByText('12 months left')).toBeVisible({ timeout: 10000 });
+
+    // Now go to Catalog and check Settings card
+    await goToCatalogCategories(page);
+    const catHeaderCat = page.getByTestId('category-header-proteins');
+    await expect(catHeaderCat).toBeVisible({ timeout: 10000 });
+    await catHeaderCat.click();
+    
+    // Open edit mode
+    await page.getByTestId('edit-type-btn-beef').click();
+
+    // Verify 12 is in the freeze input
+    const editFreezeInput = page.locator('input[placeholder="e.g. 6"]').first();
+    await expect(editFreezeInput).toHaveValue('12', { timeout: 10000 });
+  });
+
+  test('H: Prevents submitting a Date Frozen in the future', async ({ page }) => {
+    const now = new Date();
+    // If it's December, the year picker caps at current year and month caps at 12, so future dates are impossible in the UI.
+    // We skip the test gracefully in this edge case rather than failing it artificially.
+    if (now.getMonth() === 11) return;
+
+    await purgeAndReset(page);
+    await createCategoryAndItem(page, 'Proteins', 'Lamb');
+    
+    await page.goto('/');
+    await goToCatalogCabinets(page);
+    await createFreezerCabinet(page, 'Chest Freezer', 'Garage');
+
+    await page.goto('/');
+    const catHeader = page.getByTestId('category-header-proteins');
+    await expect(catHeader).toBeVisible({ timeout: 15000 });
+    await catHeader.click();
+    await page.getByTestId('add-btn-lamb').click();
+
+    await expect(page.getByTestId('qty-input')).toBeVisible({ timeout: 10000 });
+    await switchCabinetInAddForm(page, 'Chest Freezer');
+    await page.getByTestId('size-input').fill('500');
+
+    // Force month to December of the current year (guaranteed to be in the future)
+    await page.getByText(`Month: ${(now.getMonth() + 1).toString().padStart(2, '0')}`).click();
+    await page.getByText('12', { exact: true }).first().click();
+
+    await page.getByTestId('save-stock-btn').click();
+
+    // The form should halt and surface the explicit validation error we added
+    await expect(page.getByText('Items cannot be frozen in the future')).toBeVisible({ timeout: 5000 });
+  });
+
 });

@@ -29,9 +29,12 @@ export default function RecipesScreen() {
 
   const [dietary, setDietary] = useState("Meat");
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
-  const [expiringList, setExpiringList] = useState<string[]>([]);
+  const [expiringList, setExpiringList] = useState<{name: string, isFreezer: boolean}[]>([]);
   const [pantryList, setPantryList] = useState<string[]>([]);
+  const [freezerList, setFreezerList] = useState<string[]>([]);
   const [excludedExpiring, setExcludedExpiring] = useState<string[]>([]);
+  const [excludedPantry, setExcludedPantry] = useState<string[]>([]);
+  const [excludedFreezer, setExcludedFreezer] = useState<string[]>([]);
   const [preferred, setPreferred] = useState("");
   const [avoid, setAvoid] = useState("");
   const [extraRequests, setExtraRequests] = useState("");
@@ -86,8 +89,8 @@ export default function RecipesScreen() {
 
   useEffect(() => {
     async function load() {
-      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs', 'recipe_fridge_staples_selected', 'recipe_fridge_staples_persistent', 'recipe_active_accordion'
+      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_excluded_pantry', 'recipe_excluded_freezer', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs', 'recipe_fridge_staples_selected', 'recipe_fridge_staples_persistent', 'recipe_active_accordion'
       );
       rows.forEach(r => {
         if (r.key === 'dietary_pref') setDietary(r.value);
@@ -98,6 +101,8 @@ export default function RecipesScreen() {
         if (r.key === 'recipe_chef') setSelectedChef(r.value);
         if (r.key === 'recipe_allergens') setSelectedAllergens(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_expiring') setExcludedExpiring(r.value ? r.value.split(',') : []);
+        if (r.key === 'recipe_excluded_pantry') setExcludedPantry(r.value ? r.value.split(',') : []);
+        if (r.key === 'recipe_excluded_freezer') setExcludedFreezer(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_hide_deploy_guide') setHideDeployGuide(r.value === 'true');
         if (r.key === 'recipe_custom_chefs') setCustomChefs(r.value ? r.value.split(',').filter(x => x) : []);
         if (r.key === 'recipe_fridge_staples_selected') setSelectedStaples(r.value ? r.value.split(',').filter(x => x) : []);
@@ -136,25 +141,58 @@ export default function RecipesScreen() {
       const now = new Date();
       const currentTotalMonths = now.getFullYear() * 12 + (now.getMonth() + 1);
       const thresholdMonths = currentTotalMonths + 1;
-      const expiringQuery = `
-        SELECT DISTINCT i.name
+
+      const allStockRows = await db.getAllAsync<any>(`
+        SELECT DISTINCT i.name, cab.cabinet_type,
+               inv.expiry_month, inv.expiry_year, 
+               inv.entry_month, inv.entry_year,
+               i.freeze_months
         FROM Inventory inv
         JOIN ItemTypes i ON i.id = inv.item_type_id
-        WHERE inv.expiry_year IS NOT NULL
-          AND (inv.expiry_year * 12 + inv.expiry_month) <= ${thresholdMonths}
-      `;
-      const expiringItems = await db.getAllAsync<{name: string}>(expiringQuery);
-      const expiringNames = expiringItems.map(it => it.name);
-      setExpiringList(expiringNames);
-      
-      const allQuery = `
-        SELECT DISTINCT i.name
-        FROM Inventory inv
-        JOIN ItemTypes i ON i.id = inv.item_type_id
-      `;
-      const allItems = await db.getAllAsync<{name: string}>(allQuery);
-      const availableItems = allItems.map(it => it.name).filter(name => !expiringNames.includes(name));
-      setPantryList(availableItems);
+        JOIN Cabinets cab ON cab.id = inv.cabinet_id
+      `);
+
+      const expSet = new Set<string>();
+      const expDetails: {name: string, isFreezer: boolean}[] = [];
+      const pantrySet = new Set<string>();
+      const freezerSet = new Set<string>();
+
+      allStockRows.forEach(row => {
+        let effMonth = row.expiry_month;
+        let effYear = row.expiry_year;
+        const isFreezerRow = row.cabinet_type === 'freezer';
+        if (isFreezerRow && row.entry_month && row.entry_year) {
+          const limit = row.freeze_months ?? 6;
+          let m = row.entry_month + limit;
+          let y = row.entry_year;
+          while (m > 12) { m -= 12; y += 1; }
+          effMonth = m;
+          effYear = y;
+        }
+
+        const stamp = (effYear && effMonth) ? (effYear * 12 + effMonth) : null;
+        if (stamp && stamp <= thresholdMonths) {
+          if (!expSet.has(row.name)) {
+            expSet.add(row.name);
+            expDetails.push({ name: row.name, isFreezer: isFreezerRow });
+          } else if (isFreezerRow) {
+            const idx = expDetails.findIndex(d => d.name === row.name);
+            if (idx !== -1) expDetails[idx].isFreezer = true;
+          }
+        } else if (isFreezerRow) {
+          freezerSet.add(row.name);
+        } else {
+          pantrySet.add(row.name);
+        }
+      });
+
+      const finalExp = expDetails.sort((a,b) => a.name.localeCompare(b.name));
+      const finalPantry = Array.from(pantrySet).filter(n => !expSet.has(n)).sort();
+      const finalFreezer = Array.from(freezerSet).filter(n => !expSet.has(n)).sort();
+
+      setExpiringList(finalExp);
+      setPantryList(finalPantry);
+      setFreezerList(finalFreezer);
     }
     load();
   }, [db]);
@@ -209,6 +247,22 @@ export default function RecipesScreen() {
     savePref('recipe_excluded_expiring', next.join(','));
   };
 
+  const togglePantry = (name: string) => {
+    const next = excludedPantry.includes(name)
+      ? excludedPantry.filter(x => x !== name)
+      : [...excludedPantry, name];
+    setExcludedPantry(next);
+    savePref('recipe_excluded_pantry', next.join(','));
+  };
+
+  const toggleFreezer = (name: string) => {
+    const next = excludedFreezer.includes(name)
+      ? excludedFreezer.filter(x => x !== name)
+      : [...excludedFreezer, name];
+    setExcludedFreezer(next);
+    savePref('recipe_excluded_freezer', next.join(','));
+  };
+
   const toggleStaple = (s: string) => {
     const next = selectedStaples.includes(s)
       ? selectedStaples.filter(x => x !== s)
@@ -261,6 +315,47 @@ export default function RecipesScreen() {
     }
   };
 
+  const massActionPantry = (include: boolean) => {
+    if (include) {
+      setExcludedPantry([]);
+      savePref('recipe_excluded_pantry', "");
+    } else {
+      setExcludedPantry([...pantryList]);
+      savePref('recipe_excluded_pantry', pantryList.join(','));
+    }
+  };
+
+  const massActionFreezer = (include: boolean) => {
+    if (include) {
+      setExcludedFreezer([]);
+      savePref('recipe_excluded_freezer', "");
+    } else {
+      setExcludedFreezer([...freezerList]);
+      savePref('recipe_excluded_freezer', freezerList.join(','));
+    }
+  };
+
+  const massActionExpiring = (include: boolean) => {
+    if (include) {
+      setExcludedExpiring([]);
+      savePref('recipe_excluded_expiring', "");
+    } else {
+      const allNames = expiringList.map(item => item.name);
+      setExcludedExpiring(allNames);
+      savePref('recipe_excluded_expiring', allNames.join(','));
+    }
+  };
+
+  const massActionStaples = (include: boolean) => {
+    if (include) {
+      setSelectedStaples([...persistentStaples]);
+      savePref('recipe_fridge_staples_selected', persistentStaples.join(','));
+    } else {
+      setSelectedStaples([]);
+      savePref('recipe_fridge_staples_selected', "");
+    }
+  };
+
   const triggerStatus = (msg: string) => {
     setMissionStatus(msg);
     statusAnim.setValue(0);
@@ -276,31 +371,69 @@ export default function RecipesScreen() {
     const currentTotalMonths = now.getFullYear() * 12 + (now.getMonth() + 1);
     const thresholdMonths = currentTotalMonths + 1;
 
-    const expiringQuery = `
-      SELECT DISTINCT i.name
+    const allStockRows = await db.getAllAsync<any>(`
+      SELECT i.name, cab.cabinet_type,
+             inv.expiry_month, inv.expiry_year, 
+             inv.entry_month, inv.entry_year,
+             i.freeze_months, i.unit_type, i.default_size
       FROM Inventory inv
       JOIN ItemTypes i ON i.id = inv.item_type_id
-      WHERE inv.expiry_year IS NOT NULL
-        AND (inv.expiry_year * 12 + inv.expiry_month) <= ${thresholdMonths}
-    `;
-    const expiringItemsRaw = await db.getAllAsync<{name: string}>(expiringQuery);
-    const expiringNames = expiringItemsRaw.map(it => it.name);
-    
-    const allQuery = `
-      SELECT DISTINCT i.name
-      FROM Inventory inv
-      JOIN ItemTypes i ON i.id = inv.item_type_id
-    `;
-    const allItems = await db.getAllAsync<{name: string}>(allQuery);
-    const allStockedNames = allItems.map(it => it.name);
+      JOIN Cabinets cab ON cab.id = inv.cabinet_id
+    `);
 
-    const activeExpiring = expiringNames.filter(name => !excludedExpiring.includes(name));
-    const availableStock = allItems.filter(item => !activeExpiring.includes(item.name));
+    const expItems: any[] = [];
+    const pantryItems: any[] = [];
+    const freezerItems: any[] = [];
+    const expSet = new Set<string>();
 
-    const formatIngredientList = (items: {name: string, unit_type: string, default_size: string}[]) => {
+    allStockRows.forEach(row => {
+      let effMonth = row.expiry_month;
+      let effYear = row.expiry_year;
+      if (row.cabinet_type === 'freezer' && row.entry_month && row.entry_year) {
+        const limit = row.freeze_months ?? 6;
+        let m = row.entry_month + limit;
+        let y = row.entry_year;
+        while (m > 12) { m -= 12; y += 1; }
+        effMonth = m;
+        effYear = y;
+      }
+
+      const stamp = (effYear && effMonth) ? (effYear * 12 + effMonth) : null;
+      if (stamp && stamp <= thresholdMonths) {
+        expSet.add(row.name);
+        expItems.push(row);
+      } else if (row.cabinet_type === 'freezer') {
+        freezerItems.push(row);
+      } else {
+        pantryItems.push(row);
+      }
+    });
+
+    const activeExpiringFiltered = expItems.filter(it => !excludedExpiring.includes(it.name));
+    const activePantryFiltered = pantryItems.filter(it => !excludedPantry.includes(it.name) && !expSet.has(it.name));
+    const activeFreezerFiltered = freezerItems.filter(it => !excludedFreezer.includes(it.name) && !expSet.has(it.name));
+
+    const combinedAvailable = [...activePantryFiltered, ...activeFreezerFiltered];
+
+    const formatIngredientList = (items: any[], forceMarker?: string) => {
       if (items.length === 0) return "None recorded.";
-      return items.map(item => {
+      // De-duplicate names for the prompt list
+      const uniqueNames = new Set();
+      const uniqueItems: any[] = [];
+      items.forEach(it => {
+        if (!uniqueNames.has(it.name)) {
+          uniqueNames.add(it.name);
+          uniqueItems.push(it);
+        }
+      });
+
+      return uniqueItems.map(item => {
         let sizePart = "";
+        let marker = forceMarker;
+        if (!marker) {
+          marker = item.cabinet_type === 'freezer' ? '(freezer)' : '(pantry)';
+        }
+
         if (item.default_size) {
            const num = parseFloat(item.default_size);
            if (!isNaN(num)) {
@@ -316,21 +449,12 @@ export default function RecipesScreen() {
              sizePart = ` (${item.default_size})`;
            }
         }
-        return `- ${item.name}${sizePart}`;
+        return `- ${item.name}${sizePart} ${marker}`;
       }).join('\n');
     };
 
-    const activeExpiringFull = await db.getAllAsync<{name: string, unit_type: string, default_size: string}>(`
-      SELECT i.name, i.unit_type, i.default_size
-      FROM Inventory inv
-      JOIN ItemTypes i ON i.id = inv.item_type_id
-      WHERE inv.expiry_year IS NOT NULL
-        AND (inv.expiry_year * 12 + inv.expiry_month) <= ${thresholdMonths}
-    `);
-    const activeExpiringFiltered = activeExpiringFull.filter(it => !excludedExpiring.includes(it.name));
-
-    const activeExpiringList = formatIngredientList(activeExpiringFiltered);
-    const availableList = formatIngredientList(availableStock as any);
+    const activeExpiringList = formatIngredientList(activeExpiringFiltered, "(expiring)");
+    const availableList = formatIngredientList(combinedAvailable);
 
     const formatCsvList = (csv: string) => {
       if (!csv) return "None recorded.";
@@ -338,7 +462,7 @@ export default function RecipesScreen() {
       return items.length > 0 ? items.map(s => `- ${s}`).join('\n') : "None recorded.";
     };
 
-    const activeExpiringCount = activeExpiring.length;
+    const activeExpiringCount = activeExpiringFiltered.length;
     let mandateRule = "at least 2 expiring ingredients";
 
     if (activeExpiringCount === 1) {
@@ -763,19 +887,26 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
         {activeAccordion === 'core' && (
           <View style={styles.protocolBody}>
           <View style={{marginTop: 16, marginBottom: 24}}>
-             <Text style={styles.sectionTitle}>MUST-USE INGREDIENTS <Text style={styles.sectionInlineSubtitle}>(expiring stock)</Text></Text>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10}}>
+                <Text style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0}]}>MUST-USE INGREDIENTS <Text style={styles.sectionInlineSubtitle}>(expiring stock)</Text></Text>
+                <View style={{flexDirection: 'row', gap: 10}}>
+                  <TouchableOpacity onPress={() => massActionExpiring(true)}><Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>INCLUDE ALL</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => massActionExpiring(false)}><Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>EXCLUDE ALL</Text></TouchableOpacity>
+                </View>
+              </View>
             <Text style={styles.sectionSubtitle}>Tap to de-select any items you don't wish to use for this mission.</Text>
             {expiringList.length > 0 ? (
               <View style={styles.allergenGrid}>
-                  {expiringList.map(name => (
+                   {expiringList.map(item => (
                     <TouchableOpacity 
                       accessibilityRole="button"
-                      key={name} 
-                      style={[styles.allergenChip, !excludedExpiring.includes(name) && styles.stockChipActive]} 
-                      onPress={() => toggleExpiring(name)}
-                      testID={`stock-chip-${name.toLowerCase().replace(/\s+/g, '-')}`}
+                      key={item.name} 
+                      style={[styles.allergenChip, !excludedExpiring.includes(item.name) && styles.stockChipActive, { flexDirection: 'row', alignItems: 'center' }]} 
+                      onPress={() => toggleExpiring(item.name)}
+                      testID={`stock-chip-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      <Text style={[styles.allergenChipText, !excludedExpiring.includes(name) && styles.allergenChipTextActive]}>{name}</Text>
+                      {item.isFreezer && <MaterialCommunityIcons name="snowflake" size={12} color={!excludedExpiring.includes(item.name) ? "white" : "#64748b"} style={{ marginRight: 6 }} />}
+                      <Text style={[styles.allergenChipText, !excludedExpiring.includes(item.name) && styles.allergenChipTextActive]}>{item.name}</Text>
                     </TouchableOpacity>
                   ))}
               </View>
@@ -810,8 +941,9 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
             <Text style={styles.protocolRibbonTitle}>OPTIONAL INGREDIENTS</Text>
             <Text style={styles.protocolRibbonSummary}>
               {[
-                selectedStaples.length > 0 ? `${selectedStaples.length} Staples` : null,
-                pantryList.length > 0 ? `${pantryList.length} Pantry items` : null,
+                selectedStaples.length > 0 ? `${selectedStaples.length} Fridge` : null,
+                pantryList.length > 0 ? `${pantryList.length - excludedPantry.length} Pantry` : null,
+                freezerList.length > 0 ? `${freezerList.length - excludedFreezer.length} Freezer` : null,
               ].filter(Boolean).join('  ·  ') || 'No optional items'}
             </Text>
           </View>
@@ -823,7 +955,13 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
         {activeAccordion === 'optional' && (
           <View style={styles.protocolBody}>
           <View style={{marginTop: 16, marginBottom: 24}}>
-              <Text style={styles.sectionTitle} testID="fridge-staples-title">FRIDGE STAPLES <Text style={styles.sectionInlineSubtitle}>(select to include)</Text></Text>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10}}>
+                <Text style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0}]} testID="fridge-staples-title">FRIDGE STAPLES <Text style={styles.sectionInlineSubtitle}>(select to include)</Text></Text>
+                <View style={{flexDirection: 'row', gap: 10}}>
+                  <TouchableOpacity onPress={() => massActionStaples(true)}><Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>INCLUDE ALL</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => massActionStaples(false)}><Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>EXCLUDE ALL</Text></TouchableOpacity>
+                </View>
+              </View>
               <Text style={styles.sectionSubtitle}>Select as many as you like or add your own.</Text>
               <View style={styles.allergenGrid}>
                 {persistentStaples.sort().map(s => (
@@ -853,18 +991,49 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
           </View>
           
           <View style={{marginBottom: 24}}>
-              <Text style={styles.sectionTitle}>AVAILABLE STOCK <Text style={styles.sectionInlineSubtitle}>(pantry items)</Text></Text>
-              <Text style={styles.sectionSubtitle}>These non-expiring items are automatically available to the AI.</Text>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10}}>
+                <Text style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0}]}>PANTRY STOCK <Text style={styles.sectionInlineSubtitle}>(room temp)</Text></Text>
+                <View style={{flexDirection: 'row', gap: 10}}>
+                  <TouchableOpacity onPress={() => massActionPantry(true)}><Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>INCLUDE ALL</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => massActionPantry(false)}><Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>EXCLUDE ALL</Text></TouchableOpacity>
+                </View>
+              </View>
+              <Text style={styles.sectionSubtitle}>Tap to include/exclude pantry items from the briefing.</Text>
               <View style={styles.allergenGrid}>
                 {pantryList.length > 0 ? pantryList.sort().map(name => (
-                  <View 
-                    key={name} 
-                    style={[styles.allergenChip, {backgroundColor: '#0f172a', borderColor: '#334155'}]} 
+                  <TouchableOpacity 
+                    key={name}
+                    style={[styles.allergenChip, !excludedPantry.includes(name) && styles.stockChipActive]}
+                    onPress={() => togglePantry(name)}
                   >
-                     <Text style={[styles.allergenChipText, {color: '#64748b'}]}>{name}</Text>
-                  </View>
+                     <Text style={[styles.allergenChipText, !excludedPantry.includes(name) && styles.allergenChipTextActive]}>{name}</Text>
+                  </TouchableOpacity>
                 )) : (
-                  <Text style={styles.sectionSubtitle}>No additional stock available.</Text>
+                  <Text style={styles.sectionSubtitle}>No additional pantry stock available.</Text>
+                )}
+              </View>
+          </View>
+
+          <View style={{marginBottom: 24}}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10}}>
+                <Text style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0}]}>FREEZER STOCK <Text style={styles.sectionInlineSubtitle}>(cold store)</Text></Text>
+                <View style={{flexDirection: 'row', gap: 10}}>
+                  <TouchableOpacity onPress={() => massActionFreezer(true)}><Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>INCLUDE ALL</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => massActionFreezer(false)}><Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>EXCLUDE ALL</Text></TouchableOpacity>
+                </View>
+              </View>
+              <Text style={styles.sectionSubtitle}>Tap to include/exclude freezer items from the briefing.</Text>
+              <View style={styles.allergenGrid}>
+                {freezerList.length > 0 ? freezerList.sort().map(name => (
+                  <TouchableOpacity 
+                    key={name}
+                    style={[styles.allergenChip, !excludedFreezer.includes(name) && styles.stockChipActive]}
+                    onPress={() => toggleFreezer(name)}
+                  >
+                     <Text style={[styles.allergenChipText, !excludedFreezer.includes(name) && styles.allergenChipTextActive]}>{name}</Text>
+                  </TouchableOpacity>
+                )) : (
+                  <Text style={styles.sectionSubtitle}>No additional freezer stock available.</Text>
                 )}
               </View>
           </View>

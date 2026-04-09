@@ -2,6 +2,54 @@
 
 This document tracks items that were strictly specified in the `requirements.md` but were initially overlooked during the first iteration of development.
 
+## Iteration 69: High-Density Logistics & Strict UI Filtering
+1. **Strict UI Filtering (Noise Reduction)**: Re-engineered the Dashboard and Quartermaster briefed logic to strictly purge non-matching categories and items when filters or search strings are active. This eliminates visual noise, presenting only relevant mission assets.
+2. **Tiered Urgency Protocols**: Refined the expiry filtering system into three distinct mission windows: **EXPIRED**, **EXPIRING THIS MONTH**, and **EXPIRING SOON (1-3 MONTHS)**, providing tiered, mutually exclusive visibility into inventory threats.
+3. **Frozen Logistics Parity**: Integrated frozen asset preservation windows into the global urgency engine. Filters now use "Calculated Expiry" (Entry Date + Preservation Months) to ensure cold-stored items are accurately represented in urgency briefings.
+4. **Reactive Command States**: Implemented a real-time reactive pipeline for search and filtering. The tactical display now adapts instantly as the user types or adjusts logistical tiers.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 69)
+**[TC-69.1] VERIFICATION: Strict Filtering & Frozen Urgency**
+*   **Conditions**: Clean database; Sergeant rank unlocked.
+*   **Actions**:
+    1. Create two categories: "Alpha" (with stock) and "Beta" (empty).
+    2. Search for "Alpha" and verify "Beta" is strictly removed from view.
+    3. Filter by a specific Cabinet and verify non-matching categories vanish.
+    4. Create a frozen item (Entry: Now, Limit: 0 months) and verify it appears in the **EXPIRED** filter.
+    5. Create an ambient item (Expiry: Current Month) and verify it appears in **EXPIRING THIS MONTH**.
+*   **Assertions**:
+    1. NOISE REDUCTION: Empty or non-matching categories must be completely hidden (not just ghosted) during search/filter operations.
+    2. URGENCY ACCURACY: The **THIS MONTH** filter accurately captures both ambient expiries and frozen preservation limits ending in the current month.
+    3. REACTIVITY: The UI must update immediately upon search string input without manual refresh.
+
+## Iteration 68: Tactical Catalog & Logistics Orchestration
+1. **Tactical Command Dashboard**: Integrated a quad-panel metric overview at the top of the Catalog screen, providing real-time tracking of **CATEGORIES**, **ITEMS**, **MIN TARGETS**, and **MAX TARGETS**.
+2. **Accordion Logistics (Concertina Mode)**: Transitioned category sections into collapsible accordions with a strict single-expansion policy, promoting focused management.
+3. **Localized Logistical Briefing**: Collapsed category headers now display a dynamic summary briefing: `ITEMS • FAVOURITES • MIN/MAX SET`, allowing for rapid auditing of logistical coverage within each section.
+4. **Height-Stabilized Header**: Re-architected the category header into a two-row layout. Primary command icons (Edit, Delete, Expand) are fixed to the top row, ensuring UI stability during expansion.
+5. **Logistical Zero-State Advisory**: Implemented a targeted advisory for unconfigured catalogs specifically highlighting the absence of minimum thresholds: *"No minimum desired stock levels have been set. Configure some minimum thresholds below to enable Quartermaster low stock reports and alerts."*
+6. **Grammatical Precision**: Standardized all nomenclature across the Catalog dashboard, including automated singular/plural handling for "ITEM/ITEMS" and "FAVOURITE/FAVOURITES".
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 68)
+**[TC-68.1] VERIFICATION: Catalog Metrics & Logistical Briefing**
+*   **Conditions**: Clean database; Sergeant rank unlocked.
+*   **Actions**:
+    1. Navigate to **Catalog** (Settings > Catalog).
+    2. Add a new Category ("Logistics Alpha").
+    3. Add a new Item ("Combat Rations") under "Logistics Alpha".
+    4. Set a **MIN TARGET** for "Combat Rations".
+    5. Set a **MAX TARGET** for "Combat Rations".
+    6. Verify metrics at the top of the screen.
+    7. Collapse the category and verify the summary briefing row.
+    8. Add a second category and repeat, verifying only one remains open.
+*   **Assertions**:
+    1. METRICS: Dashboard counts correctly reflect 1 Category, 1 Item, 1 Min Target, and 1 Max Target.
+    2. ADVISORY: The low-stock warning disappears as soon as the first MIN target is established.
+    3. CONCERTINA: Opening "Logistics Beta" automatically collapses "Logistics Alpha".
+    4. ACCURACY: The summary row correctly labels "1 ITEM • 1 MIN/MAX SET" (and "1 FAVOURITE" if starred).
+
 ## Iteration 66: Fridge Staples & Authentic Recipe Formatting
 1. **Fridge Staples Engine**: Integrated a dedicated "Fridge Staples (often found in your fridge)" text input allowing users to freely enter comma-separated fast-moving perishables. These staples are treated mathematically alongside pantry "Available Ingredients" as optional support components.
 2. **"Generate-Action" Memory Catch (Bug Fix)**: Resolved a race condition where tapping "Generate Prompt" immediately after typing custom variables failed to register the string if the field had not explicitly blurred. The 'Generate' engine now actively intercepts, captures, and commits pending text box sequences prior to payload construction.

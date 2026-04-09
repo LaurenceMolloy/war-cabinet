@@ -37,13 +37,16 @@ export default function CatalogScreen() {
   const [editingCabName, setEditingCabName] = useState('');
   const [editingCabLocation, setEditingCabLocation] = useState('');
   
-  const [activeTab, setActiveTab] = useState<'categories' | 'cabinets' | 'system' | 'backups'>('categories');
+  const [activeTab, setActiveTab] = useState<'catalog' | 'cabinets' | 'system' | 'backups'>('catalog');
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
   const [logisticsEmail, setLogisticsEmail] = useState('');
   const [mirrorUri, setMirrorUri] = useState<string | null>(null);
   const [backups, setBackups] = useState<BackupMetadata[]>([]);
   const [totalItemCount, setTotalItemCount] = useState(0);
+  const [minReqCount, setMinReqCount] = useState(0);
+  const [maxReqCount, setMaxReqCount] = useState(0);
+  const [expandedCatId, setExpandedCatId] = useState<number | null>(null);
   const [newCabType, setNewCabType] = useState<'standard' | 'freezer'>('standard');
   const [editingCabType, setEditingCabType] = useState<'standard' | 'freezer'>('standard');
   const [newItemFreezeMonths, setNewItemFreezeMonths] = useState('');
@@ -86,6 +89,9 @@ export default function CatalogScreen() {
 
     const uniqueItemCount = rows.filter((r: any) => r.type_id !== null).length;
     setTotalItemCount(uniqueItemCount);
+
+    setMinReqCount(rows.filter((r: any) => r.type_id !== null && r.min_stock_level !== null).length);
+    setMaxReqCount(rows.filter((r: any) => r.type_id !== null && r.max_stock_level !== null).length);
 
     const cabRows = await db.getAllAsync(`
       SELECT c.*, (SELECT COUNT(*) FROM Inventory v WHERE v.cabinet_id = c.id) as stock_count
@@ -319,132 +325,192 @@ export default function CatalogScreen() {
     load();
   };
 
-  const renderCategory = ({ item: cat }: any) => (
-    <View style={styles.catCard}>
-      <View style={styles.catHeader}>
-        {editingCatId === cat.id ? (
-          <View style={{flexDirection: 'row', flex: 1}}>
-            <TextInput 
-              style={[styles.inputSmall, {flex: 1}]} 
-              value={editingCatName} 
-              onChangeText={setEditingCatName} 
-              autoFocus
-            />
-            <TouchableOpacity onPress={() => handleUpdateCategory(cat.id)} style={styles.saveActionBtn}>
-              <MaterialCommunityIcons name="check" size={20} color="white" />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-between'}}>
-            <Text style={styles.catTitle}>{cat.name}</Text>
+  const toggleCategory = (id: number) => {
+    setExpandedCatId(prev => (prev === id ? null : id));
+  };
+
+  const renderCategory = ({ item: cat }: any) => {
+    const isExpanded = expandedCatId === cat.id;
+    const favoriteCount = cat.types.filter((t: any) => t.is_favorite).length;
+
+    const targetsSet = cat.types.filter((t: any) => t.min_stock !== null || t.max_stock !== null).length;
+
+    return (
+      <View style={styles.catCard}>
+        <TouchableOpacity 
+          onPress={() => toggleCategory(cat.id)}
+          style={[styles.catHeader, {flexDirection: 'column', alignItems: 'stretch'}]}
+          activeOpacity={0.7}
+        >
+          <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+            <View style={{flex: 1, marginRight: 10}}>
+              {editingCatId === cat.id ? (
+                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                  <TextInput 
+                    style={[styles.inputSmall, {flex: 1, height: 36}]} 
+                    value={editingCatName} 
+                    onChangeText={setEditingCatName} 
+                    autoFocus
+                  />
+                  <TouchableOpacity onPress={() => handleUpdateCategory(cat.id)} style={[styles.saveActionBtn, {marginLeft: 8}]}>
+                    <MaterialCommunityIcons name="check" size={20} color="white" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setEditingCatId(null)} style={{marginLeft: 8}}>
+                    <MaterialCommunityIcons name="close" size={20} color="#94a3b8" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Text style={styles.catTitle}>{cat.name}</Text>
+              )}
+            </View>
             <View style={styles.catActions}>
-              <TouchableOpacity onPress={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); }} style={{marginRight: 10}}>
+              <TouchableOpacity onPress={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); }} style={{marginRight: 12}}>
                 <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
               </TouchableOpacity>
-              <TouchableOpacity disabled={cat.types.length > 0} onPress={() => handleDeleteCategory(cat.id, cat.types.length > 0)}>
+              <TouchableOpacity disabled={cat.types.length > 0} onPress={() => handleDeleteCategory(cat.id, cat.types.length > 0)} style={{marginRight: 12}}>
                 <MaterialCommunityIcons name="delete" size={20} color={cat.types.length > 0 ? "#334155" : "#ef4444"} />
               </TouchableOpacity>
+              <MaterialCommunityIcons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={24} color="#64748b" />
             </View>
+          </View>
+
+          {!isExpanded && (
+            <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4, flexWrap: 'wrap'}}>
+              <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.types.length} {cat.types.length === 1 ? 'ITEM' : 'ITEMS'}</Text>
+              {favoriteCount > 0 && (
+                <>
+                  <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
+                  <MaterialCommunityIcons name="star" size={10} color="#eab308" />
+                  <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginLeft: 2}}>
+                    {favoriteCount} {favoriteCount === 1 ? 'FAVOURITE' : 'FAVOURITES'}
+                  </Text>
+                </>
+              )}
+              {targetsSet > 0 && (
+                <>
+                  <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
+                  <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{targetsSet} MIN/MAX SET</Text>
+                </>
+              )}
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {isExpanded && (
+          <View style={{marginTop: 10}}>
+            {cat.types.map((type: any) => (
+              <View key={type.id} style={styles.typeRow} testID={`type-row-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
+                {editingTypeId === type.id ? (
+                  <View style={{flexDirection: 'column', padding: 8, gap: 10, width: '100%'}}>
+                    <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={editingTypeName} onChangeText={setEditingTypeName} placeholder="Item Name" placeholderTextColor="#64748b" />
+                    <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
+                        <View style={{flex: 1.2}}>
+                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({editingTypeUnit === 'volume' ? 'ml' : editingTypeUnit === 'weight' ? 'g' : 'Units'})</Text>
+                          <TextInput style={styles.inputSmall} value={editingTypeDefaultSize} onChangeText={setEditingTypeDefaultSize} keyboardType="numeric" placeholder="Size / Quantity" placeholderTextColor="#64748b" />
+                        </View>
+                        <View style={{flex: 1}}>
+                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
+                          <TextInput style={styles.inputSmall} value={editingTypeMinStock} onChangeText={setEditingTypeMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
+                        </View>
+                        <View style={{flex: 1}}>
+                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
+                          <TextInput style={styles.inputSmall} value={editingTypeMaxStock} onChangeText={setEditingTypeMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
+                        </View>
+                        <View style={{flex: 0.8}}>
+                          <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
+                          <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={editingTypeFreezeMonths} onChangeText={setEditingTypeFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
+                        </View>
+                    </View>
+                    <View style={styles.unitChipRowMini}>
+                      <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'weight' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('weight')}><Text style={[styles.unitChipText, editingTypeUnit === 'weight' && styles.unitChipTextActive]}>Weight (g)</Text></TouchableOpacity>
+                      <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'volume' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('volume')}><Text style={[styles.unitChipText, editingTypeUnit === 'volume' && styles.unitChipTextActive]}>Volume (ml)</Text></TouchableOpacity>
+                      <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'count' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('count')}><Text style={[styles.unitChipText, editingTypeUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
+                    </View>
+                    <TouchableOpacity onPress={() => handleUpdateItemType(type.id)} style={[styles.addSaveBtnFull, { marginTop: 12, marginHorizontal: 0 }]}><Text style={styles.addSaveText}>SAVE CHANGES</Text></TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={{flexDirection: 'column', width: '100%'}}>
+                    <View style={{flexDirection: 'row', alignItems: 'center', width: '100%'}}>
+                      <TouchableOpacity onPress={() => toggleFavorite(type.id, type.is_favorite)} style={{marginRight: 12}}>
+                        <MaterialCommunityIcons name={type.is_favorite ? "star" : "star-outline"} size={24} color={type.is_favorite ? "#eab308" : "#334155"} />
+                      </TouchableOpacity>
+                      <Text style={styles.typeText}>{type.name}</Text>
+                      <View style={styles.catActions}>
+                        <TouchableOpacity onPress={() => { setEditingTypeId(type.id); setEditingTypeName(type.name); setEditingTypeUnit(type.unit_type || 'weight'); setEditingTypeDefaultSize(type.default_size || ''); setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : ''); setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : ''); setEditingTypeFreezeMonths(type.freeze_months !== null && type.freeze_months !== undefined ? type.freeze_months.toString() : ''); }} style={{marginRight: 10, marginTop: 4}} testID={`edit-type-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
+                        <TouchableOpacity disabled={type.stock_count > 0} onPress={() => handleDeleteItemType(type.id)} style={{marginTop: 4}}><MaterialCommunityIcons name="delete" size={20} color={type.stock_count > 0 ? "#334155" : "#ef4444"} /></TouchableOpacity>
+                      </View>
+                    </View>
+                    <View style={styles.statBadgeRow}>
+                      <View style={styles.statBadge}><MaterialCommunityIcons name={type.unit_type === 'volume' ? 'water' : type.unit_type === 'weight' ? 'scale-balance' : 'numeric-1-box-outline'} size={12} color="#94a3b8" /><Text style={styles.statBadgeText}>{type.unit_type || 'count'}</Text></View>
+                      {type.default_size ? (<View style={styles.statBadge}><MaterialCommunityIcons name="package-variant-closed" size={12} color="#94a3b8" /><Text style={styles.statBadgeText}>{type.default_size}</Text></View>) : null}
+                      {type.freeze_months ? (
+                        <View style={[styles.statBadge, {backgroundColor: '#1d4ed8', borderColor: '#3b82f6'}]}>
+                          <MaterialCommunityIcons name="snowflake" size={12} color="white" />
+                          <Text style={[styles.statBadgeText, {color: 'white'}]}>{type.freeze_months}M</Text>
+                        </View>
+                      ) : null}
+                      {(type.min_stock !== null || type.max_stock !== null) ? (
+                        <View style={styles.statBadge}>
+                          <MaterialCommunityIcons name="target" size={12} color="#94a3b8" />
+                          <Text style={styles.statBadgeText}>
+                            {type.min_stock !== null ? type.min_stock : '—'} / {type.max_stock !== null ? type.max_stock : '—'}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+                )}
+              </View>
+            ))}
+            {selectedCat === cat.id ? (
+              <View style={styles.newTypeContainer}>
+                <Text style={styles.formLabel}>New Item Specification</Text>
+                {(totalItemCount >= 20 && !hasFullAccess) ? (
+                  <TouchableOpacity style={styles.lockOverlay} onPress={() => checkEntitlement('ITEM_LIMIT')}>
+                    <MaterialCommunityIcons name="lock" size={24} color="#fbbf24" />
+                    <Text style={styles.lockText}>{"PREMIUM COMMAND REQUIRED FOR OVER 20 ASSETS"}</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <>
+                    <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={newItemName} onChangeText={setNewItemName} placeholder="Item Name" placeholderTextColor="#64748b" testID="new-item-name-input" />
+                    <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
+                       <View style={{flex: 1.2}}>
+                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({newItemUnit === 'volume' ? 'ml' : newItemUnit === 'weight' ? 'g' : 'Units'})</Text>
+                          <TextInput style={styles.inputSmall} value={newItemDefaultSize} onChangeText={setNewItemDefaultSize} keyboardType="numeric" placeholder="Size / Quantity" placeholderTextColor="#64748b" testID="new-item-default-size-input" />
+                       </View>
+                       <View style={{flex: 1}}>
+                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
+                          <TextInput style={styles.inputSmall} value={newItemMinStock} onChangeText={setNewItemMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
+                       </View>
+                       <View style={{flex: 1}}>
+                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
+                          <TextInput style={styles.inputSmall} value={newItemMaxStock} onChangeText={setNewItemMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
+                       </View>
+                       <View style={{flex: 0.8}}>
+                          <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
+                          <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={newItemFreezeMonths} onChangeText={setNewItemFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
+                       </View>
+                    </View>
+                    <View style={styles.unitChipRow}>
+                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'weight' && styles.unitChipActive]} onPress={() => setNewItemUnit('weight')} testID="unit-selector-weight"><Text style={[styles.unitChipText, newItemUnit === 'weight' && styles.unitChipTextActive]}>Weight (g)</Text></TouchableOpacity>
+                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'volume' && styles.unitChipActive]} onPress={() => setNewItemUnit('volume')} testID="unit-selector-volume"><Text style={[styles.unitChipText, newItemUnit === 'volume' && styles.unitChipTextActive]}>Volume (ml)</Text></TouchableOpacity>
+                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'count' && styles.unitChipActive]} onPress={() => setNewItemUnit('count')} testID="unit-selector-count"><Text style={[styles.tabText, newItemUnit === 'count' && styles.tabTextActive, { fontSize: 12 }]}>Count</Text></TouchableOpacity>
+                    </View>
+                    <TouchableOpacity onPress={() => handleAddItemType(cat.id)} style={[styles.addSaveBtnFull, { marginTop: 12, marginHorizontal: 0 }]} testID="submit-item-type-btn"><Text style={styles.addSaveText}>DEPLOY ITEM</Text></TouchableOpacity>
+                  </>
+                )}
+                <TouchableOpacity style={{marginTop: 15, alignItems: 'center'}} onPress={() => setSelectedCat(null)}><Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>CANCEL</Text></TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.addNewBtn} onPress={() => setSelectedCat(cat.id)} testID={`expand-add-item-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}>
+                <Text style={styles.addNewText}>+ Add Item Type</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>
-      {cat.types.map((type: any) => (
-        <View key={type.id} style={styles.typeRow} testID={`type-row-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
-          {editingTypeId === type.id ? (
-            <View style={{flexDirection: 'column', padding: 8, gap: 10, width: '100%'}}>
-              <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={editingTypeName} onChangeText={setEditingTypeName} placeholder="Item Name" placeholderTextColor="#64748b" />
-              <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
-                  <View style={{flex: 1.2}}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({editingTypeUnit === 'volume' ? 'ml' : editingTypeUnit === 'weight' ? 'g' : 'Units'})</Text>
-                    <TextInput style={styles.inputSmall} value={editingTypeDefaultSize} onChangeText={setEditingTypeDefaultSize} keyboardType="numeric" placeholder="Size / Quantity" placeholderTextColor="#64748b" />
-                  </View>
-                  <View style={{flex: 1}}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
-                    <TextInput style={styles.inputSmall} value={editingTypeMinStock} onChangeText={setEditingTypeMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
-                  </View>
-                  <View style={{flex: 1}}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
-                    <TextInput style={styles.inputSmall} value={editingTypeMaxStock} onChangeText={setEditingTypeMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
-                  </View>
-                  <View style={{flex: 0.8}}>
-                    <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
-                    <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={editingTypeFreezeMonths} onChangeText={setEditingTypeFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
-                  </View>
-              </View>
-              <View style={styles.unitChipRowMini}>
-                <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'weight' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('weight')}><Text style={[styles.unitChipText, editingTypeUnit === 'weight' && styles.unitChipTextActive]}>Weight (g)</Text></TouchableOpacity>
-                <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'volume' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('volume')}><Text style={[styles.unitChipText, editingTypeUnit === 'volume' && styles.unitChipTextActive]}>Volume (ml)</Text></TouchableOpacity>
-                <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'count' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('count')}><Text style={[styles.unitChipText, editingTypeUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
-              </View>
-              <TouchableOpacity onPress={() => handleUpdateItemType(type.id)} style={[styles.addSaveBtnFull, { marginTop: 12, marginHorizontal: 0 }]}><Text style={styles.addSaveText}>SAVE CHANGES</Text></TouchableOpacity>
-            </View>
-          ) : (
-            <View style={{flexDirection: 'column', width: '100%'}}>
-              <View style={{flexDirection: 'row', alignItems: 'center', width: '100%'}}>
-                <TouchableOpacity onPress={() => toggleFavorite(type.id, type.is_favorite)} style={{marginRight: 12}}>
-                  <MaterialCommunityIcons name={type.is_favorite ? "star" : "star-outline"} size={24} color={type.is_favorite ? "#eab308" : "#334155"} />
-                </TouchableOpacity>
-                <Text style={styles.typeText}>{type.name}</Text>
-                <View style={styles.catActions}>
-                  <TouchableOpacity onPress={() => { setEditingTypeId(type.id); setEditingTypeName(type.name); setEditingTypeUnit(type.unit_type || 'weight'); setEditingTypeDefaultSize(type.default_size || ''); setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : ''); setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : ''); setEditingTypeFreezeMonths(type.freeze_months !== null && type.freeze_months !== undefined ? type.freeze_months.toString() : ''); }} style={{marginRight: 10, marginTop: 4}} testID={`edit-type-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
-                  <TouchableOpacity disabled={type.stock_count > 0} onPress={() => handleDeleteItemType(type.id)} style={{marginTop: 4}}><MaterialCommunityIcons name="delete" size={20} color={type.stock_count > 0 ? "#334155" : "#ef4444"} /></TouchableOpacity>
-                </View>
-              </View>
-              <View style={styles.statBadgeRow}>
-                <View style={styles.statBadge}><MaterialCommunityIcons name={type.unit_type === 'volume' ? 'water' : type.unit_type === 'weight' ? 'scale-balance' : 'numeric-1-box-outline'} size={12} color="#94a3b8" /><Text style={styles.statBadgeText}>{type.unit_type || 'count'}</Text></View>
-                {type.default_size ? (<View style={styles.statBadge}><MaterialCommunityIcons name="package-variant-closed" size={12} color="#94a3b8" /><Text style={styles.statBadgeText}>{type.default_size}</Text></View>) : null}
-                {(type.min_stock !== null || type.max_stock !== null) ? (<View style={styles.statBadge}><MaterialCommunityIcons name="target" size={12} color="#94a3b8" /><Text style={styles.statBadgeText}>{type.min_stock || 0} / {type.max_stock || 0}</Text></View>) : null}
-              </View>
-            </View>
-          )}
-        </View>
-      ))}
-      {selectedCat === cat.id ? (
-        <View style={styles.newTypeContainer}>
-          <Text style={styles.formLabel}>New Item Specification</Text>
-          {(totalItemCount >= 20 && !hasFullAccess) ? (
-            <TouchableOpacity style={styles.lockOverlay} onPress={() => checkEntitlement('ITEM_LIMIT')}>
-              <MaterialCommunityIcons name="lock" size={24} color="#fbbf24" />
-              <Text style={styles.lockText}>{"PREMIUM COMMAND REQUIRED FOR OVER 20 ASSETS"}</Text>
-            </TouchableOpacity>
-          ) : (
-            <>
-              <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={newItemName} onChangeText={setNewItemName} placeholder="Item Name" placeholderTextColor="#64748b" testID="new-item-name-input" />
-              <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
-                 <View style={{flex: 1.2}}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({newItemUnit === 'volume' ? 'ml' : newItemUnit === 'weight' ? 'g' : 'Units'})</Text>
-                    <TextInput style={styles.inputSmall} value={newItemDefaultSize} onChangeText={setNewItemDefaultSize} keyboardType="numeric" placeholder="Size / Quantity" placeholderTextColor="#64748b" testID="new-item-default-size-input" />
-                 </View>
-                 <View style={{flex: 1}}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
-                    <TextInput style={styles.inputSmall} value={newItemMinStock} onChangeText={setNewItemMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
-                 </View>
-                 <View style={{flex: 1}}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
-                    <TextInput style={styles.inputSmall} value={newItemMaxStock} onChangeText={setNewItemMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
-                 </View>
-                 <View style={{flex: 0.8}}>
-                    <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
-                    <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={newItemFreezeMonths} onChangeText={setNewItemFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
-                 </View>
-              </View>
-              <View style={styles.unitChipRow}>
-                <TouchableOpacity style={[styles.unitChip, newItemUnit === 'weight' && styles.unitChipActive]} onPress={() => setNewItemUnit('weight')} testID="unit-selector-weight"><Text style={[styles.unitChipText, newItemUnit === 'weight' && styles.unitChipTextActive]}>Weight (g)</Text></TouchableOpacity>
-                <TouchableOpacity style={[styles.unitChip, newItemUnit === 'volume' && styles.unitChipActive]} onPress={() => setNewItemUnit('volume')} testID="unit-selector-volume"><Text style={[styles.unitChipText, newItemUnit === 'volume' && styles.unitChipTextActive]}>Volume (ml)</Text></TouchableOpacity>
-                <TouchableOpacity style={[styles.unitChip, newItemUnit === 'count' && styles.unitChipActive]} onPress={() => setNewItemUnit('count')} testID="unit-selector-count"><Text style={[styles.tabText, newItemUnit === 'count' && styles.tabTextActive, { fontSize: 12 }]}>Count</Text></TouchableOpacity>
-              </View>
-              <TouchableOpacity onPress={() => handleAddItemType(cat.id)} style={[styles.addSaveBtnFull, { marginTop: 12, marginHorizontal: 0 }]} testID="submit-item-type-btn"><Text style={styles.addSaveText}>DEPLOY ITEM</Text></TouchableOpacity>
-            </>
-          )}
-          <TouchableOpacity style={{marginTop: 15, alignItems: 'center'}} onPress={() => setSelectedCat(null)}><Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>CANCEL</Text></TouchableOpacity>
-        </View>
-      ) : (
-        <TouchableOpacity style={styles.addNewBtn} onPress={() => setSelectedCat(cat.id)} testID={`expand-add-item-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}>
-          <Text style={styles.addNewText}>+ Add Item Type</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+    );
+  };
 
   const renderCabinet = ({ item: cab }: any) => (
     <View style={styles.catCard}>
@@ -467,7 +533,7 @@ export default function CatalogScreen() {
                   <Text style={[styles.unitChipText, editingCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.unitChip, editingCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
+                  style={[styles.unitChip, {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}, editingCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
                   onPress={() => { if (editingCabType === 'freezer') { setEditingCabType('standard'); } else { if (checkEntitlement('FREEZER')) setEditingCabType('freezer'); } }}
                 >
                   <MaterialCommunityIcons name="snowflake" size={12} color={editingCabType === 'freezer' ? '#60a5fa' : '#64748b'} />
@@ -503,27 +569,56 @@ export default function CatalogScreen() {
       </View>
 
       <View style={styles.tabRow}>
-        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'categories' && styles.tabActive]} onPress={() => setActiveTab('categories')} testID="tab-categories"><Text style={[styles.tabText, activeTab === 'categories' && styles.tabTextActive]}>CATEGORIES</Text></TouchableOpacity>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'catalog' && styles.tabActive]} onPress={() => setActiveTab('catalog')} testID="tab-catalog"><Text style={[styles.tabText, activeTab === 'catalog' && styles.tabTextActive]}>CATALOG</Text></TouchableOpacity>
         <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')}><Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text></TouchableOpacity>
         <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'system' && styles.tabActive]} onPress={() => setActiveTab('system')} testID="tab-system"><Text style={[styles.tabText, activeTab === 'system' && styles.tabTextActive]}>STOCK ALERTS</Text></TouchableOpacity>
         <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => { if (checkEntitlement('BACKUPS')) setActiveTab('backups'); }}><Text style={[styles.tabText, activeTab === 'backups' && styles.tabTextActive]}>BACKUPS</Text></TouchableOpacity>
       </View>
 
-      {activeTab === 'categories' ? (
+      {activeTab === 'catalog' ? (
         <FlatList data={categories} keyExtractor={i => i.id.toString()} renderItem={renderCategory} ListHeaderComponent={(
-            <View style={styles.newCatBlock}>
-              <Text style={styles.label}>New Category</Text>
-              {(categories.length >= 6 && !hasFullAccess) ? (
-                <TouchableOpacity style={styles.lockOverlay} onPress={() => checkEntitlement('CATEGORY_LIMIT')}>
-                  <MaterialCommunityIcons name="lock" size={24} color="#fbbf24" />
-                  <Text style={styles.lockText}>{"PREMIUM COMMAND REQUIRED FOR MORE THAN 6 CATEGORIES"}</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.newRow}>
-                  <TextInput style={styles.inputMedium} value={newCatName} onChangeText={setNewCatName} placeholder="Category Name" placeholderTextColor="#64748b" testID="new-cat-input" />
-                  <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge} testID="create-cat-btn"><Text style={styles.addSaveTextLarge}>CREATE</Text></TouchableOpacity>
+            <View>
+              {/* Metrics Panel */}
+              <View style={styles.metricsPanel}>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricVal}>{categories.length}</Text>
+                  <Text style={styles.metricLabel}>CATEGORIES</Text>
+                </View>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricVal}>{totalItemCount}</Text>
+                  <Text style={styles.metricLabel}>ITEMS</Text>
+                </View>
+                <View style={styles.metricCard}>
+                  <Text style={[styles.metricVal, minReqCount === 0 && {color: '#ef4444'}]}>{minReqCount}</Text>
+                  <Text style={styles.metricLabel}>MIN TARGETS</Text>
+                </View>
+                <View style={styles.metricCard}>
+                  <Text style={[styles.metricVal, maxReqCount === 0 && {color: '#5b21b6'}]}>{maxReqCount}</Text>
+                  <Text style={styles.metricLabel}>MAX TARGETS</Text>
+                </View>
+              </View>
+
+              {minReqCount === 0 && (
+                <View style={styles.advisoryWarning}>
+                  <MaterialCommunityIcons name="alert-circle-outline" size={16} color="#fbbf24" style={{marginRight: 8}} />
+                  <Text style={styles.advisoryText}>No minimum desired stock levels have been set. Configure some minimum thresholds below to enable Quartermaster low stock reports and alerts.</Text>
                 </View>
               )}
+
+              <View style={styles.newCatBlock}>
+                <Text style={styles.label}>New Category</Text>
+                {(categories.length >= 6 && !hasFullAccess) ? (
+                  <TouchableOpacity style={styles.lockOverlay} onPress={() => checkEntitlement('CATEGORY_LIMIT')}>
+                    <MaterialCommunityIcons name="lock" size={24} color="#fbbf24" />
+                    <Text style={styles.lockText}>{"PREMIUM COMMAND REQUIRED FOR MORE THAN 6 CATEGORIES"}</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.newRow}>
+                    <TextInput style={styles.inputMedium} value={newCatName} onChangeText={setNewCatName} placeholder="Category Name" placeholderTextColor="#64748b" testID="new-cat-input" />
+                    <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge} testID="create-cat-btn"><Text style={styles.addSaveTextLarge}>CREATE</Text></TouchableOpacity>
+                  </View>
+                )}
+              </View>
             </View>
           )} />
       ) : activeTab === 'cabinets' ? (
@@ -552,7 +647,7 @@ export default function CatalogScreen() {
                         <Text style={[styles.unitChipText, newCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={[styles.unitChip, newCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
+                        style={[styles.unitChip, {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}, newCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
                         onPress={() => { if (newCabType === 'freezer') { setNewCabType('standard'); } else { if (checkEntitlement('FREEZER')) setNewCabType('freezer'); } }}
                       >
                         <MaterialCommunityIcons name="snowflake" size={12} color={newCabType === 'freezer' ? '#60a5fa' : '#64748b'} />
@@ -638,9 +733,9 @@ const styles = StyleSheet.create({
   inputSmall: { flex: 1, backgroundColor: '#0f172a', color: '#f8fafc', borderRadius: 6, padding: 8, fontSize: 14, borderWidth: 1, borderColor: '#334155' },
   addSaveBtn: { backgroundColor: '#22c55e', padding: 10, borderRadius: 6 },
   addSaveText: { color: 'white', fontWeight: '600', fontSize: 12 },
-  catCard: { marginHorizontal: 16, backgroundColor: '#1e293b', padding: 16, borderRadius: 8, marginBottom: 12 },
+  catCard: { marginHorizontal: 16, backgroundColor: '#1e293b', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, marginBottom: 12 },
   catTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: 'bold', flex: 1 },
-  catHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  catHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   catActions: { flexDirection: 'row' },
   saveActionBtn: { backgroundColor: '#22c55e', padding: 8, borderRadius: 6, marginLeft: 8 },
   typeRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#334155' },
@@ -674,6 +769,12 @@ const styles = StyleSheet.create({
     borderColor: '#334155' 
   },
   statBadgeText: { color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginLeft: 4, textTransform: 'uppercase' },
+  metricsPanel: { flexDirection: 'row', gap: 8, marginHorizontal: 16, marginBottom: 16 },
+  metricCard: { flex: 1, backgroundColor: '#1e293b', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 4, alignItems: 'center' },
+  metricVal: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold' },
+  metricLabel: { color: '#64748b', fontSize: 8.5, fontWeight: 'bold', marginTop: 4, letterSpacing: 0.5, textAlign: 'center' },
+  advisoryWarning: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1c1200', borderLeftWidth: 4, borderLeftColor: '#fbbf24', padding: 12, marginHorizontal: 16, marginBottom: 20 },
+  advisoryText: { flex: 1, color: '#fbbf24', fontSize: 12, fontWeight: 'bold', fontStyle: 'italic' },
   lockOverlay: { 
     backgroundColor: '#0f172a', 
     borderWidth: 1, 

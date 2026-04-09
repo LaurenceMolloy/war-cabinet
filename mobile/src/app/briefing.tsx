@@ -46,8 +46,8 @@ export default function BriefingScreen() {
           <MaterialCommunityIcons name="arrow-left" size={24} color="white" />
         </TouchableOpacity>
         <View style={{flex: 1, marginLeft: 16}}>
-          <Text style={styles.title}>The Deployment Guide</Text>
-          <Text style={styles.subTitle}>Tactical manual & unit briefing</Text>
+          <Text style={styles.title}>Operations Manual</Text>
+          <Text style={styles.subTitle}>User guide</Text>
         </View>
       </View>
 
