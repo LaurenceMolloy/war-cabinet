@@ -42,7 +42,8 @@
         }
       ],
       "expo-sharing",
-      "expo-mail-composer"
+      "expo-mail-composer",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

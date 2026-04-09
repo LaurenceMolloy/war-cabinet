@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, ScrollView, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -45,9 +45,9 @@ export default function BriefingScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <MaterialCommunityIcons name="arrow-left" size={24} color="white" />
         </TouchableOpacity>
-        <View>
-          <Text style={styles.title}>Tactical Briefing</Text>
-          <Text style={styles.subTitle}>(User Guide)</Text>
+        <View style={{flex: 1, marginLeft: 16}}>
+          <Text style={styles.title}>The Deployment Guide</Text>
+          <Text style={styles.subTitle}>Tactical manual & unit briefing</Text>
         </View>
       </View>
 
@@ -132,24 +132,36 @@ export default function BriefingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a', padding: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, marginTop: 10 },
-  backBtn: { padding: 8, backgroundColor: '#334155', borderRadius: 20, marginRight: 15 },
-  title: { fontSize: 24, color: 'white', fontWeight: 'bold' },
-  subTitle: { fontSize: 14, color: '#3b82f6', fontWeight: '600', marginTop: -2 },
-  searchContainer: { 
+  container: { flex: 1, backgroundColor: '#0f172a' },
+  header: { 
     flexDirection: 'row', 
     alignItems: 'center', 
     backgroundColor: '#1e293b', 
+    paddingTop: Platform.OS === 'ios' ? 40 : 10, 
+    paddingBottom: 15, 
+    paddingHorizontal: 16, 
+    marginBottom: 10, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#334155' 
+  },
+  backBtn: { padding: 10, backgroundColor: '#334155', borderRadius: 24 },
+  title: { fontSize: 24, color: 'white', fontWeight: 'bold' },
+  subTitle: { fontSize: 13, color: '#94a3b8', marginTop: 2 },
+  searchContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#0f172a', 
+    marginTop: 16, 
     borderRadius: 12, 
     paddingHorizontal: 15, 
+    marginHorizontal: 16,
     marginBottom: 20,
     borderWidth: 1,
     borderColor: '#334155'
   },
   searchIcon: { marginRight: 10 },
   searchInput: { flex: 1, color: 'white', paddingVertical: 12, fontSize: 16 },
-  listContent: { paddingBottom: 40 },
+  listContent: { paddingBottom: 40, paddingHorizontal: 16 },
   card: { backgroundColor: '#1e293b', padding: 20, borderRadius: 16, marginBottom: 15, borderWidth: 1, borderColor: '#334155' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   marker: { backgroundColor: '#3b82f6', color: 'white', fontSize: 10, fontWeight: 'bold', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden', marginRight: 10 },
@@ -158,7 +170,7 @@ const styles = StyleSheet.create({
   tagContainer: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 15, gap: 8 },
   tagBadge: { color: '#64748b', fontSize: 11, fontWeight: 'bold', backgroundColor: '#0f172a', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#334155' },
   metaStrip: { flexDirection: 'row', gap: 8, marginBottom: 14 },
-  metaPill: { flex: 1, backgroundColor: '#0f172a', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: '#334155', alignItems: 'center' },
+  metaPill: { flex: 1, backgroundColor: '#1e293b', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: '#334155', alignItems: 'center' },
   metaPillLabel: { color: '#475569', fontSize: 9, fontWeight: 'bold', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 2 },
   metaPillValue: { color: '#3b82f6', fontSize: 12, fontWeight: 'bold' },
   emptyContainer: { alignItems: 'center', marginTop: 60 },

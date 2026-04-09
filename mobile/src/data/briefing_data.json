@@ -202,5 +202,27 @@
     "title": "Memorized Chef Intelligence",
     "text": "The Recipe Engine allows you to define any custom culinary expert for the AI to emulate. By typing a name into the 'SUGGEST A CHEF' input, you can expand your culinary horizons beyond the curated list. The system automatically memorizes your last two unique suggestions, promoting them to the clickable chip row for rapid, zero-friction access in future sessions.",
     "tags": ["recipes", "chef", "memory", "suggestion", "custom", "persistence"]
+  },
+  {
+    "id": "TC-67.1a",
+    "test_marker": "TC-67.1",
+    "iteration": 67,
+    "screen": "catalog",
+    "entity": "cabinet",
+    "action": "configure",
+    "title": "Freezer Cabinet Setup",
+    "text": "At the Sergeant rank, you can define storage zones as 'Freezer' cabinets. You can also specify a maximum 'Freeze Months' limit for any item type. This transforms the logistical engine to track how long items have been frozen instead of classic expiry dates.",
+    "tags": ["freezer", "cabinet", "age", "tracking", "sergeant"]
+  },
+  {
+    "id": "TC-67.1b",
+    "test_marker": "TC-67.1",
+    "iteration": 67,
+    "screen": "add",
+    "entity": "batch",
+    "action": "freeze",
+    "title": "Date Frozen Entry",
+    "text": "When adding stock to a freezer cabinet, the traditional 'Expiry Date' field is replaced by 'Date Frozen' (defaulting to the current month). Because freeze dates are uniquely tracked, freezer items are never aggregated or merged—every freeze action creates its own distinct row.",
+    "tags": ["freezer", "date", "frozen", "batch", "merge"]
   }
 ]

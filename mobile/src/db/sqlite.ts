@@ -84,6 +84,19 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN max_stock_level INTEGER');
     }
 
+    // Freezer mode: max months an item type should be frozen
+    const hasFreezeMonths = columnsRes.some(col => col.name === 'freeze_months');
+    if (!hasFreezeMonths) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN freeze_months INTEGER');
+    }
+
+    // Freezer mode: cabinet type ('standard' | 'freezer')
+    const cabColsRes = await db.getAllAsync<any>('PRAGMA table_info(Cabinets)');
+    const hasCabinetType = cabColsRes.some(col => col.name === 'cabinet_type');
+    if (!hasCabinetType) {
+      await db.execAsync('ALTER TABLE Cabinets ADD COLUMN cabinet_type TEXT DEFAULT "standard"');
+    }
+
     const invCols = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
     const hasCabinetId = invCols.some(col => col.name === 'cabinet_id');
     if (!hasCabinetId) {

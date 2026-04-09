@@ -7,9 +7,11 @@ import * as Notifications from 'expo-notifications';
 import { requestPermissions, scheduleMonthlyBriefing } from '../services/notifications';
 import { initializeDatabase, markModified } from '../db/sqlite';
 import { BackupService } from '../services/BackupService';
+import { useBilling } from '../context/BillingContext';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
+  const { checkEntitlement, isTrialActive, trialLabel, isSergeanOrAbove, requestPurchase } = useBilling();
   
   // Tactical Bridge (E2E Only)
   useEffect(() => {
@@ -159,8 +161,9 @@ export default function HomeScreen() {
     const allRows = await db.getAllAsync<any>(`
       SELECT c.id as cat_id, c.name as cat_name, c.icon as cat_icon, 
              i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count,
+             i.freeze_months as type_freeze_months,
              inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year,
-             cab.name as cab_name, cab.location as cab_location
+             cab.name as cab_name, cab.location as cab_location, cab.cabinet_type as cab_type
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
       LEFT JOIN Inventory inv ON i.id = inv.item_type_id ${effectiveCabinetId ? ` AND inv.cabinet_id = ${effectiveCabinetId}` : ''}
@@ -184,7 +187,7 @@ export default function HomeScreen() {
       }
       if (row.type_id) {
         if (!acc[row.cat_id].types[row.type_id]) {
-          acc[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, unit_type: row.type_unit, is_favorite: row.is_favorite, interaction_count: row.interaction_count, items: [] };
+          acc[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, unit_type: row.type_unit, is_favorite: row.is_favorite, interaction_count: row.interaction_count, freeze_months: row.type_freeze_months ?? null, items: [] };
         }
         if (row.inv_id) {
           const now = new Date();
@@ -201,7 +204,8 @@ export default function HomeScreen() {
               id: row.inv_id, quantity: row.quantity, size: row.size,
               expiry_month: row.expiry_month, expiry_year: row.expiry_year,
               entry_month: row.entry_month, entry_year: row.entry_year,
-              cab_name: row.cab_name, cab_location: row.cab_location
+              cab_name: row.cab_name, cab_location: row.cab_location,
+              cab_type: row.cab_type,
             });
           }
         }
@@ -463,6 +467,23 @@ export default function HomeScreen() {
     );
   };
 
+  const getFreezerUrgency = (inv: any, type: any) => {
+    const now = new Date();
+    const ageMonths = (now.getFullYear() - inv.entry_year) * 12 + ((now.getMonth() + 1) - inv.entry_month);
+    const limit = type.freeze_months ?? 6;
+    const remaining = limit - ageMonths;
+    const color = remaining <= 0 ? '#b91c1c' : remaining < 3 ? '#f97316' : remaining < 6 ? '#fde047' : '#22c55e';
+    if (remaining <= 0) {
+      const over = Math.abs(remaining);
+      return <Text style={{color: '#b91c1c', fontSize: 12, fontWeight: 'bold'}}>OVERDUE by {over}mo</Text>;
+    }
+    return (
+      <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>
+        frozen {ageMonths}mo · <Text style={{color}}>{remaining}mo left</Text>
+      </Text>
+    );
+  };
+
   const formatSizeDisplay = (rawSize: string, unitType: string = 'weight') => {
     if (!rawSize) return 'N/A';
     const num = parseFloat(rawSize);
@@ -622,8 +643,20 @@ export default function HomeScreen() {
                         </View>
                       </View>
                       <View style={[styles.rowSub, { justifyContent: 'space-between' }]}>
-                        <Text style={styles.subText}>ENTRY: {formatMonth(inv.entry_month)}/{inv.entry_year}</Text>
-                        {inv.expiry_month ? getUrgencyPhrasing(inv.expiry_month, inv.expiry_year, false) : <Text style={styles.subText}>EXPIRY: N/A</Text>}
+                        {inv.cab_type === 'freezer' ? (
+                          <>
+                            <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
+                              <MaterialCommunityIcons name="snowflake" size={10} color="#60a5fa" />
+                              <Text style={[styles.subText, {color:'#60a5fa'}]}>FROZEN {formatMonth(inv.entry_month)}/{inv.entry_year}</Text>
+                            </View>
+                            {getFreezerUrgency(inv, type)}
+                          </>
+                        ) : (
+                          <>
+                            <Text style={styles.subText}>ENTRY: {formatMonth(inv.entry_month)}/{inv.entry_year}</Text>
+                            {inv.expiry_month ? getUrgencyPhrasing(inv.expiry_month, inv.expiry_year, false) : <Text style={styles.subText}>EXPIRY: N/A</Text>}
+                          </>
+                        )}
                       </View>
                     </View>
                   ))}
@@ -639,17 +672,16 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.appHeader}>
-        <Link href="/logistics" asChild>
-          <TouchableOpacity style={styles.logisticsBtn} testID="logistics-btn">
-            <MaterialCommunityIcons name="truck-delivery" size={26} color="#22c55e" />
-          </TouchableOpacity>
-        </Link>
-        <Link href="/recipes" asChild>
-          <TouchableOpacity style={StyleSheet.flatten([styles.logisticsBtn, { left: 56 }])} testID="recipes-btn">
-            <MaterialCommunityIcons name="chef-hat" size={26} color="#fbbf24" />
-          </TouchableOpacity>
-        </Link>
-        <Text style={styles.headerTitle} testID="app-header-title">War Cabinet</Text>
+        <TouchableOpacity style={styles.logisticsBtn} testID="logistics-btn" onPress={() => { if (checkEntitlement('LOGISTICS')) router.push('/logistics'); }}>
+          <MaterialCommunityIcons name="truck-delivery" size={26} color="#22c55e" />
+        </TouchableOpacity>
+        <TouchableOpacity style={StyleSheet.flatten([styles.logisticsBtn, { left: 56 }])} testID="recipes-btn" onPress={() => { if (checkEntitlement('RECIPES')) router.push('/recipes'); }}>
+          <MaterialCommunityIcons name="chef-hat" size={26} color="#fbbf24" />
+        </TouchableOpacity>
+        <View style={{alignItems: 'center'}}>
+          <Text style={styles.headerTitle} testID="app-header-title">War Cabinet</Text>
+          <Text style={styles.headerSubtitle}>Elite military inventory management</Text>
+        </View>
         <Link href="/briefing" asChild>
           <TouchableOpacity style={styles.briefingBtn} testID="briefing-btn">
             <MaterialCommunityIcons name="information-outline" size={26} color="#3b82f6" />
@@ -661,6 +693,14 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </Link>
       </View>
+
+      {isTrialActive && !isSergeanOrAbove && (
+        <TouchableOpacity onPress={requestPurchase} style={styles.trialBanner} activeOpacity={0.85}>
+          <MaterialCommunityIcons name="clock-alert-outline" size={14} color="#fbbf24" style={{ marginRight: 6 }} />
+          <Text style={styles.trialBannerText}>FREE TRIAL — {trialLabel} remaining</Text>
+          <Text style={styles.trialBannerCta}>UPGRADE ›</Text>
+        </TouchableOpacity>
+      )}
 
       {favorites.length > 0 && (
         <View style={styles.frontLineCard}>
@@ -877,11 +917,23 @@ const styles = StyleSheet.create({
   filterPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
   filterPillText: { fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
 
-  appHeader: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: '#1e293b', paddingTop: 50, paddingBottom: 15, paddingHorizontal: 10, position: 'relative' },
+  appHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    backgroundColor: '#1e293b', 
+    paddingTop: Platform.OS === 'ios' ? 40 : 10, 
+    paddingBottom: 15, 
+    paddingHorizontal: 16, 
+    position: 'relative',
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155'
+  },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc', textAlign: 'center' },
-  settingsBtn: { position: 'absolute', right: 16, bottom: 12 },
-  briefingBtn: { position: 'absolute', right: 56, bottom: 12 },
-  logisticsBtn: { position: 'absolute', left: 16, bottom: 12 },
+  headerSubtitle: { color: '#94a3b8', fontSize: 13, marginTop: 2, textAlign: 'center' },
+  settingsBtn: { position: 'absolute', right: 16, bottom: 20 },
+  briefingBtn: { position: 'absolute', right: 56, bottom: 20 },
+  logisticsBtn: { position: 'absolute', left: 16, bottom: 20 },
   categoryCard: { backgroundColor: '#1e293b', borderRadius: 8, marginBottom: 12, overflow: 'hidden' },
   categoryHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#334155' },
   categoryTitle: { fontSize: 20, color: '#f8fafc', fontWeight: 'bold' },
@@ -903,7 +955,19 @@ const styles = StyleSheet.create({
   subText: { color: '#94a3b8', fontSize: 12, letterSpacing: 0.5 },
   divider: { color: '#334155', marginHorizontal: 8, fontSize: 12 },
   actionBtn: { padding: 6, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
-  commandStrip: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 10, backgroundColor: '#0f172a', borderRadius: 8, borderWidth: 1, borderColor: '#334155', paddingLeft: 12, height: 48 },
+  commandStrip: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    marginHorizontal: 16, 
+    marginTop: 16,
+    marginBottom: 10, 
+    backgroundColor: '#0f172a', 
+    borderRadius: 8, 
+    borderWidth: 1, 
+    borderColor: '#334155', 
+    paddingLeft: 12, 
+    height: 48 
+  },
   searchSide: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   stripInput: { flex: 1, color: 'white', fontSize: 13, fontWeight: '500', marginLeft: 8 },
   dividerPipe: { width: 1, height: 24, backgroundColor: '#334155', marginHorizontal: 8 },
@@ -928,5 +992,8 @@ const styles = StyleSheet.create({
   feedbackText: { color: '#3b82f6', fontWeight: 'bold', fontSize: 13, letterSpacing: 1 },
   confirmBtn: { backgroundColor: '#eab308', padding: 16, borderRadius: 8, alignItems: 'center' },
   confirmBtnText: { color: 'black', fontWeight: 'bold', fontSize: 16 },
-  cancelLink: { marginTop: 20, alignItems: 'center' }
+  cancelLink: { marginTop: 20, alignItems: 'center' },
+  trialBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1c1200', borderBottomWidth: 1, borderBottomColor: '#92400e', paddingHorizontal: 16, paddingVertical: 8 },
+  trialBannerText: { flex: 1, color: '#fbbf24', fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
+  trialBannerCta: { color: '#fbbf24', fontSize: 11, fontWeight: 'bold', opacity: 0.75 },
 });

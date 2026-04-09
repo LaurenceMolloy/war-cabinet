@@ -20,9 +20,12 @@ const ALLERGENS = [
 
 const FRIDGE_STAPLES_PRESETS = ["Butter", "Carrots", "Eggs", "Leeks", "Milk", "Peppers"];
 
+import { useBilling } from '../context/BillingContext';
+
 export default function RecipesScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { checkEntitlement } = useBilling();
 
   const [dietary, setDietary] = useState("Meat");
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
@@ -481,6 +484,7 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
     if (activeExpiringList.length === 0 && !showConfirm) {
       setShowConfirm(true);
     } else {
+      if (!checkEntitlement('RECIPE_GENERATION')) return;
       const prompt = await generatePromptString();
       setRenderedPrompt(prompt);
       setShowConfirm(false);
@@ -596,12 +600,13 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-         <View style={{flexDirection: 'row', alignItems: 'center'}}>
-           <TouchableOpacity accessibilityRole="button" onPress={() => router.back()} style={styles.backBtn} testID="back-btn">
-             <MaterialCommunityIcons name="chevron-left" size={28} color="#f8fafc" />
-           </TouchableOpacity>
-             <Text style={styles.title}>Mess Hall Recipes</Text>
-         </View>
+        <TouchableOpacity accessibilityRole="button" onPress={() => router.back()} style={styles.backBtn} testID="back-btn">
+          <MaterialCommunityIcons name="arrow-left" size={24} color="#f8fafc" />
+        </TouchableOpacity>
+        <View style={{flex: 1, marginLeft: 16}}>
+          <Text style={styles.title}>The Mess Hall</Text>
+          <Text style={styles.headerSubtitle}>Waste-conscious recipe suggestions</Text>
+        </View>
       </View>
 
       <KeyboardAwareScrollView 
@@ -1019,9 +1024,19 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
-  headerRow: { backgroundColor: '#1e293b', paddingTop: 50, paddingBottom: 15, paddingHorizontal: 16 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc', marginLeft: 8 },
-  backBtn: { padding: 4 },
+  headerRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#1e293b', 
+    paddingTop: Platform.OS === 'ios' ? 40 : 10, 
+    paddingBottom: 15, 
+    paddingHorizontal: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#334155' 
+  },
+  title: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc' },
+  headerSubtitle: { color: '#94a3b8', fontSize: 13, marginTop: 2 },
+  backBtn: { padding: 10, backgroundColor: '#334155', borderRadius: 24 },
   scrollContent: { padding: 20 },
   card: { backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: '#334155' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },

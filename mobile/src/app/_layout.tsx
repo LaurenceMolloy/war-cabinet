@@ -6,6 +6,7 @@ import { initializeDatabase } from '../db/sqlite';
 import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
+import { BillingProvider } from '../context/BillingContext';
 
 export default function RootLayout() {
   const router = useRouter();
@@ -27,12 +28,14 @@ export default function RootLayout() {
       </View>
     }>
       <SQLiteProvider databaseName="war_cabinet.db" onInit={initializeDatabase}>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            animation: 'slide_from_right'
-          }}
-        />
+        <BillingProvider>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              animation: 'slide_from_right'
+            }}
+          />
+        </BillingProvider>
       </SQLiteProvider>
     </Suspense>
   );

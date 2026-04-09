@@ -38,6 +38,14 @@ export default function AddInventoryScreen() {
   const [cabinets, setCabinets] = useState<any[]>([]);
   const [selectedCabinetId, setSelectedCabinetId] = useState<number | null>(null);
   const [showCabinetPicker, setShowCabinetPicker] = useState(false);
+  const [showFreezeMonthPicker, setShowFreezeMonthPicker] = useState(false);
+  const [showFreezeYearPicker, setShowFreezeYearPicker] = useState(false);
+  const [freezeMonth, setFreezeMonth] = useState(currentMonth.toString());
+  const [freezeYear, setFreezeYear] = useState(currentYear.toString());
+
+  // Derived: is the currently selected cabinet a freezer?
+  const selectedCabinet = cabinets.find(c => c.id === selectedCabinetId);
+  const isFreezerMode = selectedCabinet?.cabinet_type === 'freezer';
 
   useEffect(() => {
     async function loadData() {
@@ -81,6 +89,9 @@ export default function AddInventoryScreen() {
           setExpiryMonth(batch.expiry_month?.toString() || '');
           setExpiryYear(batch.expiry_year?.toString() || '');
           if (batch.cabinet_id) setSelectedCabinetId(batch.cabinet_id);
+          // Pre-fill freeze date from entry date for freezer edits
+          if (batch.entry_month) setFreezeMonth(batch.entry_month.toString());
+          if (batch.entry_year) setFreezeYear(batch.entry_year.toString());
         }
       } else {
         if (typeRes && typeRes.default_size) {
@@ -123,6 +134,31 @@ export default function AddInventoryScreen() {
       return;
     }
 
+    const freezeM = parseInt(freezeMonth);
+    const freezeY = parseInt(freezeYear);
+    const entryM = (isFreezerMode && !isNaN(freezeM)) ? freezeM : currentMonth;
+    const entryY = (isFreezerMode && !isNaN(freezeY)) ? freezeY : currentYear;
+
+    // For freezer batches: skip merge — each freeze date is a distinct batch
+    if (isFreezerMode) {
+      if (editBatchId) {
+        await db.runAsync(
+          'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = NULL, expiry_year = NULL, entry_month = ?, entry_year = ?, cabinet_id = ? WHERE id = ?',
+          q, finalSize, entryM, entryY, selectedCabinetId, Number(editBatchId)
+        );
+      } else {
+        await db.runAsync(
+          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?)`,
+          Number(typeId), q, finalSize, entryM, entryY, selectedCabinetId
+        );
+      }
+      await markModified(db);
+      const currentFilter = inheritedCabinetId ? Number(inheritedCabinetId) : null;
+      router.replace({ pathname: '/', params: { targetCatId: categoryId ? Number(categoryId) : undefined, targetTypeId: typeId ? Number(typeId) : undefined, timestamp: Date.now().toString() } });
+      return;
+    }
+
+    // Standard cabinet: existing merge logic
     const exM = parseInt(expiryMonth);
     const exY = parseInt(expiryYear);
     const validExpiry = !isNaN(exM) && !isNaN(exY) && exM > 0 && exM <= 12 && exY > 2020;
@@ -156,14 +192,14 @@ export default function AddInventoryScreen() {
       // No match at destination, so just move/update this batch
       await db.runAsync(
         'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, cabinet_id = ? WHERE id = ?',
-        q, finalSize, expMVal, expYVal, currentMonth, currentYear, selectedCabinetId, Number(editBatchId)
+        q, finalSize, expMVal, expYVal, entryM, entryY, selectedCabinetId, Number(editBatchId)
       );
     } else {
       // Brand new batch, no existing match to merge into
       await db.runAsync(
         `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        Number(typeId), q, finalSize, expMVal, expYVal, currentMonth, currentYear, selectedCabinetId
+        Number(typeId), q, finalSize, expMVal, expYVal, entryM, entryY, selectedCabinetId
       );
     }
 
@@ -296,57 +332,103 @@ export default function AddInventoryScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Expiry Date</Text>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <TouchableOpacity 
-            style={[styles.input, { flex: 1, alignItems: 'center' }]} 
-            onPress={() => setShowMonthPicker(!showMonthPicker)}
-          >
-            <Text style={{ color: expiryMonth ? '#f8fafc' : '#64748b', fontSize: 16 }}>
-              {expiryMonth ? `Month: ${expiryMonth.toString().padStart(2, '0')}` : '(None)'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.input, { flex: 1, alignItems: 'center' }]} 
-            onPress={() => setShowYearPicker(!showYearPicker)}
-          >
-            <Text style={{ color: expiryYear ? '#f8fafc' : '#64748b', fontSize: 16 }}>
-              {expiryYear ? `Year: ${expiryYear}` : '(None)'}
-            </Text>
-          </TouchableOpacity>
+      {/* Expiry Date (standard) / Date Frozen (freezer) */}
+      {isFreezerMode ? (
+        <View style={styles.formGroup}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <MaterialCommunityIcons name="snowflake" size={16} color="#60a5fa" />
+            <Text style={[styles.label, { marginBottom: 0, color: '#60a5fa' }]}>Date Frozen</Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              style={[styles.input, { flex: 1, alignItems: 'center' }]}
+              onPress={() => setShowFreezeMonthPicker(!showFreezeMonthPicker)}
+            >
+              <Text style={{ color: freezeMonth ? '#f8fafc' : '#64748b', fontSize: 16 }}>
+                {freezeMonth ? `Month: ${freezeMonth.toString().padStart(2, '0')}` : 'Month'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.input, { flex: 1, alignItems: 'center' }]}
+              onPress={() => setShowFreezeYearPicker(!showFreezeYearPicker)}
+            >
+              <Text style={{ color: freezeYear ? '#f8fafc' : '#64748b', fontSize: 16 }}>
+                {freezeYear ? `Year: ${freezeYear}` : 'Year'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {showFreezeMonthPicker && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
+              {Array.from({length: 12}, (_, i) => i + 1).map(m => (
+                <TouchableOpacity key={m} style={[styles.dateChip, freezeMonth === m.toString() && styles.chipActive]} onPress={() => { setFreezeMonth(m.toString()); setShowFreezeMonthPicker(false); }}>
+                  <Text style={[styles.chipText, freezeMonth === m.toString() && styles.chipTextActive]}>{m}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+          {showFreezeYearPicker && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
+              {Array.from({length: 4}, (_, i) => currentYear - i).reverse().map(y => (
+                <TouchableOpacity key={y} style={[styles.dateChip, freezeYear === y.toString() && styles.chipActive]} onPress={() => { setFreezeYear(y.toString()); setShowFreezeYearPicker(false); }}>
+                  <Text style={[styles.chipText, freezeYear === y.toString() && styles.chipTextActive]}>{y}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
         </View>
+      ) : (
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Expiry Date</Text>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity 
+              style={[styles.input, { flex: 1, alignItems: 'center' }]} 
+              onPress={() => setShowMonthPicker(!showMonthPicker)}
+            >
+              <Text style={{ color: expiryMonth ? '#f8fafc' : '#64748b', fontSize: 16 }}>
+                {expiryMonth ? `Month: ${expiryMonth.toString().padStart(2, '0')}` : '(None)'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.input, { flex: 1, alignItems: 'center' }]} 
+              onPress={() => setShowYearPicker(!showYearPicker)}
+            >
+              <Text style={{ color: expiryYear ? '#f8fafc' : '#64748b', fontSize: 16 }}>
+                {expiryYear ? `Year: ${expiryYear}` : '(None)'}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-        {(expiryMonth !== '' || expiryYear !== '') && (
-          <TouchableOpacity 
-            style={styles.clearDateBtn} 
-            onPress={() => { setExpiryMonth(''); setExpiryYear(''); }}
-          >
-            <MaterialCommunityIcons name="calendar-remove" size={16} color="#ef4444" />
-            <Text style={styles.clearDateText}>CLEAR EXPIRY (UNMARKED)</Text>
-          </TouchableOpacity>
-        )}
+          {(expiryMonth !== '' || expiryYear !== '') && (
+            <TouchableOpacity 
+              style={styles.clearDateBtn} 
+              onPress={() => { setExpiryMonth(''); setExpiryYear(''); }}
+            >
+              <MaterialCommunityIcons name="calendar-remove" size={16} color="#ef4444" />
+              <Text style={styles.clearDateText}>CLEAR EXPIRY (UNMARKED)</Text>
+            </TouchableOpacity>
+          )}
 
-        {showMonthPicker && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
-            {Array.from({length: 12}, (_, i) => i + 1).map(m => (
-              <TouchableOpacity key={m} style={[styles.dateChip, expiryMonth === m.toString() && styles.chipActive]} onPress={() => { setExpiryMonth(m.toString()); setShowMonthPicker(false); }}>
-                <Text style={[styles.chipText, expiryMonth === m.toString() && styles.chipTextActive]}>{m}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        )}
+          {showMonthPicker && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
+              {Array.from({length: 12}, (_, i) => i + 1).map(m => (
+                <TouchableOpacity key={m} style={[styles.dateChip, expiryMonth === m.toString() && styles.chipActive]} onPress={() => { setExpiryMonth(m.toString()); setShowMonthPicker(false); }}>
+                  <Text style={[styles.chipText, expiryMonth === m.toString() && styles.chipTextActive]}>{m}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
 
-        {showYearPicker && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
-            {Array.from({length: 15}, (_, i) => currentYear + i).map(y => (
-              <TouchableOpacity key={y} style={[styles.dateChip, expiryYear === y.toString() && styles.chipActive]} onPress={() => { setExpiryYear(y.toString()); setShowYearPicker(false); }}>
-                <Text style={[styles.chipText, expiryYear === y.toString() && styles.chipTextActive]}>{y}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        )}
-      </View>
+          {showYearPicker && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
+              {Array.from({length: 15}, (_, i) => currentYear + i).map(y => (
+                <TouchableOpacity key={y} style={[styles.dateChip, expiryYear === y.toString() && styles.chipActive]} onPress={() => { setExpiryYear(y.toString()); setShowYearPicker(false); }}>
+                  <Text style={[styles.chipText, expiryYear === y.toString() && styles.chipTextActive]}>{y}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
 
       <Modal visible={showCabinetPicker} transparent animationType="fade">
         <View style={styles.modalOverlay}>

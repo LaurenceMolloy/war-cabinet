@@ -1,16 +1,19 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Share, ActivityIndicator, SafeAreaView, Platform, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Share, ActivityIndicator, SafeAreaView, Platform, Alert, TextInput } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useBilling } from '../context/BillingContext';
 
 import * as MailComposer from 'expo-mail-composer';
 
 export default function LogisticsScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
+  const { checkEntitlement } = useBilling();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [logisticsEmail, setLogisticsEmail] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -81,7 +84,7 @@ export default function LogisticsScreen() {
       }
     });
     
-    // 5. Group by category
+    // 5. Group pantry alerts by category
     const grouped = results.reduce((acc: any[], row: any) => {
       let cat = acc.find((c: any) => c.title === row.cat_name);
       if (!cat) {
@@ -92,8 +95,37 @@ export default function LogisticsScreen() {
       return acc;
     }, [] as any[]);
 
+    // 6. Freezer overdue / approaching-limit batches
+    const freezerBatches = await db.getAllAsync<any>(`
+      SELECT i.id as type_id, i.name as type_name, i.unit_type, i.freeze_months,
+             inv.id as batch_id, inv.quantity, inv.size, inv.entry_month, inv.entry_year,
+             cab.name as cab_name
+      FROM Inventory inv
+      JOIN ItemTypes i ON inv.item_type_id = i.id
+      JOIN Cabinets cab ON inv.cabinet_id = cab.id
+      WHERE cab.cabinet_type = 'freezer'
+      ORDER BY i.name, inv.entry_year, inv.entry_month
+    `);
+
+    const now = new Date();
+    const coldAlerts: any[] = [];
+    freezerBatches.forEach(row => {
+      const ageMonths = (now.getFullYear() - row.entry_year) * 12 + ((now.getMonth() + 1) - row.entry_month);
+      const limit = row.freeze_months ?? 6;
+      const remaining = limit - ageMonths;
+      if (remaining <= 1) { // flag if ≤1 month left or overdue
+        coldAlerts.push({ ...row, age_months: ageMonths, remaining, is_critical: remaining <= 0 });
+      }
+    });
+    if (coldAlerts.length > 0) {
+      grouped.unshift({ title: '\u2744 COLD STORE', data: coldAlerts, isFreezer: true });
+    }
+
     setData(grouped);
     setLoading(false);
+
+    const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'logistics_email');
+    setLogisticsEmail(emailRes?.value || '');
   };
 
   useFocusEffect(useCallback(() => { load(); }, []));
@@ -131,6 +163,7 @@ export default function LogisticsScreen() {
     // Fetch default recipient
     const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'logistics_email');
     const recipient = emailRes?.value || '';
+
 
     let textBody = "War Cabinet Restocking Report\n";
     textBody += "Date: " + dateStr + "\n\n";
@@ -182,11 +215,32 @@ export default function LogisticsScreen() {
 
   const renderItem = ({ item: cat }: any) => (
     <View style={styles.catGroup}>
-      <View style={styles.catHeader}>
-        <MaterialCommunityIcons name="label-outline" size={16} color="#3b82f6" style={{marginRight: 8}} />
-        <Text style={styles.catTitle}>{cat.title.toUpperCase()}</Text>
+      <View style={[styles.catHeader, cat.isFreezer && { borderBottomColor: '#1e3a5f' }]}>
+        <MaterialCommunityIcons name={cat.isFreezer ? 'snowflake' : 'label-outline'} size={16} color={cat.isFreezer ? '#60a5fa' : '#3b82f6'} style={{marginRight: 8}} />
+        <Text style={[styles.catTitle, cat.isFreezer && { color: '#60a5fa' }]}>{cat.title.toUpperCase()}</Text>
       </View>
       {cat.data.map((item: any) => {
+        if (cat.isFreezer) {
+          // Freezer batch row
+          const overdue = item.remaining <= 0;
+          return (
+            <View key={`freeze-${item.batch_id}`} style={[styles.resupplyRow, { borderLeftWidth: 3, borderLeftColor: overdue ? '#b91c1c' : '#fde047' }]}>
+              <View style={{flex: 1}}>
+                <Text style={[styles.itemName, { color: overdue ? '#ef4444' : '#f8fafc' }]}>{item.type_name}</Text>
+                <Text style={styles.itemMeta}>{item.cab_name} · {item.quantity} × {item.size ? item.size + (item.unit_type === 'weight' ? 'g' : item.unit_type === 'volume' ? 'ml' : '') : 'unit'}</Text>
+                <Text style={{color: '#60a5fa', fontSize: 11, marginTop: 2}}>Frozen {item.age_months} {item.age_months === 1 ? 'month' : 'months'} ago</Text>
+              </View>
+              <View style={styles.deficitCol}>
+                <View style={[styles.badge, {borderColor: overdue ? '#b91c1c' : '#fde047'}]}>
+                  <Text style={[styles.badgeText, {color: overdue ? '#b91c1c' : '#fde047'}]}>
+                    {overdue ? `OVERDUE ${Math.abs(item.remaining)}mo` : `${item.remaining}mo LEFT`}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          );
+        }
+
         const effectiveUnit = item.default_size ? item.unit_type : 'unit';
         const minI = calculateDeficitInfo(item.target_min_total, item.total_stored, effectiveUnit, item.def_size_val);
         const maxI = calculateDeficitInfo(item.target_max_total, item.total_stored, effectiveUnit, item.def_size_val);
@@ -229,7 +283,8 @@ export default function LogisticsScreen() {
           <MaterialCommunityIcons name="arrow-left" size={24} color="#f8fafc" />
         </TouchableOpacity>
         <View style={{flex: 1, marginLeft: 16}}>
-          <Text style={styles.title}>Restocking List</Text>
+          <Text style={styles.title}>The Quartermaster</Text>
+          <Text style={styles.subtitle}>Low stocks shopping list</Text>
         </View>
         {data.length > 0 && (
           <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
@@ -256,6 +311,23 @@ export default function LogisticsScreen() {
               <Text style={styles.emptyText}>All tracked stockpiles are at or above their designated thresholds.</Text>
             </View>
           }
+          ListFooterComponent={
+            <View style={styles.emailFooter}>
+              <Text style={styles.emailFooterLabel}>RESUPPLY RECIPIENT</Text>
+              <TextInput
+                style={styles.emailInput}
+                value={logisticsEmail}
+                onChangeText={async (val) => {
+                  setLogisticsEmail(val);
+                  await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', 'logistics_email', val);
+                }}
+                placeholder="Pre-fill email for sharing (optional)"
+                placeholderTextColor="#475569"
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+            </View>
+          }
         />
       )}
     </SafeAreaView>
@@ -264,9 +336,18 @@ export default function LogisticsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 20, paddingTop: Platform.OS === 'android' ? 40 : 10, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
-  backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#1e293b', justifyContent: 'center', alignItems: 'center' },
-  title: { color: '#f8fafc', fontSize: 22, fontWeight: 'bold' },
+  header: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#1e293b', 
+    paddingHorizontal: 16, 
+    paddingBottom: 15, 
+    paddingTop: Platform.OS === 'ios' ? 40 : 10, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#334155' 
+  },
+  backBtn: { padding: 10, backgroundColor: '#334155', borderRadius: 24 },
+  title: { color: '#f8fafc', fontSize: 24, fontWeight: 'bold' },
   subtitle: { color: '#94a3b8', fontSize: 13, marginTop: 2 },
   shareBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#3b82f6', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, gap: 6 },
   shareBtnText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
@@ -282,5 +363,8 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 10, fontWeight: 'bold' },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 100 },
   emptyTitle: { color: '#f8fafc', fontSize: 20, fontWeight: 'bold', marginTop: 16 },
-  emptyText: { color: '#94a3b8', fontSize: 14, textAlign: 'center', marginTop: 8, paddingHorizontal: 40 }
+  emptyText: { color: '#94a3b8', fontSize: 14, textAlign: 'center', marginTop: 8, paddingHorizontal: 40 },
+  emailFooter: { marginTop: 32, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#1e293b' },
+  emailFooterLabel: { color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 6, paddingLeft: 4 },
+  emailInput: { backgroundColor: '#1e293b', color: '#f8fafc', borderRadius: 8, padding: 12, fontSize: 14, borderWidth: 1, borderColor: '#334155' },
 });
