@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Modal, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -21,6 +21,10 @@ export default function AddInventoryScreen() {
   const [expiryYear, setExpiryYear] = useState(currentYear.toString());
   const [customChips, setCustomChips] = useState<string[]>([]);
   const [unitType, setUnitType] = useState('weight');
+  const [batchIntel, setBatchIntel] = useState('');
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [mergeCandidate, setMergeCandidate] = useState<any>(null);
+  const [deferredSave, setDeferredSave] = useState<any>(null);
   
   const getUnitSuffix = (type: string) => {
     if (type === 'weight') return 'g';
@@ -50,7 +54,7 @@ export default function AddInventoryScreen() {
 
   useEffect(() => {
     async function loadData() {
-      const typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null}>('SELECT name, unit_type, default_size, default_cabinet_id, freeze_months FROM ItemTypes WHERE id = ?', Number(typeId));
+      const typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null}>('SELECT name, unit_type, default_size, default_cabinet_id, freeze_months FROM ItemTypes WHERE id = ?', [Number(typeId)]);
       if (typeRes) {
         setUnitType(typeRes.unit_type || 'weight');
         setTypeName(typeRes.name);
@@ -73,8 +77,8 @@ export default function AddInventoryScreen() {
       }
 
       const res = await db.getAllAsync<{size: string}>(
-        'SELECT size FROM Inventory WHERE item_type_id = ? GROUP BY size ORDER BY MAX(id) DESC LIMIT 3',
-        Number(typeId)
+        "SELECT size FROM Inventory WHERE item_type_id = ? AND size NOT GLOB '*[^0-9]*' GROUP BY size ORDER BY MAX(id) DESC LIMIT 3",
+        [Number(typeId)]
       );
       if (res && res.length > 0) {
         setCustomChips(res.map(r => r.size));
@@ -83,7 +87,7 @@ export default function AddInventoryScreen() {
       if (editBatchId) {
         const batch = await db.getFirstAsync<any>(
           'SELECT * FROM Inventory WHERE id = ?',
-          Number(editBatchId)
+          [Number(editBatchId)]
         );
         if (batch) {
           setQuantity(batch.quantity.toString());
@@ -91,6 +95,7 @@ export default function AddInventoryScreen() {
           setExpiryMonth(batch.expiry_month?.toString() || '');
           setExpiryYear(batch.expiry_year?.toString() || '');
           if (batch.cabinet_id) setSelectedCabinetId(batch.cabinet_id);
+          if (batch.batch_intel) setBatchIntel(batch.batch_intel);
           // Pre-fill freeze date from entry date for freezer edits
           if (batch.entry_month) setFreezeMonth(batch.entry_month.toString());
           if (batch.entry_year) setFreezeYear(batch.entry_year.toString());
@@ -107,148 +112,152 @@ export default function AddInventoryScreen() {
   }, [typeId, editBatchId]);
 
   const handleSave = async () => {
-    setErrorField(null);
-    setErrorMsg(null);
+    try {
+      setErrorField(null);
+      setErrorMsg(null);
 
-    const s = size.trim();
-    if (!s) {
-      setErrorField('size');
-      setErrorMsg('Size is required');
-      return;
-    }
-
-    let finalSize = s;
-    // Iteration 65: Data Sovereignty - Only store numeric value
-    finalSize = s.replace(/[^0-9]/g, '');
-
-    if ((unitType === 'weight' || unitType === 'volume')) {
-      if (!/^\d+(\.\d+)?$/.test(s)) {
+      const s = size.trim();
+      if (!s) {
         setErrorField('size');
-        setErrorMsg(`Format error: "${unitType}" only accepts numbers`);
+        setErrorMsg('Size is required');
         return;
       }
-    }
 
-    const q = parseInt(quantity);
-    if (isNaN(q) || q <= 0) {
-      setErrorField('quantity');
-      setErrorMsg('Quantity must be a positive number');
-      return;
-    }
+      let finalSize = s;
+      // Iteration 65: Data Sovereignty - Only store numeric value
+      finalSize = s.replace(/[^0-9]/g, '');
 
-    const freezeM = parseInt(freezeMonth);
-    const freezeY = parseInt(freezeYear);
-    const entryM = (isFreezerMode && !isNaN(freezeM)) ? freezeM : currentMonth;
-    const entryY = (isFreezerMode && !isNaN(freezeY)) ? freezeY : currentYear;
-
-    if (isFreezerMode) {
-      if ((entryY * 12 + entryM) > (currentYear * 12 + currentMonth)) {
-        setErrorField('freezeDate');
-        setErrorMsg('Items cannot be frozen in the future');
+      const q = parseInt(quantity);
+      if (isNaN(q) || q <= 0) {
+        setErrorField('quantity');
+        setErrorMsg('Quantity must be a positive number');
         return;
       }
-    }
 
-    let fLimit = parseInt(freezeLimit);
-    if (isFreezerMode && (isNaN(fLimit) || fLimit <= 0)) {
-       setErrorField('freezeLimit');
-       setErrorMsg('Freeze limit must be a positive number of months');
-       return;
-    }
+      if ((unitType === 'weight' || unitType === 'volume')) {
+        if (!/^\d+(\.\d+)?$/.test(finalSize)) {
+          setErrorField('size');
+          setErrorMsg(`Format error: "${unitType}" only accepts numbers`);
+          return;
+        }
+      }
 
-    // For freezer batches: skip merge — each freeze date is a distinct batch
-    if (isFreezerMode) {
-      if (editBatchId) {
+      const freezeM = parseInt(freezeMonth);
+      const freezeY = parseInt(freezeYear);
+      const entryM = (isFreezerMode && !isNaN(freezeM)) ? freezeM : currentMonth;
+      const entryY = (isFreezerMode && !isNaN(freezeY)) ? freezeY : currentYear;
+
+      if (isFreezerMode) {
+        if ((entryY * 12 + entryM) > (currentYear * 12 + currentMonth)) {
+          setErrorField('freezeDate');
+          setErrorMsg('Items cannot be frozen in the future');
+          return;
+        }
+      }
+
+      let fLimit = parseInt(freezeLimit);
+      if (isFreezerMode && (isNaN(fLimit) || fLimit <= 0)) {
+         setErrorField('freezeLimit');
+         setErrorMsg('Freeze limit must be a positive number of months');
+         return;
+      }
+
+      // For freezer batches: skip merge
+      if (isFreezerMode) {
+        if (editBatchId) {
+          await db.runAsync(
+            'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = NULL, expiry_year = NULL, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ? WHERE id = ?',
+            [q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, Number(editBatchId)]
+          );
+        } else {
+          await db.runAsync(
+            `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
+            [Number(typeId), q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null]
+          );
+        }
+        
+        await db.runAsync('UPDATE ItemTypes SET freeze_months = ? WHERE id = ?', [fLimit, Number(typeId)]);
+        await markModified(db);
+        router.replace({ pathname: '/', params: { targetCatId: categoryId ? Number(categoryId) : undefined, targetTypeId: typeId ? Number(typeId) : undefined, timestamp: Date.now().toString() } });
+        return;
+      }
+
+      const exM = parseInt(expiryMonth);
+      const exY = parseInt(expiryYear);
+      const validExpiry = !isNaN(exM) && !isNaN(exY) && exM > 0 && exM <= 12 && exY > 2020;
+      const expMVal = validExpiry ? exM : null;
+      const expYVal = validExpiry ? exY : null;
+
+      const existingSearchQuery = `
+        SELECT id, batch_intel, expiry_month, expiry_year FROM Inventory 
+        WHERE item_type_id = ? AND size = ? AND cabinet_id = ?
+          AND ( (expiry_month IS NULL AND ? IS NULL) OR (expiry_month = ?) )
+          AND ( (expiry_year IS NULL AND ? IS NULL) OR (expiry_year = ?) )
+          AND id != ?
+      `;
+      const potentialMatches = await db.getAllAsync<any>(
+        existingSearchQuery, 
+        [Number(typeId), finalSize, selectedCabinetId, expMVal, expMVal, expYVal, expYVal, editBatchId ? Number(editBatchId) : -1]
+      );
+
+      const cleanNewIntel = batchIntel?.trim() || null;
+
+      if (potentialMatches.length > 0) {
+        const exactMatch = potentialMatches.find(m => (m.batch_intel?.trim() || null) === cleanNewIntel);
+        if (exactMatch) {
+          await finalizeCommit(exactMatch.id, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel });
+        } else {
+          setMergeCandidate(potentialMatches[0]);
+          setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel });
+          setShowMergeModal(true);
+        }
+      } else {
+        await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel });
+      }
+    } catch (err: any) {
+      console.error('Save failed:', err);
+      Alert.alert('Save Failed', err.message);
+    }
+  };
+
+  const finalizeCommit = async (mergeTargetId: number | null, data: any) => {
+    try {
+      if (mergeTargetId) {
         await db.runAsync(
-          'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = NULL, expiry_year = NULL, entry_month = ?, entry_year = ?, cabinet_id = ? WHERE id = ?',
-          q, finalSize, entryM, entryY, selectedCabinetId, Number(editBatchId)
+          'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ? WHERE id = ?',
+          [data.q, data.currentMonth, data.currentYear, mergeTargetId]
+        );
+        if (editBatchId) {
+          await db.runAsync('DELETE FROM Inventory WHERE id = ?', [Number(editBatchId)]);
+        }
+      } else if (editBatchId) {
+        await db.runAsync(
+          'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ? WHERE id = ?',
+          [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, Number(editBatchId)]
         );
       } else {
         await db.runAsync(
-          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?)`,
-          Number(typeId), q, finalSize, entryM, entryY, selectedCabinetId
+          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null]
         );
       }
-      
-      // Persist the freeze limit up to the ItemType
-      await db.runAsync('UPDATE ItemTypes SET freeze_months = ? WHERE id = ?', fLimit, Number(typeId));
-      
+
       await markModified(db);
-      const currentFilter = inheritedCabinetId ? Number(inheritedCabinetId) : null;
+      setDeferredSave(null);
       router.replace({ pathname: '/', params: { targetCatId: categoryId ? Number(categoryId) : undefined, targetTypeId: typeId ? Number(typeId) : undefined, timestamp: Date.now().toString() } });
-      return;
+    } catch (err: any) {
+      console.error('Commit failed:', err);
+      Alert.alert('Commit Failed', err.message);
     }
+  };
 
-    // Standard cabinet: existing merge logic
-    const exM = parseInt(expiryMonth);
-    const exY = parseInt(expiryYear);
-    const validExpiry = !isNaN(exM) && !isNaN(exY) && exM > 0 && exM <= 12 && exY > 2020;
-    const expMVal = validExpiry ? exM : null;
-    const expYVal = validExpiry ? exY : null;
-
-    // Check for existing identical batch at destination
-    const existingSearchQuery = `
-      SELECT id FROM Inventory 
-      WHERE item_type_id = ? AND size = ? AND cabinet_id = ?
-        AND (expiry_month IS NULL OR expiry_month = ?)
-        AND (expiry_year IS NULL OR expiry_year = ?)
-        AND id != ?
-    `;
-    const existing = await db.getFirstAsync<{id: number}>(
-      existingSearchQuery, 
-      Number(typeId), finalSize, selectedCabinetId, expMVal, expYVal, editBatchId ? Number(editBatchId) : -1
-    );
-
-    if (existing) {
-      // Merge into existing batch
-      await db.runAsync(
-        'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ? WHERE id = ?',
-        q, currentMonth, currentYear, existing.id
-      );
-      if (editBatchId) {
-        // Cleaning up the old entry after move/merge
-        await db.runAsync('DELETE FROM Inventory WHERE id = ?', Number(editBatchId));
-      }
-    } else if (editBatchId) {
-      // No match at destination, so just move/update this batch
-      await db.runAsync(
-        'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, cabinet_id = ? WHERE id = ?',
-        q, finalSize, expMVal, expYVal, entryM, entryY, selectedCabinetId, Number(editBatchId)
-      );
-    } else {
-      // Brand new batch, no existing match to merge into
-      await db.runAsync(
-        `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        Number(typeId), q, finalSize, expMVal, expYVal, entryM, entryY, selectedCabinetId
-      );
-    }
-
-    await markModified(db);
-
-    // Strategic Navigation: Follow the action, isolate the category, and scroll into view
-    const currentFilter = inheritedCabinetId ? Number(inheritedCabinetId) : null;
-    const targetCatId = categoryId ? Number(categoryId) : null;
-    const targetTypeIdNum = typeId ? Number(typeId) : null;
+  const handleMergeChoice = async (choice: 'MERGE' | 'NEW') => {
+    setShowMergeModal(false);
+    if (!deferredSave) return;
     
-    const navParams = { 
-      setCabinetId: (currentFilter !== null && selectedCabinetId !== currentFilter) ? (selectedCabinetId ?? undefined) : undefined,
-      setCabinetName: (currentFilter !== null && selectedCabinetId !== currentFilter) ? cabinets.find(c => c.id === selectedCabinetId)?.name : undefined,
-      targetCatId: targetCatId ?? undefined,
-      targetTypeId: targetTypeIdNum ?? undefined,
-      timestamp: Date.now().toString()
-    };
-
-    if (!editBatchId) {
-        router.replace({ pathname: '/', params: navParams });
-    } else {
-        // Even for edits/moves, we use replace to ensure the params are processed by the Dashboard if the cabinet changed
-        if (currentFilter !== null && selectedCabinetId !== currentFilter) {
-          router.replace({ pathname: '/', params: navParams });
-        } else {
-          router.back();
-        }
-    }
+    const targetId = choice === 'MERGE' ? mergeCandidate.id : null;
+    await finalizeCommit(targetId, deferredSave);
   };
 
   const increment = () => setQuantity(prev => (parseInt(prev || '0') + 1).toString());
@@ -265,13 +274,20 @@ export default function AddInventoryScreen() {
   else if (unitType === 'count') genericChips = ['1', '6', '12', '24'];
   else genericChips = ['50g', '100g', '250g', '500g', '1kg'];
 
-  const allChips = Array.from(new Set([...customChips, ...genericChips]));
+  const allChipsRaw = Array.from(new Set([...genericChips, ...customChips]));
+  const seenValues = new Set();
+  const allChips = allChipsRaw.filter(c => {
+    const val = getChipValue(c);
+    if (seenValues.has(val)) return false;
+    seenValues.add(val);
+    return true;
+  });
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 60 }}>
       <View style={styles.headerRow}>
         <View>
-          <Text style={styles.title}>{editBatchId ? 'Refresh Stock' : 'Add Stock'}</Text>
+          <Text style={styles.title}>{editBatchId ? 'Update Batch' : 'Add Batch'}</Text>
           <Text style={styles.subTitle}>{typeName}</Text>
         </View>
         <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} testID="cancel-btn">
@@ -468,6 +484,18 @@ export default function AddInventoryScreen() {
         </View>
       )}
 
+      <View style={styles.formGroup}>
+        <Text style={styles.label}>Batch Intel (Optional)</Text>
+        <TextInput 
+          style={styles.input} 
+          value={batchIntel} 
+          onChangeText={setBatchIntel} 
+          placeholder="Brand, store, style/type, or specific details..."
+          placeholderTextColor="#64748b"
+          testID="batch-intel-input"
+        />
+      </View>
+
       <Modal visible={showCabinetPicker} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -495,12 +523,80 @@ export default function AddInventoryScreen() {
         </View>
       </Modal>
 
+      <Modal visible={showMergeModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>CONSOLIDATE BATCH?</Text>
+            <Text style={{color: '#64748b', textAlign: 'center', fontSize: 13, marginBottom: 16}}>
+              A batch with matching specifications already exists, but its Intel differs.
+            </Text>
+
+            {mergeCandidate && (
+              <View style={{ backgroundColor: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16, width: '100%' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="warehouse" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    {cabinets.find(c => c.id === selectedCabinetId)?.name.toUpperCase()}
+                  </Text>
+                </View>
+                {mergeCandidate.batch_intel && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                    <MaterialCommunityIcons name="information" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                    <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                      {mergeCandidate.batch_intel.toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    {deferredSave?.finalSize}{getUnitSuffix(unitType)}
+                  </Text>
+                </View>
+                {mergeCandidate.expiry_month && mergeCandidate.expiry_year && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="calendar-clock" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                    <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                      EXPIRES {String(mergeCandidate.expiry_month).padStart(2, '0')}/{mergeCandidate.expiry_year}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <TouchableOpacity 
+              style={[styles.confirmBtn, { backgroundColor: '#22c55e', marginBottom: 12 }]} 
+              onPress={() => handleMergeChoice('MERGE')}
+            >
+              <Text style={styles.confirmBtnText}>MERGE INTO EXISTING</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.confirmBtn, { backgroundColor: '#334155', marginBottom: 12 }]} 
+              onPress={() => handleMergeChoice('NEW')}
+            >
+              <Text style={styles.confirmBtnText}>KEEP AS NEW BATCH</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelLink} onPress={() => { setShowMergeModal(false); setDeferredSave(null); }}>
+              <Text style={{color: '#64748b', fontWeight: 'bold'}}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <TouchableOpacity style={styles.saveButton} onPress={handleSave} testID="save-stock-btn">
-        <Text style={styles.saveText}>{editBatchId ? 'UPDATE STOCK' : 'SAVE TO STOCK'}</Text>
+        <Text style={styles.saveText}>{editBatchId ? 'UPDATE BATCH' : 'SAVE TO BATCHES'}</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
+
+const customModalStyles = {
+  confirmBtn: { padding: 16, borderRadius: 8, width: '100%', alignItems: 'center' },
+  confirmBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
+  cancelLink: { padding: 12, width: '100%', alignItems: 'center' }
+};
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a', padding: 20 },
@@ -535,5 +631,8 @@ const styles = StyleSheet.create({
   modalItemText: { color: '#f8fafc', fontSize: 16 },
   modalItemTextActive: { color: '#3b82f6', fontWeight: 'bold' },
   modalClose: { marginTop: 20, padding: 15, alignItems: 'center' },
-  modalCloseText: { color: '#ef4444', fontWeight: 'bold', fontSize: 16 }
+  modalCloseText: { color: '#ef4444', fontWeight: 'bold', letterSpacing: 1 },
+  confirmBtn: { padding: 16, borderRadius: 8, width: '100%', alignItems: 'center' },
+  confirmBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
+  cancelLink: { padding: 12, width: '100%', alignItems: 'center' }
 });

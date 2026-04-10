@@ -224,5 +224,27 @@
     "title": "Date Frozen Entry",
     "text": "When adding stock to a freezer cabinet, the traditional 'Expiry Date' field is replaced by 'Date Frozen' (defaulting to the current month). Because freeze dates are uniquely tracked, freezer items are never aggregated or merged—every freeze action creates its own distinct row.",
     "tags": ["freezer", "date", "frozen", "batch", "merge"]
+  },
+  {
+    "id": "TC-72.1",
+    "test_marker": "TC-72.1",
+    "iteration": 72,
+    "screen": "add",
+    "entity": "batch",
+    "action": "intel",
+    "title": "Batch Intel & Brand Tracking",
+    "text": "The 'Intel' field allows you to capture additional field-data for each batch, such as the brand, store location, or specific style (e.g., 'Albernie', 'Extra Spicy'). This intel is persisted alongside your stock and is visible in high-fidelity on the dashboard and all management modals, providing total situational awareness.",
+    "tags": ["batch", "intel", "notes", "brand", "style", "tracking", "add"]
+  },
+  {
+    "id": "TC-72.2",
+    "test_marker": "TC-72.1",
+    "iteration": 72,
+    "screen": "add",
+    "entity": "batch",
+    "action": "merge",
+    "title": "Intelligent Stock Consolidation",
+    "text": "The logistical engine now performing an 'Intel-Aware' check during enrollment. If you add a batch that matches an existing one in Size, Location, and Expiry, the system checks the Intel. If the Intel is identical, they merge silently. If the Intel differs, a premium Consolidation Modal appears, allowing you to either merge the stock into a single entry or keep them as distinct batches.",
+    "tags": ["batch", "merge", "consolidation", "modal", "intel", "aggregation", "safety"]
   }
 ]

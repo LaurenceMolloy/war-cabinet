@@ -28,6 +28,8 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       expiry_year INTEGER,
       entry_month INTEGER NOT NULL,
       entry_year INTEGER NOT NULL,
+      cabinet_id INTEGER,
+      batch_intel TEXT,
       FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id)
     );
 
@@ -101,6 +103,22 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     const hasCabinetId = invCols.some(col => col.name === 'cabinet_id');
     if (!hasCabinetId) {
       await db.execAsync('ALTER TABLE Inventory ADD COLUMN cabinet_id INTEGER');
+    }
+
+    const hasBatchIntel = invCols.some(col => col.name === 'batch_intel');
+    if (!hasBatchIntel) {
+      await db.execAsync('ALTER TABLE Inventory ADD COLUMN batch_intel TEXT');
+    }
+
+    // Iteration 73: Size Standardization - Robust Cross-Platform Cleanup
+    const dirtyRows = await db.getAllAsync<{id: number, size: string}>(
+      "SELECT id, size FROM Inventory WHERE size IS NOT NULL"
+    );
+    for (const row of dirtyRows) {
+      if (/[^0-9.]/.test(row.size)) {
+        const cleanSize = row.size.replace(/[^0-9.]/g, '');
+        await db.runAsync("UPDATE Inventory SET size = ? WHERE id = ?", [cleanSize, row.id]);
+      }
     }
 
     // Ensure at least one cabinet exists

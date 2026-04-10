@@ -403,22 +403,26 @@ export default function CatalogScreen() {
                 {editingTypeId === type.id ? (
                   <View style={{flexDirection: 'column', padding: 8, gap: 10, width: '100%'}}>
                     <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={editingTypeName} onChangeText={setEditingTypeName} placeholder="Item Name" placeholderTextColor="#64748b" />
-                    <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
-                        <View style={{flex: 1.2}}>
-                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({editingTypeUnit === 'volume' ? 'ml' : editingTypeUnit === 'weight' ? 'g' : 'Units'})</Text>
-                          <TextInput style={styles.inputSmall} value={editingTypeDefaultSize} onChangeText={setEditingTypeDefaultSize} keyboardType="numeric" placeholder="Size / Quantity" placeholderTextColor="#64748b" />
+                    <View style={{flexDirection: 'column', gap: 12, marginBottom: 10}}>
+                        <View style={{flexDirection: 'row', gap: 10}}>
+                          <View style={{flex: 1}}>
+                            <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({editingTypeUnit === 'volume' ? 'ml' : editingTypeUnit === 'weight' ? 'g' : 'Units'})</Text>
+                            <TextInput style={[styles.inputSmall, { flex: 0, height: 40 }]} value={editingTypeDefaultSize} onChangeText={setEditingTypeDefaultSize} keyboardType="numeric" placeholder="Size / Qty" placeholderTextColor="#64748b" />
+                          </View>
+                          <View style={{flex: 1}}>
+                            <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
+                            <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f', flex: 0, height: 40}]} value={editingTypeFreezeMonths} onChangeText={setEditingTypeFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
+                          </View>
                         </View>
-                        <View style={{flex: 1}}>
-                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
-                          <TextInput style={styles.inputSmall} value={editingTypeMinStock} onChangeText={setEditingTypeMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
-                        </View>
-                        <View style={{flex: 1}}>
-                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
-                          <TextInput style={styles.inputSmall} value={editingTypeMaxStock} onChangeText={setEditingTypeMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
-                        </View>
-                        <View style={{flex: 0.8}}>
-                          <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
-                          <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={editingTypeFreezeMonths} onChangeText={setEditingTypeFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
+                        <View style={{flexDirection: 'row', gap: 10}}>
+                          <View style={{flex: 1}}>
+                            <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
+                            <TextInput style={[styles.inputSmall, { flex: 0, height: 40 }]} value={editingTypeMinStock} onChangeText={setEditingTypeMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
+                          </View>
+                          <View style={{flex: 1}}>
+                            <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
+                            <TextInput style={[styles.inputSmall, { flex: 0, height: 40 }]} value={editingTypeMaxStock} onChangeText={setEditingTypeMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
+                          </View>
                         </View>
                     </View>
                     <View style={styles.unitChipRowMini}>
@@ -442,11 +446,12 @@ export default function CatalogScreen() {
                     </View>
                     <View style={styles.statBadgeRow}>
                       <View style={styles.statBadge}><MaterialCommunityIcons name={type.unit_type === 'volume' ? 'water' : type.unit_type === 'weight' ? 'scale-balance' : 'numeric-1-box-outline'} size={12} color="#94a3b8" /><Text style={styles.statBadgeText}>{type.unit_type || 'count'}</Text></View>
-                      {type.default_size ? (<View style={styles.statBadge}><MaterialCommunityIcons name="package-variant-closed" size={12} color="#94a3b8" /><Text style={styles.statBadgeText}>{type.default_size}</Text></View>) : null}
-                      {type.freeze_months ? (
-                        <View style={[styles.statBadge, {backgroundColor: '#1d4ed8', borderColor: '#3b82f6'}]}>
-                          <MaterialCommunityIcons name="snowflake" size={12} color="white" />
-                          <Text style={[styles.statBadgeText, {color: 'white'}]}>{type.freeze_months}M</Text>
+                      {type.default_size ? (
+                        <View style={styles.statBadge}>
+                          <MaterialCommunityIcons name="package-variant-closed" size={12} color="#94a3b8" />
+                          <Text style={styles.statBadgeText}>
+                            {type.default_size}{type.unit_type === 'weight' ? 'g' : type.unit_type === 'volume' ? 'ml' : ''}
+                          </Text>
                         </View>
                       ) : null}
                       {(type.min_stock !== null || type.max_stock !== null) ? (
@@ -455,6 +460,12 @@ export default function CatalogScreen() {
                           <Text style={styles.statBadgeText}>
                             {type.min_stock !== null ? type.min_stock : '—'} / {type.max_stock !== null ? type.max_stock : '—'}
                           </Text>
+                        </View>
+                      ) : null}
+                      {type.freeze_months ? (
+                        <View style={[styles.statBadge, {backgroundColor: '#1d4ed8', borderColor: '#3b82f6'}]}>
+                          <MaterialCommunityIcons name="snowflake" size={12} color="white" />
+                          <Text style={[styles.statBadgeText, {color: 'white'}]}>{type.freeze_months}M</Text>
                         </View>
                       ) : null}
                     </View>
@@ -473,22 +484,26 @@ export default function CatalogScreen() {
                 ) : (
                   <>
                     <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={newItemName} onChangeText={setNewItemName} placeholder="Item Name" placeholderTextColor="#64748b" testID="new-item-name-input" />
-                    <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
-                       <View style={{flex: 1.2}}>
-                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({newItemUnit === 'volume' ? 'ml' : newItemUnit === 'weight' ? 'g' : 'Units'})</Text>
-                          <TextInput style={styles.inputSmall} value={newItemDefaultSize} onChangeText={setNewItemDefaultSize} keyboardType="numeric" placeholder="Size / Quantity" placeholderTextColor="#64748b" testID="new-item-default-size-input" />
+                    <View style={{flexDirection: 'column', gap: 12, marginBottom: 10}}>
+                       <View style={{flexDirection: 'row', gap: 10}}>
+                          <View style={{flex: 1}}>
+                             <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({newItemUnit === 'volume' ? 'ml' : newItemUnit === 'weight' ? 'g' : 'Units'})</Text>
+                             <TextInput style={[styles.inputSmall, {flex: 0, height: 40}]} value={newItemDefaultSize} onChangeText={setNewItemDefaultSize} keyboardType="numeric" placeholder="Size / Qty" placeholderTextColor="#64748b" testID="new-item-default-size-input" />
+                          </View>
+                          <View style={{flex: 1}}>
+                             <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
+                             <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f', flex: 0, height: 40}]} value={newItemFreezeMonths} onChangeText={setNewItemFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
+                          </View>
                        </View>
-                       <View style={{flex: 1}}>
-                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
-                          <TextInput style={styles.inputSmall} value={newItemMinStock} onChangeText={setNewItemMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
-                       </View>
-                       <View style={{flex: 1}}>
-                          <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
-                          <TextInput style={styles.inputSmall} value={newItemMaxStock} onChangeText={setNewItemMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
-                       </View>
-                       <View style={{flex: 0.8}}>
-                          <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
-                          <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={newItemFreezeMonths} onChangeText={setNewItemFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
+                       <View style={{flexDirection: 'row', gap: 10}}>
+                          <View style={{flex: 1}}>
+                             <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
+                             <TextInput style={[styles.inputSmall, {flex: 0, height: 40}]} value={newItemMinStock} onChangeText={setNewItemMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
+                          </View>
+                          <View style={{flex: 1}}>
+                             <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
+                             <TextInput style={[styles.inputSmall, {flex: 0, height: 40}]} value={newItemMaxStock} onChangeText={setNewItemMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
+                          </View>
                        </View>
                     </View>
                     <View style={styles.unitChipRow}>
@@ -716,7 +731,7 @@ const styles = StyleSheet.create({
   tabRow: { flexDirection: 'row', marginTop: 16, marginBottom: 20, marginHorizontal: 16, backgroundColor: '#1e293b', borderRadius: 8, padding: 4 },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 6 },
   tabActive: { backgroundColor: '#3b82f6' },
-  tabText: { color: '#64748b', fontWeight: 'bold', fontSize: 13 },
+  tabText: { color: '#64748b', fontWeight: 'bold', fontSize: 11, letterSpacing: 0.2 },
   tabTextActive: { color: 'white' },
   label: { color: '#94a3b8', fontSize: 16, marginBottom: 8, marginTop: 10, marginHorizontal: 16 },
   formLabel: { color: '#94a3b8', fontSize: 16, marginBottom: 12, marginTop: 12, marginHorizontal: 16 },
@@ -757,13 +772,13 @@ const styles = StyleSheet.create({
   backupName: { color: '#f8fafc', fontSize: 14, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontWeight: 'bold' },
   backupMeta: { color: '#64748b', fontSize: 11, marginTop: 2 },
   shareBtn: { backgroundColor: '#334155', padding: 10, borderRadius: 8 },
-  statBadgeRow: { flexDirection: 'row', marginLeft: 36, marginTop: 4, flexWrap: 'wrap', gap: 6 },
+  statBadgeRow: { flexDirection: 'row', marginLeft: 36, marginTop: 4, flexWrap: 'wrap', gap: 5 },
   statBadge: { 
     flexDirection: 'row', 
     alignItems: 'center', 
     backgroundColor: '#0f172a', 
-    paddingHorizontal: 8, 
-    paddingVertical: 3, 
+    paddingHorizontal: 7, 
+    paddingVertical: 2, 
     borderRadius: 4, 
     borderWidth: 1, 
     borderColor: '#334155' 

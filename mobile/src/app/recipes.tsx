@@ -590,7 +590,7 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
       }
     }
 
-    const activeExpiringList = expiringList.filter(name => !excludedExpiring.includes(name));
+    const activeExpiringList = expiringList.filter(item => !excludedExpiring.includes(item.name));
 
     // Handle Custom Chef Memory
     if (selectedChef && !chefs.includes(selectedChef)) {

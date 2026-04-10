@@ -166,7 +166,7 @@ export default function HomeScreen() {
       SELECT c.id as cat_id, c.name as cat_name, c.icon as cat_icon, 
              i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count,
              i.freeze_months as type_freeze_months,
-             inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year,
+             inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.batch_intel,
              cab.name as cab_name, cab.location as cab_location, cab.cabinet_type as cab_type
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
@@ -240,7 +240,7 @@ export default function HomeScreen() {
             expiry_month: row.expiry_month, expiry_year: row.expiry_year,
             entry_month: row.entry_month, entry_year: row.entry_year,
             cab_name: row.cab_name, cab_location: row.cab_location,
-            cab_type: row.cab_type,
+            cab_type: row.cab_type, batch_intel: row.batch_intel,
           });
         }
       }
@@ -358,7 +358,7 @@ export default function HomeScreen() {
     // FRONT LINE: Always load favorites from an UNFILTERED query so the belt
     // is never affected by cabinet or expiry filters — it's a global quick-access rail.
     const favRows = await db.getAllAsync<any>(`
-      SELECT it.id, it.name, it.interaction_count,
+      SELECT it.id, it.name, it.interaction_count, it.unit_type,
              SUM(inv.quantity) as total_qty
         FROM ItemTypes it
         JOIN Inventory inv ON inv.item_type_id = it.id
@@ -376,15 +376,11 @@ export default function HomeScreen() {
   useFocusEffect(useCallback(() => { load(); }, [filterCabinetId, filterExpiryMode, searchQuery]));
 
   const toggleCategory = (id: number) => {
-    const next = new Set(expandedCatIds);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    setExpandedCatIds(next);
+    setExpandedCatIds(prev => prev.has(id) ? new Set() : new Set([id]));
   };
 
   const toggleType = (id: number) => {
-    const next = new Set(expandedTypeIds);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    setExpandedTypeIds(next);
+    setExpandedTypeIds(prev => prev.has(id) ? new Set() : new Set([id]));
   };
 
   const bulkToggleTypes = (cat: any, expand: boolean) => {
@@ -424,9 +420,9 @@ export default function HomeScreen() {
     // Live DB lookup — fetch full context needed for navigation and flash
     const soonest = await db.getFirstAsync<any>(`
       SELECT inv.id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year,
-             inv.entry_month, inv.entry_year, inv.cabinet_id,
-             cab.name as cab_name, cab.location as cab_location,
-             it.category_id
+             inv.entry_month, inv.entry_year, inv.cabinet_id, inv.batch_intel,
+             cab.name as cab_name, cab.location as cab_location, cab.cabinet_type as cab_type,
+             it.category_id, it.unit_type
         FROM Inventory inv
         LEFT JOIN Cabinets cab ON inv.cabinet_id = cab.id
         LEFT JOIN ItemTypes it ON inv.item_type_id = it.id
@@ -435,8 +431,13 @@ export default function HomeScreen() {
          CASE WHEN inv.expiry_year IS NULL THEN 1 ELSE 0 END,
          inv.expiry_year ASC, inv.expiry_month ASC
        LIMIT 1
-    `, type.id);
-    setConfirmTarget(type); setConfirmBatch(soonest); setShowConfirmModal(true);
+    `, [type.id]);
+
+    if (soonest.quantity === 1) {
+      setDeleteTarget(type); setDeleteBatch(soonest); setShowDeleteModal(true);
+    } else {
+      setConfirmTarget(type); setConfirmBatch(soonest); setShowConfirmModal(true);
+    }
   };
 
   const handleConfirmFavoriteUse = async () => {
@@ -507,17 +508,15 @@ export default function HomeScreen() {
 
   const formatMonth = (m: any) => m ? m.toString().padStart(2, '0') : '--';
 
-  const getUrgencyPhrasing = (m: number | null, y: number | null, isHeader = false) => {
+  const getUrgencyPhrasing = (m: number | null, y: number | null, isHeader = false, customSize = 12) => {
     if (!m || !y) return null;
     const now = new Date();
     const remaining = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
     const rawColor = getStatusColor(m, y);
-    const isCritical = remaining < 4;
-    const color = isCritical ? rawColor : '#e2e8f0';
-    const weight = 'bold';
-
+    const color = rawColor;
+    
     const isExpired = remaining < 0;
-    const label = isExpired ? "" : (isHeader ? "NEXT EXPIRY: " : "expires ");
+    const label = isExpired ? "" : "expires ";
     const abs = Math.abs(remaining);
     
     let timeText = "";
@@ -530,9 +529,9 @@ export default function HomeScreen() {
     }
     
     return (
-      <Text style={{color: '#e2e8f0', fontSize: 12, fontWeight: 'bold'}}>
+      <Text style={{color: '#e2e8f0', fontSize: customSize, fontWeight: 'bold'}}>
         {label}
-        <Text style={{ color, fontWeight: weight }}>{isHeader ? timeText.toUpperCase() : timeText}</Text>
+        <Text style={{ color }}>{timeText}</Text>
       </Text>
     );
   };
@@ -544,8 +543,7 @@ export default function HomeScreen() {
     const remaining = limit - ageMonths;
     
     const rawColor = remaining <= 0 ? '#f43f5e' : remaining < 4 ? '#f97316' : remaining < 7 ? '#fde047' : '#22c55e';
-    const color = (remaining < 4) ? rawColor : '#e2e8f0';
-    const weight = 'bold';
+    const color = rawColor;
 
     const abs = Math.abs(remaining);
     let timeText = "";
@@ -557,9 +555,14 @@ export default function HomeScreen() {
       timeText = `expires ${remaining} ${remaining === 1 ? 'month' : 'months'}`;
     }
 
+    const parts = timeText.split(' ');
+    const label = parts[0] === 'expires' ? 'expires ' : '';
+    const actualTime = parts[0] === 'expired' ? timeText : timeText.replace('expires ', '');
+
     return (
-      <Text style={{color, fontSize: 12, fontWeight: weight}}>
-        {timeText}
+      <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginLeft: 8}}>
+        {label}
+        <Text style={{color}}>{actualTime}</Text>
       </Text>
     );
   };
@@ -584,51 +587,59 @@ export default function HomeScreen() {
     return (
       <View style={styles.categoryCard}>
         <TouchableOpacity 
-          style={[styles.categoryHeader, (isEmpty && !isExpanded) && { opacity: 0.5 }]} 
+          style={[styles.categoryHeader, (isEmpty && !isExpanded) && { opacity: 0.5 }, { flexDirection: 'column', alignItems: 'stretch' }]} 
           onPress={() => toggleCategory(cat.id)}
           testID={`category-header-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}>
-            <View style={[styles.statusDot, { backgroundColor: getStatusColor(cat.soonest_month, cat.soonest_year), marginRight: 12, marginTop: 8 }, isEmpty && { backgroundColor: '#334155' }]} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.categoryTitle}>{cat.name}</Text>
-              {!isExpanded && (
-                <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4, flexWrap: 'wrap'}}>
-                  <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{cat.total_qty} {cat.total_qty === 1 ? 'ITEM' : 'ITEMS'}</Text>
-                  <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                  <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{cat.batch_count} {cat.batch_count === 1 ? 'BATCH' : 'BATCHES'}</Text>
-                  <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                  <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{cat.site_count} {cat.site_count === 1 ? 'SITE' : 'SITES'}</Text>
-                  {cat.soonest_month && cat.soonest_year && (
-                    <>
-                      <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                      {getUrgencyPhrasing(cat.soonest_month, cat.soonest_year, true)}
-                    </>
-                  )}
-                </View>
+          {/* TIER 1: IDENTITY & CONTROLS */}
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={[styles.statusDot, { backgroundColor: getStatusColor(cat.soonest_month, cat.soonest_year), marginRight: 12 }, isEmpty && { backgroundColor: '#334155' }]} />
+            <Text style={[styles.categoryTitle, { flex: 1 }]} numberOfLines={1}>{cat.name}</Text>
+            
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              {isExpanded && cat.types.some((t: any) => t.items.length > 0) && (
+                <TouchableOpacity 
+                  onPress={() => {
+                    const itemsToToggle = cat.types.filter((t: any) => t.items.length > 0);
+                    const allExpanded = itemsToToggle.every((t: any) => expandedTypeIds.has(t.id));
+                    bulkToggleTypes(cat, !allExpanded);
+                  }} 
+                  style={{padding: 8}}
+                >
+                  <MaterialCommunityIcons 
+                    name={cat.types.filter((t: any) => t.items.length > 0).every((t: any) => expandedTypeIds.has(t.id)) ? "unfold-less-horizontal" : "unfold-more-horizontal"} 
+                    size={20} 
+                    color="#3b82f6" 
+                  />
+                </TouchableOpacity>
               )}
+              <MaterialCommunityIcons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={24} color="#64748b" />
             </View>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {isExpanded && cat.types.some((t: any) => t.items.length > 0) && (
-              <TouchableOpacity 
-                onPress={() => {
-                  const itemsToToggle = cat.types.filter((t: any) => t.items.length > 0);
-                  const allExpanded = itemsToToggle.every((t: any) => expandedTypeIds.has(t.id));
-                  bulkToggleTypes(cat, !allExpanded);
-                }} 
-                style={{padding: 8}}
-              >
-                <MaterialCommunityIcons 
-                  name={cat.types.filter((t: any) => t.items.length > 0).every((t: any) => expandedTypeIds.has(t.id)) ? "unfold-less-horizontal" : "unfold-more-horizontal"} 
-                  size={20} 
-                  color="#3b82f6" 
-                />
-              </TouchableOpacity>
-            )}
-            <MaterialCommunityIcons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={24} color="#64748b" />
-          </View>
+
+          {/* TIER 2: LOGISTICAL OVERVIEW (Shown only when collapsed) */}
+          {!isExpanded && (
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2, paddingLeft: 2, paddingRight: 0, flexWrap: 'wrap', opacity: 0.8}}>
+              <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                {cat.total_qty > 0 ? (
+                  <>
+                    <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.total_qty} {cat.total_qty === 1 ? 'ITEM' : 'ITEMS'}</Text>
+                    <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
+                    <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.batch_count} {cat.batch_count === 1 ? 'BATCH' : 'BATCHES'}</Text>
+                    <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
+                    <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.site_count} {cat.site_count === 1 ? 'SITE' : 'SITES'}</Text>
+                  </>
+                ) : (
+                  <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>NO STOCK STORED</Text>
+                )}
+              </View>
+              {cat.total_qty > 0 && cat.soonest_month && cat.soonest_year && (
+                <View>{getUrgencyPhrasing(cat.soonest_month, cat.soonest_year, true, 10)}</View>
+              )}
+            </View>
+          )}
         </TouchableOpacity>
+
 
         {isExpanded && cat.types.map((type: any) => {
           const hasItems = type.items.length > 0;
@@ -639,46 +650,45 @@ export default function HomeScreen() {
           return (
             <View key={type.id} style={styles.typeBlock}>
               <TouchableOpacity 
-                style={styles.typeHeader} 
+                style={[styles.typeHeader, { flexDirection: 'column', alignItems: 'stretch' }]} 
                 activeOpacity={hasItems ? 0.7 : 1} 
                 onPress={() => hasItems && toggleType(type.id)}
                 testID={`type-header-${type.name.toLowerCase().replace(/\s+/g, '-')}`}
               >
-                <View style={[{flexDirection: 'row', alignItems: 'center', flex: 1}, !hasItems && {opacity: 0.5}]}>
-                   <MaterialCommunityIcons name={isTypeExpanded ? "chevron-down" : "menu-right"} size={22} color="#3b82f6" style={{marginRight: 4, opacity: hasItems ? 1 : 0}} />
-                  <View style={{flex: 1}}>
-                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                      <View style={[styles.statusDot, { width: 8, height: 8, borderRadius: 4, marginRight: 8 }, {backgroundColor: getStatusColor(type.soonest_month, type.soonest_year)}]} />
-                      <Text style={styles.typeTitle}>{type.name}</Text>
+                {/* TIER 1: COMMAND ROW */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: (!isTypeExpanded && hasItems) ? 4 : 0 }}>
+                  <View style={[{flexDirection: 'row', alignItems: 'center', flex: 1}, !hasItems && {opacity: 0.5}]}>
+                    <MaterialCommunityIcons name={isTypeExpanded ? "chevron-down" : "menu-right"} size={22} color="#3b82f6" style={{marginRight: 4, opacity: hasItems ? 1 : 0}} />
+                    <View style={[styles.statusDot, { width: 8, height: 8, borderRadius: 4, marginRight: 8 }, {backgroundColor: getStatusColor(type.soonest_month, type.soonest_year)}]} />
+                    <Text style={[styles.typeTitle, { flex: 1 }]} numberOfLines={1}>{type.name}</Text>
+                  </View>
+                  {!isTypeExpanded && type.tactical_total ? (
+                    <Text style={[styles.totalLabel, { marginRight: 12, fontSize: 13 }]}>{type.tactical_total}</Text>
+                  ) : null}
+                  <Link href={{ pathname: "/add", params: { typeId: type.id, categoryId: cat.id, inheritedCabinetId: filterCabinetId ?? undefined } }} asChild>
+                    <TouchableOpacity style={styles.addButton} testID={`add-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <Text style={styles.addText}>+ ADD</Text>
+                    </TouchableOpacity>
+                  </Link>
+                </View>
+
+                {/* TIER 2: LOGISTICAL BRIEFING (Shown only when collapsed) */}
+                {!isTypeExpanded && hasItems && (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 4, paddingRight: 0, flexWrap: 'wrap' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{totalItems} {totalItems === 1 ? 'ITEM' : 'ITEMS'}</Text>
+                      <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
+                      <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{type.items.length} {type.items.length === 1 ? 'BATCH' : 'BATCHES'}</Text>
+                      <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
+                      <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{uniqueSites} {uniqueSites === 1 ? 'SITE' : 'SITES'}</Text>
                     </View>
-                    {!isTypeExpanded && (
-                      <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 2, flexWrap: 'wrap'}}>
-                        {hasItems ? (
-                          <>
-                            <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{totalItems} {totalItems === 1 ? 'ITEM' : 'ITEMS'}</Text>
-                            <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                            <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{type.items.length} {type.items.length === 1 ? 'BATCH' : 'BATCHES'}</Text>
-                            <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                            <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>{uniqueSites} {uniqueSites === 1 ? 'SITE' : 'SITES'}</Text>
-                            {type.soonest_month && type.soonest_year && (
-                            <>
-                              <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                              {getUrgencyPhrasing(type.soonest_month, type.soonest_year, false)}
-                            </>
-                            )}
-                          </>
-                        ) : (
-                          <Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>No stock</Text>
-                        )}
-                      </View>
+                    {type.soonest_month && type.soonest_year && (
+                      <View>{getUrgencyPhrasing(type.soonest_month, type.soonest_year, false, 10)}</View>
                     )}
                   </View>
-                </View>
-                {!isTypeExpanded && type.tactical_total ? <Text style={[styles.totalLabel, {marginRight: 10}]}>{type.tactical_total}</Text> : null}
-                <Link href={{ pathname: "/add", params: { typeId: type.id, categoryId: cat.id, inheritedCabinetId: filterCabinetId ?? undefined } }} asChild>
-                  <TouchableOpacity style={styles.addButton} testID={`add-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><Text style={styles.addText}>+ ADD</Text></TouchableOpacity>
-                </Link>
+                )}
               </TouchableOpacity>
+
               {isTypeExpanded && hasItems && (
                 <>
                   {type.items.map((inv: any) => (
@@ -691,9 +701,14 @@ export default function HomeScreen() {
                       ]}
                       testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}`}
                     >
-                      <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
+                      <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
                          <Text style={{color: '#60a5fa', fontSize: 12, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
                       </View>
+                      {inv.batch_intel ? (
+                        <Text style={{color: '#94a3b8', fontSize: 11, fontStyle: 'italic', marginBottom: 6}} numberOfLines={1}>
+                          • {inv.batch_intel}
+                        </Text>
+                      ) : null}
                       <View style={styles.rowMain}>
                         {inv.id === flashBatchId ? (
                           <Animated.View style={[styles.qtyBadge, { backgroundColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['#1e293b', '#166534'] }), borderWidth: 1.5, borderColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['transparent', '#22c55e'] }) }]}>
@@ -702,7 +717,7 @@ export default function HomeScreen() {
                         ) : (
                           inv.cab_type === 'freezer' ? (
                             <View style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
-                              <MaterialCommunityIcons name="snowflake" size={42} color="#bfdbfe" style={{ position: 'absolute' }} />
+                              <MaterialCommunityIcons name="snowflake-variant" size={36} color="#3b82f6" style={{ position: 'absolute', opacity: 0.3 }} />
                               <View style={{ backgroundColor: '#1e293b', width: 25, height: 25, borderRadius: 12.5, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
                                 <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
                               </View>
@@ -734,13 +749,13 @@ export default function HomeScreen() {
                           <TouchableOpacity onPress={() => addQuantity(inv.id, type.id)} style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}><MaterialCommunityIcons name="plus" size={16} color="white" /></TouchableOpacity>
                         </View>
                       </View>
-                      <View style={[styles.rowSub, { justifyContent: 'space-between' }]}>
+                      <View style={[styles.rowSub, { justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 4 }]}>
                         {inv.cab_type === 'freezer' ? (
                           <>
                             <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
-                              <Text style={styles.subText}>FROZEN <Text style={{color: '#f8fafc'}}>{formatMonth(inv.entry_month)}/{inv.entry_year}</Text></Text>
+                              <Text style={styles.subText}>FRZ <Text style={{color: '#f8fafc'}}>{formatMonth(inv.entry_month)}/{String(inv.entry_year).slice(-2)}</Text></Text>
                               <Text style={styles.divider}>|</Text>
-                              <Text style={styles.subText}>LIFESPAN <Text style={{color: '#f8fafc'}}>{type.freeze_months ?? 6}m</Text></Text>
+                              <Text style={styles.subText}>LIM <Text style={{color: '#f8fafc'}}>{type.freeze_months ?? 6}m</Text></Text>
                             </View>
                             {getFreezerUrgency(inv, type)}
                           </>
@@ -788,7 +803,7 @@ export default function HomeScreen() {
       </View>
 
       {isTrialActive && !isSergeanOrAbove && (
-        <TouchableOpacity onPress={requestPurchase} style={styles.trialBanner} activeOpacity={0.85}>
+        <TouchableOpacity onPress={() => requestPurchase()} style={styles.trialBanner} activeOpacity={0.85}>
           <MaterialCommunityIcons name="clock-alert-outline" size={14} color="#fbbf24" style={{ marginRight: 6 }} />
           <Text style={styles.trialBannerText}>FREE TRIAL — {trialLabel} remaining</Text>
           <Text style={styles.trialBannerCta}>UPGRADE ›</Text>
@@ -928,13 +943,29 @@ export default function HomeScreen() {
                   {deleteBatch.cab_location ? ` • ${deleteBatch.cab_location.toUpperCase()}` : ''}
                 </Text>
               </View>
-              {deleteBatch.size && (
+               {deleteBatch.batch_intel && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                  <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>{deleteBatch.size}</Text>
+                  <MaterialCommunityIcons name="information" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>{deleteBatch.batch_intel.toUpperCase()}</Text>
                 </View>
               )}
-              {deleteBatch.expiry_month && deleteBatch.expiry_year && (
+               {deleteBatch.size && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    {deleteBatch.size}{deleteTarget.unit_type === 'weight' ? 'g' : deleteTarget.unit_type === 'volume' ? 'ml' : ' Units'}
+                  </Text>
+                </View>
+              )}
+              {deleteBatch.cab_type === 'freezer' && deleteBatch.entry_month && deleteBatch.entry_year && (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="snowflake" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    FROZEN {String(deleteBatch.entry_month).padStart(2,'0')}/{deleteBatch.entry_year}
+                  </Text>
+                </View>
+              )}
+              {deleteBatch.cab_type !== 'freezer' && deleteBatch.expiry_month && deleteBatch.expiry_year && (
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="calendar-clock" size={14} color="#64748b" style={{ marginRight: 8 }} />
                   <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
@@ -958,6 +989,12 @@ export default function HomeScreen() {
           <Text style={{color: '#f8fafc', textAlign: 'center', fontSize: 16, fontWeight: 'bold', marginBottom: 12}}>{confirmTarget?.name}</Text>
           {confirmBatch && (
             <View style={{ backgroundColor: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16, width: '100%' }}>
+               {confirmBatch.batch_intel && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="information" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>{confirmBatch.batch_intel.toUpperCase()}</Text>
+                </View>
+              )}
               {confirmBatch.cab_name && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
                   <MaterialCommunityIcons name="warehouse" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
@@ -970,10 +1007,20 @@ export default function HomeScreen() {
               {confirmBatch.size && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
                   <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>{confirmBatch.size}</Text>
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    {confirmBatch.size}{confirmTarget.unit_type === 'weight' ? 'g' : confirmTarget.unit_type === 'volume' ? 'ml' : ' Units'}
+                  </Text>
                 </View>
               )}
-              {confirmBatch.expiry_month && confirmBatch.expiry_year && (
+              {confirmBatch.cab_type === 'freezer' && confirmBatch.entry_month && confirmBatch.entry_year && (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="snowflake" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    FROZEN {String(confirmBatch.entry_month).padStart(2,'0')}/{confirmBatch.entry_year}
+                  </Text>
+                </View>
+              )}
+              {confirmBatch.cab_type !== 'freezer' && confirmBatch.expiry_month && confirmBatch.expiry_year && (
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="calendar-clock" size={14} color="#64748b" style={{ marginRight: 8 }} />
                   <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
@@ -1048,8 +1095,8 @@ const styles = StyleSheet.create({
   sizeText: { flex: 1, color: '#ffffff', fontSize: 15, fontWeight: 'bold' },
   actionsGroup: { flexDirection: 'row', gap: 6 },
   rowSub: { flexDirection: 'row', alignItems: 'center' },
-  subText: { color: '#e2e8f0', fontSize: 12, fontWeight: 'bold', letterSpacing: 0.5 },
-  divider: { color: '#94a3b8', marginHorizontal: 8, fontSize: 12, fontWeight: 'bold' },
+  subText: { color: '#e2e8f0', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 },
+  divider: { color: '#94a3b8', marginHorizontal: 8, fontSize: 10, fontWeight: 'bold' },
   actionBtn: { padding: 6, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
   commandStrip: { 
     flexDirection: 'row', 

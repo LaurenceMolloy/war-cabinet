@@ -2,7 +2,31 @@
 
 This document tracks items that were strictly specified in the `requirements.md` but were initially overlooked during the first iteration of development.
 
-## Iteration 69: High-Density Logistics & Strict UI Filtering
+## Iteration 72: Batch Intel Logistics & Intelligent Consolidation
+1. **Intel-Aware Consolidation Engine**: Re-engineered the batch enrollment logic to intelligently detect specs matches. The system now automatically merges batches with identical Intel and provides a high-fidelity modal for manual consolidation when brands or notes differ.
+2. **High-Fidelity Consolidation Modal**: Replaced standard browser alerts with a custom, dark-themed consolidation dialog in `add.tsx`. This modal provides a full 360-degree view (Location, Intel, Size, Expiry) of existing assets before a merge is confirmed.
+3. **Harmonized Tactical Spec Cards**: Standardized the display of batch details across **Use**, **Delete**, and **Consolidate** modals. All info cards now features perfectly aligned, 12px bold slate text with thematic icons, providing a premium and authoritative administrative experience.
+4. **Favorite Belt Synchronization**: Upgraded the 'Single-Click' favorite belt to be 'Final-Batch Aware'. Single-click uses on favored items now correctly detect final units, fetch all relevant batch intel, and trigger the standardized red 'Delete' modal.
+5. **Deterministic Save Protocol**: Transitioned the save logic to a deterministic execution path (`finalizeCommit`), eliminating race conditions in consolidation choices and ensuring 100% reliable database persistence.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 72)
+**[TC-72.1] VERIFICATION: Intelligent Consolidation & Intel Parity**
+*   **Conditions**: Clean database; Sergeant rank unlocked.
+*   **Actions**:
+    1. Create a batch with Intel "Brand A".
+    2. Add a matching batch (same Spec) with Intel "Brand A" -> Verify **Auto-Merge** (no modal).
+    3. Add a matching batch with Intel "Brand B" -> Verify **Rich Consolidation Modal**.
+    4. In the modal, choose **MERGE** -> Verify quantities are summed under "Brand B".
+    5. Add a matching batch with different Expiry -> Verify **New Batch Created** (no merge prompt).
+    6. Perform a "Single-Click Use" via the Favorite Belt on a final unit -> Verify **Full Intel Red Modal**.
+*   **Assertions**:
+    1. INTEL PARITY: Batches with identical specs and intel must consolidate silently.
+    2. INFORMED CHOICE: The consolidation modal must accurately display the existing batch's brand and timeline.
+    3. DATA INTEGRITY: Deferring a save to show a modal must not result in a lost save operation or a duplicated batch if "Merge" is chosen.
+    4. VISUAL CONSISTENCY: All batch detail cards across the app must use the standardized 12px bold/icon-grey format.
+
+
 1. **Strict UI Filtering (Noise Reduction)**: Re-engineered the Dashboard and Quartermaster briefed logic to strictly purge non-matching categories and items when filters or search strings are active. This eliminates visual noise, presenting only relevant mission assets.
 2. **Tiered Urgency Protocols**: Refined the expiry filtering system into three distinct mission windows: **EXPIRED**, **EXPIRING THIS MONTH**, and **EXPIRING SOON (1-3 MONTHS)**, providing tiered, mutually exclusive visibility into inventory threats.
 3. **Frozen Logistics Parity**: Integrated frozen asset preservation windows into the global urgency engine. Filters now use "Calculated Expiry" (Entry Date + Preservation Months) to ensure cold-stored items are accurately represented in urgency briefings.

@@ -58,9 +58,9 @@ export const BackupService = {
       // 2. SPREADSHEET GENERATION (CSV)
       let csvContent = "";
       const flatRows = await db.getAllAsync<any>(`
-        SELECT c.name as Category, it.name as Item, i.size as Size, i.quantity as Qty, 
+        SELECT c.name as Category, it.name as Item, i.size as Size, i.quantity as Qty, i.batch_intel as BatchIntel,
                it.min_stock_level as MinThreshold, it.max_stock_level as MaxThreshold,
-               cab.name as Cabinet, cab.location as Location,
+               cab.name as Cabinet, cab.cabinet_type as CabType, cab.location as Location,
                i.entry_month || '/' || i.entry_year as EntryDate,
                CASE WHEN i.expiry_month IS NOT NULL THEN i.expiry_month || '/' || i.expiry_year ELSE 'N/A' END as ExpiryDate,
                CASE 
@@ -276,18 +276,47 @@ export const BackupService = {
         await db.runAsync("DELETE FROM Settings");
 
         const { tables } = jsonData;
-        for (const cat of tables.Categories) await db.runAsync("INSERT INTO Categories (id, name, icon) VALUES (?, ?, ?)", cat.id, cat.name, cat.icon);
-        for (const it of tables.ItemTypes) {
+        if (!tables) throw new Error("Invalid tactical data packet: Missing tables.");
+
+        const cats = tables.Categories || [];
+        for (const cat of cats) {
+          await db.runAsync("INSERT INTO Categories (id, name, icon) VALUES (?, ?, ?)", cat.id, cat.name, cat.icon || 'box');
+        }
+
+        const itemTypes = tables.ItemTypes || [];
+        for (const it of itemTypes) {
           await db.runAsync(
-            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-            it.id, it.category_id, it.name, it.unit_type, it.default_size, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0,
+            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            it.id, it.category_id, it.name, it.unit_type || 'weight', it.default_size || null, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0,
             it.min_stock_level !== undefined ? it.min_stock_level : null,
-            it.max_stock_level !== undefined ? it.max_stock_level : null
+            it.max_stock_level !== undefined ? it.max_stock_level : null,
+            it.freeze_months !== undefined ? it.freeze_months : null
           );
         }
-        for (const cab of tables.Cabinets) await db.runAsync("INSERT INTO Cabinets (id, name, location) VALUES (?, ?, ?)", cab.id, cab.name, cab.location);
-        for (const inv of tables.Inventory) await db.runAsync("INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", inv.id, inv.item_type_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.cabinet_id);
-        for (const s of tables.Settings) await db.runAsync("INSERT INTO Settings (key, value) VALUES (?, ?)", s.key, s.value);
+
+        const cabs = tables.Cabinets || [];
+        for (const cab of cabs) {
+          await db.runAsync("INSERT INTO Cabinets (id, name, location, cabinet_type) VALUES (?, ?, ?, ?)", cab.id, cab.name, cab.location || '', cab.cabinet_type || 'standard');
+        }
+
+        const invs = tables.Inventory || [];
+        for (const inv of invs) {
+          await db.runAsync(
+            "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            inv.id, inv.item_type_id, inv.quantity, inv.size || '', 
+            inv.expiry_month !== undefined ? inv.expiry_month : null, 
+            inv.expiry_year !== undefined ? inv.expiry_year : null, 
+            inv.entry_month !== undefined ? inv.entry_month : null, 
+            inv.entry_year !== undefined ? inv.entry_year : null, 
+            inv.cabinet_id !== undefined ? inv.cabinet_id : null,
+            inv.batch_intel !== undefined ? inv.batch_intel : null
+          );
+        }
+
+        const settings = tables.Settings || [];
+        for (const s of settings) {
+          await db.runAsync("INSERT INTO Settings (key, value) VALUES (?, ?)", s.key, s.value);
+        }
       });
       return true;
     } catch (error) {
