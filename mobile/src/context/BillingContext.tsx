@@ -33,14 +33,23 @@ interface BillingContextType {
   customerInfo: CustomerInfo;
   checkEntitlement: (featureName: string) => boolean;
   requestPurchase: (tier?: 'SERGEANT' | 'GENERAL') => void;
+  graduateEarly: () => Promise<void>;
   isPremium: boolean;
   isSergeanOrAbove: boolean;
   isGeneralOrAbove: boolean;
-  isTrialActive: boolean;
-  hasFullAccess: boolean; // true during trial OR any paid tier — lifts all limits
+  isTrialActive: boolean; // internally maps to isCadet
+  isCadet: boolean;
+  isPrivate: boolean;
+  hasFullAccess: boolean; // lifts all scale limits (SERGEANT/GENERAL only)
   daysRemaining: number;
   trialLabel: string;
   currentTier: TierType | 'FREE';
+  limits: {
+    cabinets: number;
+    items: number;
+    freezer_cabs: number;
+    freezer_cats: number;
+  };
 }
 
 const BillingContext = createContext<BillingContextType | undefined>(undefined);
@@ -48,6 +57,13 @@ const BillingContext = createContext<BillingContextType | undefined>(undefined);
 const TRIAL_DURATION_DAYS = 7;
 const SECURE_KEY_FIRST_LAUNCH = 'war_cabinet_recon_start';
 const SECURE_KEY_WELCOME_SEEN = 'war_cabinet_welcome_seen';
+const SECURE_KEY_GRADUATED_EARLY = 'war_cabinet_graduated_early';
+
+export const RANK_LIMITS = {
+  CADET:   { cabinets: 2, items: 12, categories: 4, freezer_cabs: 1, freezer_items: 3 },
+  PRIVATE: { cabinets: 4, items: 24, categories: 8, freezer_cabs: 0, freezer_items: 0 },
+  ELITE:   { cabinets: 999, items: 999, categories: 999, freezer_cabs: 999, freezer_items: 999 }
+};
 
 // Which tier each feature requires
 export const FEATURE_TIER: Record<string, 'SERGEANT' | 'GENERAL'> = {
@@ -56,7 +72,9 @@ export const FEATURE_TIER: Record<string, 'SERGEANT' | 'GENERAL'> = {
   CABINET_LIMIT:  'SERGEANT',
   CATEGORY_LIMIT: 'SERGEANT',
   ITEM_LIMIT:     'SERGEANT',
+  FREEZER_CABINET_LIMIT: 'SERGEANT',
   FREEZER:        'SERGEANT',
+  FREEZER_LIMIT:  'SERGEANT',
   RECIPES:        'GENERAL',
   ALERTS:         'GENERAL',
 };
@@ -68,14 +86,21 @@ const FEATURE_COPY: Record<string, { title: string; desc: string; tier: 'SERGEAN
   CABINET_LIMIT:  { title: 'Multiple Cabinets',        desc: 'Unlimited storage locations.',                                          tier: 'SERGEANT' },
   CATEGORY_LIMIT: { title: 'More Categories',          desc: 'Unlimited item categories.',                                            tier: 'SERGEANT' },
   ITEM_LIMIT:     { title: 'More Items',               desc: 'Unlimited tracked item types.',                                         tier: 'SERGEANT' },
+  FREEZER_CABINET_LIMIT: { title: 'Freezer Capacity', desc: 'Unlimited freezer cabinets for deep storage.',                           tier: 'SERGEANT' },
   FREEZER:        { title: 'Freezer Cabinet Mode',     desc: 'Track how long items have been frozen instead of expiry dates.',        tier: 'SERGEANT' },
+  FREEZER_LIMIT:  { title: 'Freezer Logistics',        desc: 'Unlimited freezer item specifications & storage.',                      tier: 'SERGEANT' },
   RECIPES:        { title: 'The Mess Hall',            desc: 'Waste-conscious AI recipe suggestions from what you have.',             tier: 'GENERAL'  },
   ALERTS:         { title: 'Stock & Expiry Alerts',    desc: 'Monthly push notifications for low stock and upcoming expiry dates.',   tier: 'GENERAL'  },
 };
 
 const TIER_PRICE: Record<'SERGEANT' | 'GENERAL', string> = {
   SERGEANT: '£2.99',
-  GENERAL:  '£4.99',
+  GENERAL:  '£1.49/mo',
+};
+
+const TIER_PRICE_ANNUAL: Record<'SERGEANT' | 'GENERAL', string | null> = {
+  SERGEANT: null,
+  GENERAL:  '£9.99/yr',
 };
 
 const TIER_NAME: Record<'SERGEANT' | 'GENERAL', string> = {
@@ -85,7 +110,6 @@ const TIER_NAME: Record<'SERGEANT' | 'GENERAL', string> = {
 
 // Checks whether a given licence tier satisfies a feature's requirement
 const tierSatisfies = (userTier: TierType | 'FREE', required: 'SERGEANT' | 'GENERAL'): boolean => {
-  if (userTier === 'TRIAL') return true;
   if (userTier === 'GENERAL') return true;
   if (userTier === 'SERGEANT' && required === 'SERGEANT') return true;
   return false;
@@ -96,7 +120,9 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [showPaywall, setShowPaywall] = useState(false);
   const [paywallFocusTier, setPaywallFocusTier] = useState<'SERGEANT' | 'GENERAL'>('SERGEANT');
   const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomePage, setWelcomePage] = useState(0);
   const [showFeatureLock, setShowFeatureLock] = useState(false);
+  const [showGradConfirm, setShowGradConfirm] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
   const [daysRemaining, setDaysRemaining] = useState(0);
   const [trialLabel, setTrialLabel] = useState('');
@@ -128,8 +154,8 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     // 2. Check for Recon Period (Trial)
-    // TEST MODE: force start date so trial expires ~24h15m from 2026-04-08T23:07:05Z
-    const FORCED_START = '2026-04-02T23:22:05Z';
+    // TEST MODE: April 9th start means trial is active today (Apr 10)
+    const FORCED_START = '2026-04-09T23:22:05Z';
     if (Platform.OS === 'web') {
       localStorage.setItem(SECURE_KEY_FIRST_LAUNCH, FORCED_START);
     } else {
@@ -163,7 +189,11 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     setTrialLabel(label);
 
-    if (remaining > 0) {
+    const isEarly = Platform.OS === 'web' 
+        ? localStorage.getItem(SECURE_KEY_GRADUATED_EARLY) === '1'
+        : (await SecureStore.getItemAsync(SECURE_KEY_GRADUATED_EARLY)) === '1';
+
+    if (remaining > 0 && !isEarly) {
       setCustomerInfo({
         entitlements: {
           active: { isActive: true, type: 'TRIAL', expirationDate: expDate.toISOString() }
@@ -172,7 +202,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } else {
       setCustomerInfo({
         entitlements: {
-          active: { isActive: false, type: 'FREE', expirationDate: null }
+          active: { isActive: true, type: 'PRIVATE', expirationDate: null }
         }
       });
     }
@@ -200,18 +230,51 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [db]);
 
   const currentTier = customerInfo.entitlements.active.type;
-  const isTrialActive = currentTier === 'TRIAL' && customerInfo.entitlements.active.isActive;
-  const isGeneralOrAbove = currentTier === 'GENERAL' || isTrialActive;
-  const isSergeanOrAbove = isGeneralOrAbove || currentTier === 'SERGEANT';
+  const isCadet = currentTier === 'TRIAL';
+  const isPrivate = currentTier === 'PRIVATE';
+  
   const isPremium = currentTier === 'GENERAL' || currentTier === 'SERGEANT';
-  const hasFullAccess = isSergeanOrAbove; // trial OR any paid tier lifts limits
+  const isSergeant = currentTier === 'SERGEANT';
+  const isGeneral = currentTier === 'GENERAL';
+  const isGeneralOrAbove = currentTier === 'GENERAL' || isCadet;
+  const isSergeanOrAbove = isPremium || isCadet;
+  
+  const hasFullAccess = isPremium; // ONLY paid tiers lift scale limits now
+
+  const limits = isPremium 
+    ? RANK_LIMITS.ELITE 
+    : (isCadet ? RANK_LIMITS.CADET : RANK_LIMITS.PRIVATE);
 
   const checkEntitlement = (featureName: string): boolean => {
-    const required = FEATURE_TIER[featureName] ?? 'SERGEANT';
+    // Special Case: Intelligence trial for Cadets (AI, Alerts, Backups)
+    // Scale limits (CABINET_LIMIT, etc.) are NOT lifted in Trial anymore
+    const isIntelFeature = ['RECIPES', 'ALERTS', 'BACKUPS'].includes(featureName);
+    if (isIntelFeature && isCadet) return true;
+
+    // Special Case: Freezer Teaser (allow access to feature, specific counts handled in components)
+    if (featureName === 'FREEZER' && (isCadet || isPrivate)) return true;
+
+    // 2. Check for Rank Hierarchy
+    const required = FEATURE_TIER[featureName];
+    if (!required) return true;
     if (tierSatisfies(currentTier, required)) return true;
     setLockedFeature(featureName);
     setShowFeatureLock(true);
     return false;
+  };
+
+  const graduateEarly = async () => {
+    setShowGradConfirm(true);
+  };
+
+  const performGraduation = async () => {
+    if (Platform.OS === 'web') {
+      localStorage.setItem(SECURE_KEY_GRADUATED_EARLY, '1');
+    } else {
+      await SecureStore.setItemAsync(SECURE_KEY_GRADUATED_EARLY, '1');
+    }
+    setShowGradConfirm(false);
+    await refreshEntitlements();
   };
 
   const handleSimulatedPurchase = async (tier: 'SERGEANT' | 'GENERAL') => {
@@ -233,89 +296,177 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       customerInfo,
       checkEntitlement,
       requestPurchase: (tier = 'SERGEANT') => { setPaywallFocusTier(tier); setShowPaywall(true); },
+      graduateEarly,
       isPremium,
+      isSergeant,
+      isGeneral,
       isSergeanOrAbove,
       isGeneralOrAbove,
-      isTrialActive,
+      isTrialActive: isCadet,
+      isCadet,
+  isPrivate,
       hasFullAccess,
       daysRemaining,
       trialLabel,
       currentTier,
+      limits,
     }}>
       {children}
 
-      {/* ─── WELCOME MODAL (first install only) ─── */}
+      {/* ─── WELCOME MODAL — 3-page paginated onboarding ─── */}
       <Modal visible={showWelcome} transparent animationType="fade">
         <View style={styles.overlay}>
           <View style={styles.welcomeCard}>
-            <MaterialCommunityIcons name="shield-check" size={48} color="#22c55e" style={{ alignSelf: 'center', marginBottom: 12 }} />
-            <Text style={styles.welcomeTitle}>Welcome to War Cabinet</Text>
-            <Text style={styles.welcomeSub}>
-              Everything is unlocked for your first{' '}
-              <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>7 days</Text>
-              {' '}— no card required. Explore at your own pace.
-            </Text>
 
-            {/* ── Private (Free) ── */}
-            <View style={styles.welcomeDivider} />
-            <View style={styles.tierHeader}>
-              <MaterialCommunityIcons name="dog-side" size={14} color="#94a3b8" />
-              <Text style={styles.tierLabel}>PRIVATE — FREE</Text>
-            </View>
-            <View style={styles.welcomeRow}>
-              <MaterialCommunityIcons name="check-circle" size={16} color="#22c55e" />
-              <Text style={styles.welcomeRowText}>Stock tracking — unlimited batches & expiry dates</Text>
-            </View>
-            <View style={styles.welcomeRow}>
-              <MaterialCommunityIcons name="check-circle" size={16} color="#22c55e" />
-              <Text style={styles.welcomeRowText}>1 cabinet · 6 categories · 20 item types</Text>
+            {/* PAGE INDICATOR DOTS */}
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 20 }}>
+              {[0, 1, 2].map(i => (
+                <View key={i} style={[{
+                  height: 6, borderRadius: 3,
+                  width: i === welcomePage ? 20 : 6,
+                  backgroundColor: i === welcomePage ? '#22c55e' : '#334155'
+                }]} />
+              ))}
             </View>
 
-            {/* ── Sergeant (£2.99) ── */}
-            <View style={styles.welcomeDivider} />
-            <View style={styles.tierHeader}>
-              <MaterialCommunityIcons name="chevron-triple-up" size={14} color="#60a5fa" />
-              <Text style={[styles.tierLabel, { color: '#60a5fa' }]}>SERGEANT — £2.99 ONE-TIME</Text>
-            </View>
-            <View style={styles.welcomeRow}>
-              <MaterialCommunityIcons name="star-circle" size={16} color="#60a5fa" />
-              <Text style={styles.welcomeRowText}>Unlimited cabinets, categories & items</Text>
-            </View>
-            <View style={styles.welcomeRow}>
-              <MaterialCommunityIcons name="snowflake" size={16} color="#60a5fa" />
-              <Text style={styles.welcomeRowText}>Freezer cabinet mode — track age, not expiry</Text>
-            </View>
-            <View style={styles.welcomeRow}>
-              <MaterialCommunityIcons name="star-circle" size={16} color="#60a5fa" />
-              <Text style={styles.welcomeRowText}>The Quartermaster — low-stock reports & sharing</Text>
+            {/* ── PAGE 0: Your 7-Day Trial ── */}
+            {welcomePage === 0 && (<>
+              <MaterialCommunityIcons name="shield-check" size={40} color="#22c55e" style={{ alignSelf: 'center', marginBottom: 12 }} />
+              <Text style={styles.welcomeTitle}>Welcome, Cadet</Text>
+              <Text style={styles.welcomeSub}>
+                You've been commissioned for a{' '}
+                <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>7-day tactical evaluation</Text>.
+                The full High-Command suite is yours to explore at your own pace.
+              </Text>
+              <View style={styles.welcomeDivider} />
+              <View style={styles.tierHeader}>
+                <Text style={[styles.tierLabel, { color: '#fbbf24' }]}>RANK: CADET — TRAINING PHASE</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="check-circle" size={16} color="#22c55e" />
+                <Text style={styles.welcomeRowText}>AI recipe suggestions via The Mess Hall</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="check-circle" size={16} color="#22c55e" />
+                <Text style={styles.welcomeRowText}>Low-stock &amp; expiry alerts</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="check-circle" size={16} color="#22c55e" />
+                <Text style={styles.welcomeRowText}>Freezer cabinet mode (1 cabinet · 3 item types trial)</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="alert-circle" size={16} color="#fbbf24" />
+                <Text style={styles.welcomeRowText}>Scale limited: {RANK_LIMITS.CADET.cabinets} cabinets · {RANK_LIMITS.CADET.categories} categories · {RANK_LIMITS.CADET.items} items</Text>
+              </View>
+            </>)}
+
+            {/* ── PAGE 1: After the Trial ── */}
+            {welcomePage === 1 && (<>
+              <Text style={styles.welcomeTitle}>After the Trial</Text>
+              <Text style={styles.welcomeSub}>Your path forward — free or funded.</Text>
+              <View style={styles.welcomeDivider} />
+              <View style={styles.tierHeader}>
+                <Text style={styles.tierLabel}>RANK: PRIVATE — EARNED PROMOTION</Text>
+              </View>
+              <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic', marginBottom: 8, marginTop: -4 }}>Rock-solid basic logistics for a steady household.</Text>
+              <Text style={styles.tierInheritNote}>Trial completion expands your system capacity:</Text>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="check-circle" size={16} color="#94a3b8" />
+                <Text style={styles.welcomeRowText}>{RANK_LIMITS.PRIVATE.cabinets} cabinets · {RANK_LIMITS.PRIVATE.categories} categories · {RANK_LIMITS.PRIVATE.items} items</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="close-circle" size={16} color="#475569" />
+                <Text style={styles.welcomeRowText}>AI recipes &amp; alerts not available at Private rank</Text>
+              </View>
+              <View style={styles.welcomeDivider} />
+              <View style={styles.tierHeader}>
+                <Text style={[styles.tierLabel, { color: '#60a5fa' }]}>SERGEANT — £2.99 ONE-TIME</Text>
+              </View>
+              <Text style={{ color: '#60a5fa', fontSize: 11, fontStyle: 'italic', marginBottom: 8, marginTop: -4 }}>Full operational system unlock. No limits, no subscriptions.</Text>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="infinity" size={16} color="#60a5fa" />
+                <Text style={styles.welcomeRowText}>Unlimited cabinets, categories &amp; item types</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="snowflake" size={16} color="#60a5fa" />
+                <Text style={styles.welcomeRowText}>Full freezer logistics — age-based tracking</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="truck-delivery" size={16} color="#60a5fa" />
+                <Text style={styles.welcomeRowText}>The Quartermaster — low-stock reports &amp; sharing</Text>
+              </View>
+              <View style={styles.welcomeDivider} />
+              <View style={styles.tierHeader}>
+                <Text style={[styles.tierLabel, { color: '#fbbf24' }]}>GENERAL — £1.49/MONTH OR £9.99/YEAR</Text>
+              </View>
+              <Text style={{ color: '#fbbf24', fontSize: 11, fontStyle: 'italic', marginBottom: 8, marginTop: -4 }}>High-Command intelligence layer. AI-powered resilience.</Text>
+              <Text style={styles.tierInheritNote}>Everything in Sergeant, plus:</Text>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="bell-ring" size={16} color="#fbbf24" />
+                <Text style={styles.welcomeRowText}>Automated low-stock &amp; expiry alerts</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="chef-hat" size={16} color="#fbbf24" />
+                <Text style={styles.welcomeRowText}>The Mess Hall — waste-conscious AI recipes</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="file-sync" size={16} color="#fbbf24" />
+                <Text style={styles.welcomeRowText}>Automated backups &amp; disaster recovery</Text>
+              </View>
+            </>)}
+
+            {/* ── PAGE 2: Begin Deployment ── */}
+            {welcomePage === 2 && (<>
+              <MaterialCommunityIcons name="rocket-launch" size={40} color="#22c55e" style={{ alignSelf: 'center', marginBottom: 12 }} />
+              <Text style={styles.welcomeTitle}>Ready for Deployment</Text>
+              <Text style={styles.welcomeSub}>
+                You have been granted full High-Command clearance for 7 days. Use this time to master your logistics and stress-test the suite.
+              </Text>
+              <View style={styles.welcomeDivider} />
+              {/* ── Paragraph 1: Private ── */}
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ color: '#f8fafc', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, textAlign: 'left', marginBottom: 2 }}>RESERVE PIPELINE</Text>
+                <Text style={{ color: '#64748b', fontSize: 11, textAlign: 'left', lineHeight: 17 }}>
+                  After 7 days, you will be automatically promoted to the <Text style={{ color: '#94a3b8', fontWeight: 'bold' }}>Private</Text> rank. 
+                  You can also self-promote early (FREE) for an immediate capacity uplift.
+                </Text>
+              </View>
+
+              {/* ── Paragraph 2: Sergeant/General ── */}
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ color: '#f8fafc', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, textAlign: 'left', marginBottom: 2 }}>PROMOTIONS</Text>
+                <Text style={{ color: '#64748b', fontSize: 11, textAlign: 'left', lineHeight: 17 }}>
+                  Commission <Text style={{ color: '#60a5fa', fontWeight: 'bold' }}>Sergeant</Text> (One-time fee) for operational scale. 
+                  Attain <Text style={{ color: '#fbbf24', fontWeight: 'bold' }}>General</Text> (Subscription) for full security clearance, adding automation and AI intelligence.
+                </Text>
+              </View>
+
+              {/* ── Paragraph 3: Promotion Centre ── */}
+              <View style={{ marginBottom: 20 }}>
+                <Text style={{ color: '#f8fafc', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, textAlign: 'left', marginBottom: 2 }}>SERVICE RECORDS</Text>
+                <Text style={{ color: '#64748b', fontSize: 11, textAlign: 'left', lineHeight: 17 }}>
+                  Manage your service records and adjust your rank at any time in the <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>Promotion Centre</Text>.
+                </Text>
+              </View>
+              <TouchableOpacity testID="welcome-dismiss-btn" style={styles.welcomeBtn} onPress={dismissWelcome}>
+                <Text style={styles.welcomeBtnText}>BEGIN DEPLOYMENT  →</Text>
+              </TouchableOpacity>
+            </>)}
+
+            {/* BACK / NEXT NAV */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 }}>
+              {welcomePage > 0 ? (
+                <TouchableOpacity onPress={() => setWelcomePage(p => p - 1)}>
+                  <Text style={{ color: '#64748b', fontWeight: 'bold', fontSize: 13 }}>← BACK</Text>
+                </TouchableOpacity>
+              ) : <View />}
+              {welcomePage < 2 ? (
+                <TouchableOpacity onPress={() => setWelcomePage(p => p + 1)} style={{ marginLeft: 'auto' }}>
+                  <Text style={{ color: '#22c55e', fontWeight: 'bold', fontSize: 13 }}>NEXT →</Text>
+                </TouchableOpacity>
+              ) : <View />}
             </View>
 
-            {/* ── General (£4.99) ── */}
-            <View style={styles.welcomeDivider} />
-            <View style={styles.tierHeader}>
-              <MaterialCommunityIcons name="star-four-points" size={14} color="#fbbf24" />
-              <Text style={[styles.tierLabel, { color: '#fbbf24' }]}>GENERAL — £4.99 ONE-TIME</Text>
-            </View>
-            <Text style={styles.tierInheritNote}>Everything in Sergeant, plus:</Text>
-            <View style={styles.welcomeRow}>
-              <MaterialCommunityIcons name="star-circle" size={16} color="#fbbf24" />
-              <Text style={styles.welcomeRowText}>Automated backups & disaster recovery</Text>
-            </View>
-            <View style={styles.welcomeRow}>
-              <MaterialCommunityIcons name="star-circle" size={16} color="#fbbf24" />
-              <Text style={styles.welcomeRowText}>Low stock & expiry alerts</Text>
-            </View>
-            <View style={styles.welcomeRow}>
-              <MaterialCommunityIcons name="star-circle" size={16} color="#fbbf24" />
-              <Text style={styles.welcomeRowText}>The Mess Hall — AI-powered recipe suggestions</Text>
-            </View>
-
-            <View style={styles.welcomeDivider} />
-
-            <TouchableOpacity style={styles.welcomeBtn} onPress={dismissWelcome}>
-              <Text style={styles.welcomeBtnText}>LET'S GO  →</Text>
-            </TouchableOpacity>
-            <Text style={styles.welcomeFooter}>You can upgrade any time from the settings screen.</Text>
           </View>
         </View>
       </Modal>
@@ -333,21 +484,71 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             <Text style={styles.lockHint}>
               Requires the <Text style={{ fontWeight: 'bold', color: lockTier === 'GENERAL' ? '#fbbf24' : '#60a5fa' }}>
                 {TIER_NAME[lockTier]}
-              </Text> rank — a one-time licence.
+              </Text> rank —{lockTier === 'GENERAL' ? ' £1.49/mo or £9.99/yr' : ' a one-time £2.99 licence'}.
             </Text>
             <TouchableOpacity
               style={[styles.lockUpgradeBtn, lockTier === 'GENERAL' && styles.lockUpgradeBtnGeneral]}
               onPress={() => { setShowFeatureLock(false); setPaywallFocusTier(lockTier); setShowPaywall(true); }}
             >
               <Text style={styles.lockUpgradeBtnText}>
-                UPGRADE TO {TIER_NAME[lockTier].toUpperCase()} — {TIER_PRICE[lockTier]} one-time
+                {lockTier === 'GENERAL'
+                  ? `UPGRADE TO GENERAL — ${TIER_PRICE[lockTier]} or ${TIER_PRICE_ANNUAL[lockTier]}`
+                  : `UPGRADE TO SERGEANT — ${TIER_PRICE[lockTier]} one-time`
+                }
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.lockDismissBtn} onPress={() => setShowFeatureLock(false)}>
+            <TouchableOpacity testID="feature-lock-dismiss-btn" style={styles.lockDismissBtn} onPress={() => setShowFeatureLock(false)}>
               <Text style={styles.lockDismissText}>Not now</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* ─── TACTICAL GRADUATION CONFIRMATION ─── */}
+      <Modal visible={showGradConfirm} transparent animationType="fade">
+        <View style={styles.overlay}>
+          <View style={[styles.welcomeCard, { borderLeftWidth: 4, borderLeftColor: '#fbbf24' }]}>
+            <MaterialCommunityIcons name="medal" size={48} color="#fbbf24" style={{ alignSelf: 'center', marginBottom: 12 }} />
+            <Text style={styles.welcomeTitle}>Commission Private Rank?</Text>
+            <Text style={styles.welcomeSub}>
+              Ending your Cadet training early will immediately expand your tactical capacity, but results in a permanent loss of High-Command support.
+            </Text>
+
+            <View style={[styles.welcomeDivider, { backgroundColor: '#334155' }]} />
+            
+            <View style={{ marginBottom: 16 }}>
+              <Text style={{ color: '#ef4444', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 8 }}>FORFEITED IMMEDIATELY:</Text>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="close-circle" size={16} color="#ef4444" />
+                <Text style={styles.welcomeRowText}>The Mess Hall (AI Recipe Intelligence)</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="close-circle" size={16} color="#ef4444" />
+                <Text style={styles.welcomeRowText}>Tactical Expiry & Stock Alerts</Text>
+              </View>
+            </View>
+
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 8 }}>GAINED PERMANENTLY:</Text>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="arrow-up-bold-circle" size={16} color="#22c55e" />
+                <Text style={styles.welcomeRowText}>Double Capacity (24 Item Types)</Text>
+              </View>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="arrow-up-bold-circle" size={16} color="#22c55e" />
+                <Text style={styles.welcomeRowText}>Expanded Fleet Access (6 Cabinets)</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity style={[styles.welcomeBtn, { backgroundColor: '#fbbf24' }]} onPress={performGraduation}>
+              <Text style={[styles.welcomeBtnText, { color: '#000' }]}>CONFIRM EARLY GRADUATION</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={{ alignSelf: 'center', marginTop: 16 }} onPress={() => setShowGradConfirm(false)}>
+              <Text style={{ color: '#64748b', fontWeight: 'bold' }}>ABORT — CONTINUE TRAINING</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
 
       {/* ─── FULL PAYWALL (proactive upgrade) ─── */}
@@ -358,9 +559,9 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               <View style={styles.header}>
                 <MaterialCommunityIcons name="crown" size={40} color="#fbbf24" />
                 <Text style={styles.title}>CHOOSE YOUR RANK</Text>
-                {isTrialActive ? (
+                {isCadet ? (
                   <View style={styles.trialBadge}>
-                    <Text style={styles.trialBadgeText}>TRIAL ACTIVE — {trialLabel} remaining</Text>
+                    <Text style={styles.trialBadgeText}>CADET EVALUATION ACTIVE — {trialLabel} remaining</Text>
                   </View>
                 ) : (
                   <Text style={styles.subtitle}>Your trial has expired. Re-establish command now.</Text>
@@ -399,9 +600,9 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 <View style={styles.tierCardHeader}>
                   <MaterialCommunityIcons name="star-four-points" size={20} color="#fbbf24" />
                   <Text style={[styles.tierCardTitle, { color: '#fbbf24' }]}>GENERAL</Text>
-                  <Text style={styles.tierCardPrice}>£4.99</Text>
+                  <Text style={styles.tierCardPrice}>£1.49<Text style={{ fontSize: 12, color: '#94a3b8' }}>/mo</Text></Text>
                 </View>
-                <Text style={styles.tierCardSub}>One-time licence · No subscription</Text>
+                <Text style={styles.tierCardSub}>£9.99 / year · Cancel any time</Text>
                 <Text style={styles.tierInheritNote}>Everything in Sergeant, plus:</Text>
                 <View style={styles.tierCardBenefits}>
                   <View style={styles.benefitRow}>
@@ -419,7 +620,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
                 </View>
                 <TouchableOpacity style={styles.buyBtnGeneral} onPress={() => handleSimulatedPurchase('GENERAL')}>
-                  <Text style={styles.buyBtnText}>COMMISSION AS GENERAL — £4.99</Text>
+                  <Text style={styles.buyBtnText}>COMMISSION AS GENERAL — £1.49/mo</Text>
                 </TouchableOpacity>
               </View>
 

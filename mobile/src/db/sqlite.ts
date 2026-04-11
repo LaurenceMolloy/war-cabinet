@@ -121,9 +121,10 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       }
     }
 
-    // Ensure at least one cabinet exists
+    // Ensure at least one cabinet exists (unless skipping seeds for E2E)
     const cabRes = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Cabinets');
-    if (cabRes && cabRes.count === 0) {
+    const shouldSkipSeeds = typeof window !== 'undefined' && (window as any).__E2E_SKIP_SEEDS__;
+    if (cabRes && cabRes.count === 0 && !shouldSkipSeeds) {
       const res = await db.runAsync('INSERT INTO Cabinets (name, location) VALUES (?, ?)', 'Main Cabinet', 'Kitchen');
       const mainCabId = res.lastInsertRowId;
       // Assign existing inventory to main

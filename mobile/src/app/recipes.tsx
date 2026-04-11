@@ -10,7 +10,9 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
-import { RECIPE_PROMPT_TEMPLATE } from '../data/recipe_template';
+import { RECIPE_PROMPT_TEMPLATE, AUTHENTIC_MODE_SUB_TEMPLATES, LOGISTICS_MODE_SUB_TEMPLATES } from '../data/recipe_template';
+import CHEFS_DATA from '../data/chefs.json';
+import FRIDGE_INGREDIENTS from '../data/fridge_ingredients.json';
 
 const DIETARY_CHOICES = ["Meat", "Pescetarian", "Vegetarian", "Vegan", "Don't Mind"];
 const ALLERGENS = [
@@ -29,7 +31,7 @@ export default function RecipesScreen() {
 
   const [dietary, setDietary] = useState("Meat");
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
-  const [expiringList, setExpiringList] = useState<{name: string, isFreezer: boolean}[]>([]);
+  const [expiringList, setExpiringList] = useState<{name: string, cabinetType: string}[]>([]);
   const [pantryList, setPantryList] = useState<string[]>([]);
   const [freezerList, setFreezerList] = useState<string[]>([]);
   const [excludedExpiring, setExcludedExpiring] = useState<string[]>([]);
@@ -40,15 +42,33 @@ export default function RecipesScreen() {
   const [extraRequests, setExtraRequests] = useState("");
   const [recipeMode, setRecipeMode] = useState<"experimental" | "inspired" | "authentic">("experimental");
   const [selectedChef, setSelectedChef] = useState("Gordon Ramsay");
-  const [customChefs, setCustomChefs] = useState<string[]>([]);
+  const [lastCustomChef, setLastCustomChef] = useState<string | null>(null);
   const [customInput, setCustomInput] = useState("");
   
   const [selectedStaples, setSelectedStaples] = useState<string[]>([]);
   const [persistentStaples, setPersistentStaples] = useState<string[]>(FRIDGE_STAPLES_PRESETS);
   const [staplesInput, setStaplesInput] = useState("");
+
+  const [customExpInput, setCustomExpInput] = useState("");
+  const [sessionCustomExp, setSessionCustomExp] = useState<string[]>([]);
+  const [historyExp, setHistoryExp] = useState<string[]>([]);
+  const [fridgeSuggestions, setFridgeSuggestions] = useState<string[]>([]);
   const chefs = [
-    "BBC Good Food", "Gordon Ramsay", "Jamie Oliver", "Nigella Lawson", "Ottolenghi"
+    "BBC Good Food", "Gordon Ramsay", "Ina Garten", "Jamie Oliver", "Nigella Lawson", "Ottolenghi", "Rachael Ray"
   ];
+
+  const CHEF_PHILOSOPHIES: Record<string, string> = {
+    "BBC Good Food": "Dependable, triple-tested classics focused on accessibility and foolproof results.",
+    "Gordon Ramsay": "Elite precision and bold flavors, respecting ingredients through refined technique.",
+    "Ina Garten": "Elegant, foolproof home cooking that emphasizes high-quality ingredients and classic hospitality.",
+    "Jamie Oliver": "Rebelliously simple cooking that celebrates fresh produce and vibrant, rustic flavors.",
+    "Nigella Lawson": "Home-style comfort that prioritizes the pure pleasure of eating over technical perfection.",
+    "Ottolenghi": "Vibrant, Middle-Eastern-inspired fusion celebrating bold spices and abundant vegetables.",
+    "Rachael Ray": "High-speed, practical '30-minute' meals focused on big flavor and common supermarket finds."
+  };
+  const [wildcardChef, setWildcardChef] = useState<string | null>(null);
+  const [suggestedChefs, setSuggestedChefs] = useState<string[]>([]);
+  const [stapleSuggestions, setStapleSuggestions] = useState<string[]>([]);
   const [hideDeployGuide, setHideDeployGuide] = useState(false);
   const [showDeployGuide, setShowDeployGuide] = useState(false);
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
@@ -89,22 +109,45 @@ export default function RecipesScreen() {
 
   useEffect(() => {
     async function load() {
-      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_excluded_pantry', 'recipe_excluded_freezer', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs', 'recipe_fridge_staples_selected', 'recipe_fridge_staples_persistent', 'recipe_active_accordion'
+      let tempCustomChefs: string[] = [];
+      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_excluded_pantry', 'recipe_excluded_freezer', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs', 'recipe_fridge_staples_selected', 'recipe_fridge_staples_persistent', 'recipe_active_accordion', 'recipe_expiring_history'
       );
       rows.forEach(r => {
+        if (r.key === 'recipe_expiring_history') {
+          try {
+            const parsed = JSON.parse(r.value);
+            setHistoryExp(Array.isArray(parsed) ? parsed : []);
+          } catch (e) {
+            // Fallback for legacy CSV format
+            setHistoryExp(r.value.split(',').filter(Boolean));
+          }
+        }
         if (r.key === 'dietary_pref') setDietary(r.value);
         if (r.key === 'recipe_preferred') setPreferred(r.value);
         if (r.key === 'recipe_avoided') setAvoid(r.value);
         if (r.key === 'recipe_extra') setExtraRequests(r.value);
         if (r.key === 'recipe_mode') setRecipeMode(r.value as any);
         if (r.key === 'recipe_chef') setSelectedChef(r.value);
+        if (r.key === 'recipe_hide_deploy_guide') setHideDeployGuide(r.value === 'true');
+        if (r.key === 'recipe_custom_chefs') {
+          tempCustomChefs = r.value.split(',').filter(Boolean);
+          setLastCustomChef(tempCustomChefs[tempCustomChefs.length - 1] || null);
+        }
+        if (r.key === 'recipe_fridge_staples_selected') setSelectedStaples(r.value.split(',').filter(Boolean));
+        if (r.key === 'recipe_fridge_staples_persistent') setPersistentStaples(r.value.split(',').filter(Boolean));
+        if (r.key === 'recipe_active_accordion' && r.value !== 'none') {
+           setActiveAccordion(r.value as AccordionSection);
+           if (r.value === 'mode') modeAnim.setValue(1);
+           if (r.value === 'core') coreAnim.setValue(1);
+           if (r.value === 'optional') optionalAnim.setValue(1);
+           if (r.value === 'protocols') protocolsAnim.setValue(1);
+           if (r.value === 'deploy') deployAnim.setValue(1);
+        }
         if (r.key === 'recipe_allergens') setSelectedAllergens(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_expiring') setExcludedExpiring(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_pantry') setExcludedPantry(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_freezer') setExcludedFreezer(r.value ? r.value.split(',') : []);
-        if (r.key === 'recipe_hide_deploy_guide') setHideDeployGuide(r.value === 'true');
-        if (r.key === 'recipe_custom_chefs') setCustomChefs(r.value ? r.value.split(',').filter(x => x) : []);
         if (r.key === 'recipe_fridge_staples_selected') setSelectedStaples(r.value ? r.value.split(',').filter(x => x) : []);
         if (r.key === 'recipe_fridge_staples_persistent') {
           const loaded = r.value ? r.value.split(',').filter(x => x) : [];
@@ -153,7 +196,7 @@ export default function RecipesScreen() {
       `);
 
       const expSet = new Set<string>();
-      const expDetails: {name: string, isFreezer: boolean}[] = [];
+      const expDetails: {name: string, cabinetType: string}[] = [];
       const pantrySet = new Set<string>();
       const freezerSet = new Set<string>();
 
@@ -174,10 +217,10 @@ export default function RecipesScreen() {
         if (stamp && stamp <= thresholdMonths) {
           if (!expSet.has(row.name)) {
             expSet.add(row.name);
-            expDetails.push({ name: row.name, isFreezer: isFreezerRow });
+            expDetails.push({ name: row.name, cabinetType: row.cabinet_type });
           } else if (isFreezerRow) {
             const idx = expDetails.findIndex(d => d.name === row.name);
-            if (idx !== -1) expDetails[idx].isFreezer = true;
+            if (idx !== -1) expDetails[idx].cabinetType = 'freezer';
           }
         } else if (isFreezerRow) {
           freezerSet.add(row.name);
@@ -193,6 +236,18 @@ export default function RecipesScreen() {
       setExpiringList(finalExp);
       setPantryList(finalPantry);
       setFreezerList(finalFreezer);
+
+      // Initialize wildcard (ensure no duplicates and only authentic-ready chefs)
+      const allChefNames = Object.keys(CHEFS_DATA);
+      const pool = allChefNames.filter(name => 
+        !chefs.includes(name) && 
+        name !== tempCustomChefs[tempCustomChefs.length - 1] &&
+        (CHEFS_DATA[name as keyof typeof CHEFS_DATA] as any).authentic === true
+      );
+      if (pool.length > 0) {
+        const random = pool[Math.floor(Math.random() * pool.length)];
+        setWildcardChef(random);
+      }
     }
     load();
   }, [db]);
@@ -271,48 +326,37 @@ export default function RecipesScreen() {
     savePref('recipe_fridge_staples_selected', next.join(','));
   };
 
-  const handleStaplesBlur = () => {
-    if (!staplesInput.trim()) return;
-    
-    const newItems = staplesInput.split(',')
-      .map(x => x.trim())
-      .filter(x => x && x.length > 1)
-      .map(x => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase());
-    
-    if (newItems.length > 0) {
-      const updatedPersistent = [...new Set([...persistentStaples, ...newItems])].sort();
-      const updatedSelected = [...new Set([...selectedStaples, ...newItems])].sort();
-      
-      setPersistentStaples(updatedPersistent);
-      setSelectedStaples(updatedSelected);
-      setStaplesInput("");
-      
-      const persistentToSave = updatedPersistent.filter(x => !FRIDGE_STAPLES_PRESETS.includes(x));
-      savePref('recipe_fridge_staples_persistent', persistentToSave.join(','));
-      savePref('recipe_fridge_staples_selected', updatedSelected.join(','));
-    }
+  const purgeStaple = (val: string) => {
+    setSelectedStaples(prev => prev.filter(s => s !== val));
+    setPersistentStaples(prev => {
+      const next = prev.filter(s => s !== val);
+      savePref('recipe_fridge_staples_persistent', next.join(','));
+      return next;
+    });
   };
 
-  const handleStaplesBlurInternal = (input: string) => {
-    if (!input.trim()) return;
+  const handleAddStaple = (val: string) => {
+    const cleaned = val.trim();
+    if (!cleaned) return;
     
-    const newItems = input.split(',')
-      .map(x => x.trim())
-      .filter(x => x && x.length > 1)
-      .map(x => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase());
-    
-    if (newItems.length > 0) {
-      const updatedPersistent = [...new Set([...persistentStaples, ...newItems])].sort();
-      const updatedSelected = [...new Set([...selectedStaples, ...newItems])].sort();
-      
-      setPersistentStaples(updatedPersistent);
-      setSelectedStaples(updatedSelected);
-      setStaplesInput("");
-      
-      const persistentToSave = updatedPersistent.filter(x => !FRIDGE_STAPLES_PRESETS.includes(x));
-      savePref('recipe_fridge_staples_persistent', persistentToSave.join(','));
-      savePref('recipe_fridge_staples_selected', updatedSelected.join(','));
+    // Auto-select it
+    if (!selectedStaples.includes(cleaned)) {
+      setSelectedStaples(prev => [...prev, cleaned]);
     }
+    
+    // Add to persistent if not there
+    if (!persistentStaples.includes(cleaned)) {
+      const next = [...persistentStaples, cleaned];
+      setPersistentStaples(next);
+      savePref('recipe_fridge_staples_persistent', next.join(','));
+    }
+    
+    setStaplesInput("");
+    setStapleSuggestions([]);
+  };
+
+  const handleStaplesBlur = () => {
+    setStapleSuggestions([]);
   };
 
   const massActionPantry = (include: boolean) => {
@@ -413,9 +457,8 @@ export default function RecipesScreen() {
     const activePantryFiltered = pantryItems.filter(it => !excludedPantry.includes(it.name) && !expSet.has(it.name));
     const activeFreezerFiltered = freezerItems.filter(it => !excludedFreezer.includes(it.name) && !expSet.has(it.name));
 
-    const combinedAvailable = [...activePantryFiltered, ...activeFreezerFiltered];
 
-    const formatIngredientList = (items: any[], forceMarker?: string) => {
+    const formatIngredientList = (items: any[], forceCategory?: string) => {
       if (items.length === 0) return "None recorded.";
       // De-duplicate names for the prompt list
       const uniqueNames = new Set();
@@ -429,11 +472,6 @@ export default function RecipesScreen() {
 
       return uniqueItems.map(item => {
         let sizePart = "";
-        let marker = forceMarker;
-        if (!marker) {
-          marker = item.cabinet_type === 'freezer' ? '(freezer)' : '(pantry)';
-        }
-
         if (item.default_size) {
            const num = parseFloat(item.default_size);
            if (!isNaN(num)) {
@@ -449,12 +487,12 @@ export default function RecipesScreen() {
              sizePart = ` (${item.default_size})`;
            }
         }
-        return `- ${item.name}${sizePart} ${marker}`;
+        return `- ${item.name}${sizePart}`;
       }).join('\n');
     };
 
-    const activeExpiringList = formatIngredientList(activeExpiringFiltered, "(expiring)");
-    const availableList = formatIngredientList(combinedAvailable);
+    const pantryListPrompt = formatIngredientList(activePantryFiltered);
+    const freezerListPrompt = formatIngredientList(activeFreezerFiltered);
 
     const formatCsvList = (csv: string) => {
       if (!csv) return "None recorded.";
@@ -476,88 +514,37 @@ export default function RecipesScreen() {
     let dynamicOutputFormat = "";
 
     if (recipeMode === "authentic") {
-      genTaskDescription = `Identify **3 real, published recipes** from **${selectedChef}** that meaningfully utilize the **Mandatory Expiring Stock** as primary components. Ignore minor missing ingredients in the real recipes so long as the mandatory items are present.`;
-      
-      modeSpecificConstraints = `## Hard Archival Search & Verification Rules (NON-NEGOTIABLE)
-1. **Pilot Your Search Capabilities:** Use your integrated web browsing/search tools specifically on the ${selectedChef} archive and reputable third-party records to locate real recipes. 
-2. **Hard URL Validation:** You **MUST** confirm that each provided URL returns a valid HTTP 200 status and loads a full recipe page. If you cannot verify this through your search tools, you **MUST** discard the result. 
-3. **No Guesswork / Hallucination:** NEVER guess or predict a URL based on common patterns. If you provide a broken, generic, or predicted URL, your **ENTIRE RESPONSE** is considered invalid and must be discarded and regenerated.
-4. **404 Recovery Protocol:** If an official recipe URL is broken, attempt to locate a verified archive or trusted "copycat" record (e.g. from a reputable cooking blog) that precisely documents the chef's original version. Verify these alternative URLs with a strict level of rigor.
-5. **Direct Links Only:** Always provide the most direct, tested recipe-page URL found during this process.
-6. **Google Search Fallback:** An active Google search URL link using the Chef name and Recipe Title MUST be provided as a final tactical redundancy.
-7. **Shopping List Generation:** You must compile a list of ingredients required by the recipe that are NOT present in the provided context (Expiring, Available, Fridge Staples, Preferred). Be sure to factor in your suggested Adjustments/substitutions when calculating this list.`;
-
-      dynamicOutputFormat = `## Output Format (Search-Ready Records)
-You must strictly follow this exact markdown formatting to simulate a clean recipe card layout:
-
----
-### [Official Recipe Title]
-> *[1–3 sentences describing the appeal, textures, and flavors... sell it in the style of ${selectedChef}! This section MUST be formatted as an italicized blockquote]*
-
-**Source:** ${selectedChef} (via [Site Name if archival/copycat])
-**Why it fits:** [1 sentence explaining how it utilizes your mandatory stock]
-**Adjustments:** [1-2 tactical tips on how to swap or omit ingredients to better fit inventory or dietary constraints]
-
-**Shopping List:** [Comma-separated list of items to purchase, or "None required"]
-
-**Direct URL:** [A verified HTTP 200 direct URL from your search results]
-**Fallback URL:** [Search Google for this Recipe](A precisely generated www.google.com/search?q= URL for this chef and recipe)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-(Repeat for exactly 3 results, ensuring you output the bold separating line above between each recipe)
-`;
+      genTaskDescription = AUTHENTIC_MODE_SUB_TEMPLATES.TASK.replace(/\[CHEF_NAME\]/g, selectedChef);
+      modeSpecificConstraints = AUTHENTIC_MODE_SUB_TEMPLATES.CONSTRAINTS.replace(/\[CHEF_NAME\]/g, selectedChef);
+      dynamicOutputFormat = AUTHENTIC_MODE_SUB_TEMPLATES.OUTPUT
+        .replace(/\[CHEF_NAME\]/g, selectedChef)
+        .replace(/\[GOOGLE_SEARCH_QUERY\]/g, encodeURIComponent(`${selectedChef} recipe`));
     } else {
-      genTaskDescription = `Generate **3 distinct, beginner-friendly recipes** using the ingredients below, prioritising those that need to be used soon.`;
+      genTaskDescription = LOGISTICS_MODE_SUB_TEMPLATES.TASK;
+      modeSpecificConstraints = LOGISTICS_MODE_SUB_TEMPLATES.CONSTRAINTS.replace(/\[MANDATE_RULE\]/g, mandateRule);
       
-      modeSpecificConstraints = `## Recipe Constraints
-1. Each recipe must use **${mandateRule}** (not garnish)  
-2. Recipes must be clearly different (e.g., cuisine, cooking method, flavour profile)  
-3. Keep recipes simple, quick, and beginner-friendly  
-4. Avoid niche or expensive ingredients unless preferred  
-5. Do not assume prior prep knowledge  
-6. **Additional requests** are best-effort; **NEVER** override Core Rules.
-
----
-
-## Ingredient Labelling
-Every ingredient must include:
-- Quantity (**metric: g / ml**)  
-- State (e.g., raw, cooked, drained, sliced)  
-- Marker, one of: (expiring), (preferred), (available), (pantry), (fresh)
-
----
-
-## Ingredient Ordering (strict)
-List ingredients in this exact order: 1. Expiring, 2. Preferred, 3. Available, 4. Pantry, 5. Fresh`;
-
-      dynamicOutputFormat = `## Output Format (exact structure required)
-
-### Recipe Name: [Title]
-
-### Ingredients
-| Ingredient | Quantity | State | Marker |
-|------------|----------|--------|---------|
-| rice | 200 g | uncooked | (expiring) |
-
-### Steps
-- Step with precise instruction (include heat level, timing, quantities where relevant)  
-- Avoid vague terms like “cook until done”  
-
-### Estimated prep/cook time
-[time]
-
-${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the style of ${selectedChef} explaining a key technique, flavour decision, or cooking principle used in this specific recipe].`}
-
----
-(Repeat for 3 recipes)`;
+      const chefNote = recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the style of ${selectedChef} explaining a key technique, flavour decision, or cooking principle used in this specific recipe].`;
+      dynamicOutputFormat = LOGISTICS_MODE_SUB_TEMPLATES.OUTPUT.replace(/\[CHEF_NOTE_SECTION\]/g, chefNote);
     }
+
+    const activeExpiringList = expiringList.filter(item => !excludedExpiring.includes(item.name));
+    const allExpiringString = [
+        ...activeExpiringList.map(item => {
+          let tag = 'non-perishable';
+          if (item.cabinetType === 'freezer') tag = 'fresh/frozen';
+          if (item.cabinetType === 'fridge') tag = 'fresh';
+          return `- ${item.name} (${tag})`;
+        }),
+        ...sessionCustomExp.map(name => `- ${name} (fresh)`)
+    ].join('\n');
 
     return RECIPE_PROMPT_TEMPLATE
       .replace('[DIETARY_PREF]', dietary)
       .replace('[LIST_ALLERGENS]', selectedAllergens.length > 0 ? selectedAllergens.map(a => `- ${a}`).sort().join('\n') : "None declared.")
       .replace('[LIST_STAPLES]', selectedStaples.length > 0 ? selectedStaples.sort().map(s => `- ${s}`).join('\n') : "No fresh staples defined.")
-      .replace('[LIST_EXPIRING]', activeExpiringList)
-      .replace('[LIST_AVAILABLE]', availableList)
+      .replace('[LIST_EXPIRING]', allExpiringString || "No mandatory supplies found in inventory.")
+      .replace('[LIST_PANTRY]', pantryListPrompt)
+      .replace('[LIST_FREEZER]', freezerListPrompt)
       .replace('[LIST_PREFERRED]', formatCsvList(preferred))
       .replace('[LIST_AVOID]', formatCsvList(avoid))
       .replace('[EXTRA_REQUESTS]', extraRequests ? extraRequests : "None declared.")
@@ -593,26 +580,72 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
     const activeExpiringList = expiringList.filter(item => !excludedExpiring.includes(item.name));
 
     // Handle Custom Chef Memory
-    if (selectedChef && !chefs.includes(selectedChef)) {
-      setCustomChefs(prev => {
-        const next = [selectedChef, ...prev.filter(c => c !== selectedChef)].slice(0, 2);
-        savePref('recipe_custom_chefs', next.join(','));
-        return next;
-      });
+    if (selectedChef && !chefs.includes(selectedChef) && selectedChef !== wildcardChef) {
+      setLastCustomChef(selectedChef);
+      savePref('recipe_custom_chefs', selectedChef);
     }
 
-    if (staplesInput.trim()) {
-      handleStaplesBlurInternal(staplesInput);
+    // AUTHENTIC MODE ENFORCEMENT
+    const isAuthenticIdentity = chefs.includes(selectedChef) || (CHEFS_DATA[selectedChef as keyof typeof CHEFS_DATA] as any)?.authentic === true;
+    if (recipeMode === 'authentic' && !isAuthenticIdentity) {
+      triggerStatus("IDENTITY REJECTED: AUTHENTIC MODE REQUIRES A HIGH-VOLUME DATA SOURCE.");
+      return;
     }
 
-    if (activeExpiringList.length === 0 && !showConfirm) {
+    // We no longer auto-add half-typed items to session/history during submission,
+    // they must be explicitly added by the + button, Enter, or suggested chip.
+
+    if (activeExpiringList.length === 0 && sessionCustomExp.length === 0 && !showConfirm) {
       setShowConfirm(true);
     } else {
-      if (!checkEntitlement('RECIPE_GENERATION')) return;
+      if (!checkEntitlement('RECIPES')) return;
       const prompt = await generatePromptString();
       setRenderedPrompt(prompt);
       setShowConfirm(false);
     }
+  };
+
+  const toggleManualExp = (val: string) => {
+    setSessionCustomExp(prev => {
+      if (prev.includes(val)) {
+        return prev.filter(item => item !== val);
+      }
+      return [...prev, val];
+    });
+  };
+
+  const purgeManualExp = (val: string) => {
+    setSessionCustomExp(prev => prev.filter(item => item !== val));
+    setHistoryExp(prev => {
+      const next = prev.filter(item => item !== val);
+      savePref('recipe_expiring_history', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const massActionManualExp = (include: boolean) => {
+    const allItems = Array.from(new Set([...historyExp, ...sessionCustomExp]));
+    if (include) {
+      setSessionCustomExp(allItems);
+    } else {
+      setSessionCustomExp([]);
+    }
+  };
+
+  const handleAddCustomExp = (val: string) => {
+    const cleaned = val.trim();
+    if (!cleaned) return;
+    if (!sessionCustomExp.includes(cleaned)) {
+        setSessionCustomExp(prev => [...prev, cleaned]);
+    }
+    setHistoryExp(prev => {
+        const filtered = prev.filter(x => x !== cleaned);
+        const next = [cleaned, ...filtered].slice(0, 4);
+        savePref('recipe_expiring_history', JSON.stringify(next));
+        return next;
+    });
+    setCustomExpInput("");
+    setFridgeSuggestions([]);
   };
 
   const renderStatus = () => (
@@ -686,11 +719,12 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
     return (
       <View style={styles.container}>
         <View style={styles.headerRow}>
-           <View style={{flexDirection: 'row', alignItems: 'center'}}>
-             <TouchableOpacity accessibilityRole="button" onPress={() => setRenderedPrompt(null)} style={styles.backBtn}>
-               <MaterialCommunityIcons name="chevron-left" size={28} color="#f8fafc" />
-             </TouchableOpacity>
+           <TouchableOpacity accessibilityRole="button" onPress={() => setRenderedPrompt(null)} style={styles.backBtn}>
+             <MaterialCommunityIcons name="chevron-left" size={28} color="#f8fafc" />
+           </TouchableOpacity>
+           <View style={{flex: 1, marginLeft: 16}}>
              <Text style={styles.title}>Recipe Briefing</Text>
+             <Text style={styles.headerSubtitle}>Ready for AI station transmission</Text>
            </View>
         </View>
         {/* ANCHORED COMMAND PANEL */}
@@ -733,12 +767,37 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
         </View>
       </View>
 
+      {/* ── COMMAND DECK (Top-Anchored) ── */}
+      <View style={styles.anchoredPanel}>
+        {showConfirm ? (
+          <View style={{alignItems: 'center'}}>
+            <Text style={[styles.confirmText, {marginBottom: 10}]}>NO MANDATORY SUPPLIES SELECTED. PROCEED?</Text>
+            <View style={{flexDirection: 'row', gap: 10, width: '100%'}}>
+              <TouchableOpacity accessibilityRole="button" style={[styles.generateBtn, {flex: 1, backgroundColor: '#334155', padding: 12}]} onPress={() => setShowConfirm(false)}>
+                <Text style={[styles.generateText, {color: 'white', fontSize: 13}]}>BACK</Text>
+              </TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" style={[styles.generateBtn, {flex: 1, padding: 12}]} onPress={() => { setShowConfirm(false); handleView(); }}>
+                <Text style={[styles.generateText, {fontSize: 13}]}>CONTINUE</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity accessibilityRole="button" style={styles.generateBtn} onPress={handleView} testID="generate-prompt-btn">
+            <MaterialCommunityIcons name="auto-fix" size={20} color="#0f172a" />
+            <View style={{marginLeft: 12, alignItems: 'flex-start'}}>
+              <Text style={[styles.generateText, {fontSize: 14}]}>GENERATE MISSION BRIEFING</Text>
+              <Text style={{color: '#0f172a', fontSize: 9, fontWeight: 'bold', opacity: 0.7}}>ANALYZE INVENTORY & DEPLOY PROMPT</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      </View>
+
       <KeyboardAwareScrollView 
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         enableOnAndroid={true}
-        extraScrollHeight={180}
-        extraHeight={180}
+        extraScrollHeight={182}
+        extraHeight={182}
       >
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -812,24 +871,75 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
                     <Text style={[styles.chefChipText, selectedChef === chef && styles.chefChipTextActive]}>{chef}</Text>
                   </TouchableOpacity>
                 ))}
-                
-                {customChefs.map(chef => (
+
+                {wildcardChef && (
                   <TouchableOpacity 
                     accessibilityRole="button"
-                    key={`custom-${chef}`} 
-                    style={[styles.chefChip, selectedChef === chef && styles.chefChipActive]} 
-                    onPress={() => { setSelectedChef(chef); savePref('recipe_chef', chef); setCustomInput(""); }}
-                    testID={`custom-chef-chip-${chef.toLowerCase().replace(/\s+/g, '-')}`}
+                    key="wildcard" 
+                    style={[styles.chefChip, selectedChef === wildcardChef && styles.chefChipActive]} 
+                    onPress={() => { setSelectedChef(wildcardChef); savePref('recipe_chef', wildcardChef); setCustomInput(""); }}
+                    testID="wildcard-chef-chip"
                   >
-                    <Text style={[styles.chefChipText, selectedChef === chef && styles.chefChipTextActive]}>{chef}</Text>
+                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                      <MaterialCommunityIcons name="satellite-variant" size={13} color={selectedChef === wildcardChef ? "black" : "#fbbf24"} style={{marginRight: 6}} />
+                      <Text style={[styles.chefChipText, selectedChef === wildcardChef && styles.chefChipTextActive]}>{wildcardChef}</Text>
+                    </View>
                   </TouchableOpacity>
-                ))}
+                )}
+                
+                {lastCustomChef && (
+                  <TouchableOpacity 
+                    accessibilityRole="button"
+                    key="last-custom" 
+                    style={[
+                      styles.chefChip, 
+                      selectedChef === lastCustomChef && styles.chefChipActive,
+                      (recipeMode === 'authentic' && !(CHEFS_DATA[lastCustomChef as keyof typeof CHEFS_DATA] as any)?.authentic) && {opacity: 0.4}
+                    ]} 
+                    onPress={() => { 
+                      const isAuth = (CHEFS_DATA[lastCustomChef as keyof typeof CHEFS_DATA] as any)?.authentic;
+                      if (recipeMode === 'authentic' && !isAuth) {
+                        triggerStatus("IDENTITY INCOMPATIBLE WITH AUTHENTIC PROTOCOL.");
+                        return;
+                      }
+                      setSelectedChef(lastCustomChef); 
+                      savePref('recipe_chef', lastCustomChef); 
+                      setCustomInput(""); 
+                    }}
+                    testID="last-custom-chef-chip"
+                  >
+                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                      <MaterialCommunityIcons name="account-circle-outline" size={13} color={selectedChef === lastCustomChef ? "black" : "#94a3b8"} style={{marginRight: 6}} />
+                      <Text style={[styles.chefChipText, selectedChef === lastCustomChef && styles.chefChipTextActive]}>{lastCustomChef}</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
               </View>
 
+              <View style={{flexDirection: 'row', gap: 15, marginTop: 8, marginBottom: 4, paddingHorizontal: 4}}>
+                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                    <MaterialCommunityIcons name="satellite-variant" size={10} color="#fbbf24" style={{marginRight: 4}} />
+                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>WILDCARD CHEF</Text>
+                 </View>
+                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                    <MaterialCommunityIcons name="account-circle-outline" size={10} color="#94a3b8" style={{marginRight: 4}} />
+                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>USER SUGGESTED</Text>
+                 </View>
+              </View>
+
+              {selectedChef ? (
+                <View style={{marginTop: 12, padding: 12, backgroundColor: '#0f172a', borderRadius: 8}}>
+                  <Text style={{color: '#94a3b8', fontSize: 12, fontStyle: 'italic', lineHeight: 18}}>
+                    {CHEF_PHILOSOPHIES[selectedChef] || 
+                     (CHEFS_DATA[selectedChef as keyof typeof CHEFS_DATA] as any)?.philosophy || 
+                     "User suggested chef - no character intel available"}
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={{marginTop: 10}}>
-                <Text style={{color: '#94a3b8', fontSize: 11, marginBottom: 8}}>SUGGEST A CHEF:</Text>
                 <TextInput 
-                  style={[styles.input, {minHeight: 45, height: 45, fontSize: 14}]} 
+                  style={[styles.input, {minHeight: 45, height: 45, fontSize: 14, marginBottom: 4}]} 
                   placeholder="e.g. Marco Pierre White"
                   placeholderTextColor="#475569"
                   value={customInput}
@@ -837,9 +947,43 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
                     setCustomInput(val);
                     setSelectedChef(val);
                     savePref('recipe_chef', val);
+                    
+                    if (val.trim().length > 1) {
+                      const matches = Object.keys(CHEFS_DATA)
+                        .filter(name => {
+                          const isMatch = name.toLowerCase().startsWith(val.toLowerCase());
+                          if (recipeMode === 'authentic') {
+                            return isMatch && (CHEFS_DATA[name as keyof typeof CHEFS_DATA] as any).authentic === true;
+                          }
+                          return isMatch;
+                        })
+                        .sort((a, b) => a.length - b.length || a.localeCompare(b))
+                        .slice(0, 3);
+                      setSuggestedChefs(matches);
+                    } else {
+                      setSuggestedChefs([]);
+                    }
                   }}
                   testID="custom-chef-input"
                 />
+                <View style={{height: 24, justifyContent: 'center'}}>
+                  <View style={{flexDirection: 'row', gap: 6}}>
+                    {suggestedChefs.map(chef => (
+                      <TouchableOpacity 
+                        key={chef}
+                        onPress={() => {
+                          setCustomInput(chef);
+                          setSelectedChef(chef);
+                          savePref('recipe_chef', chef);
+                          setSuggestedChefs([]);
+                        }}
+                        style={{backgroundColor: '#334155', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4}}
+                      >
+                        <Text style={{color: '#fbbf24', fontSize: 9, fontWeight: 'bold'}}>{chef.toUpperCase()}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
               </View>
             </View>
           )}
@@ -905,7 +1049,7 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
                       onPress={() => toggleExpiring(item.name)}
                       testID={`stock-chip-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      {item.isFreezer && <MaterialCommunityIcons name="snowflake" size={12} color={!excludedExpiring.includes(item.name) ? "white" : "#64748b"} style={{ marginRight: 6 }} />}
+                      {item.cabinetType === 'freezer' && <MaterialCommunityIcons name="snowflake" size={12} color={!excludedExpiring.includes(item.name) ? "white" : "#64748b"} style={{ marginRight: 6 }} />}
                       <Text style={[styles.allergenChipText, !excludedExpiring.includes(item.name) && styles.allergenChipTextActive]}>{item.name}</Text>
                     </TouchableOpacity>
                   ))}
@@ -913,6 +1057,88 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
             ) : (
               <Text style={styles.sectionSubtitle}>No stock items are due to expire soon.</Text>
             )}
+            <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 12}}>
+              <MaterialCommunityIcons name="snowflake" size={12} color="#38bdf8" />
+              <Text style={{color: '#64748b', fontSize: 10, marginLeft: 6}}>Items marked with ❄️ are currently frozen.</Text>
+            </View>
+
+            {/* Custom Expiring Additions */}
+            <View style={{marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#334155'}}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap'}}>
+                 <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>FRIDGE ADD-ONS <Text style={styles.sectionInlineSubtitle}>(items going off)</Text></Text>
+                 <View style={{flexDirection: 'row', gap: 10}}>
+                   <TouchableOpacity onPress={() => massActionManualExp(true)}><Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>INCLUDE ALL</Text></TouchableOpacity>
+                   <TouchableOpacity onPress={() => massActionManualExp(false)}><Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>EXCLUDE ALL</Text></TouchableOpacity>
+                 </View>
+              </View>
+              
+              <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10}}>
+                 {/* Show all history items + any unique session items */}
+                 {Array.from(new Set([...historyExp, ...sessionCustomExp])).sort().map(item => {
+                   const isActive = sessionCustomExp.includes(item);
+                   return (
+                     <TouchableOpacity 
+                       key={item} 
+                       style={[styles.allergenChip, isActive && styles.stockChipActive, {flexDirection: 'row', alignItems: 'center'}]} 
+                       onPress={() => toggleManualExp(item)}
+                     >
+                        <Text style={[styles.allergenChipText, isActive && styles.allergenChipTextActive]}>{item}</Text>
+                        
+                        <TouchableOpacity 
+                          onPress={() => purgeManualExp(item)}
+                          style={{marginLeft: 8, padding: 2}}
+                          hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+                        >
+                          <MaterialCommunityIcons 
+                            name="close-circle" 
+                            size={14} 
+                            color={isActive ? "rgba(255,255,255,0.6)" : "#64748b"} 
+                          />
+                        </TouchableOpacity>
+                     </TouchableOpacity>
+                   );
+                 })}
+              </View>
+
+              <View style={{flexDirection: 'row', gap: 10}}>
+                 <TextInput
+                   style={[styles.input, {flex: 1, height: 44, minHeight: 44, paddingVertical: 8, fontSize: 14}]}
+                   placeholder="Add fresh item (e.g. Avocado)"
+                   placeholderTextColor="#475569"
+                   value={customExpInput}
+                   onChangeText={(val) => {
+                      setCustomExpInput(val);
+                      if (val.trim().length > 1) {
+                         const matches = FRIDGE_INGREDIENTS
+                           .filter(name => name.toLowerCase().startsWith(val.toLowerCase()))
+                           .sort((a, b) => a.length - b.length || a.localeCompare(b))
+                           .slice(0, 3);
+                         setFridgeSuggestions(matches);
+                      } else {
+                         setFridgeSuggestions([]);
+                      }
+                   }}
+                   onSubmitEditing={() => handleAddCustomExp(customExpInput)}
+                 />
+                 <TouchableOpacity style={{backgroundColor: '#334155', borderRadius: 8, width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}} onPress={() => handleAddCustomExp(customExpInput)}>
+                    <MaterialCommunityIcons name="plus" size={24} color="#fbbf24" />
+                 </TouchableOpacity>
+              </View>
+
+              <View style={{height: 24, justifyContent: 'center', marginTop: 4}}>
+                   <View style={{flexDirection: 'row', gap: 6}}>
+                     {fridgeSuggestions.map(item => (
+                       <TouchableOpacity 
+                         key={item}
+                         onPress={() => handleAddCustomExp(item)}
+                         style={{backgroundColor: '#334155', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4}}
+                       >
+                         <Text style={{color: '#fbbf24', fontSize: 9, fontWeight: 'bold'}}>{item.toUpperCase()}</Text>
+                       </TouchableOpacity>
+                     ))}
+                   </View>
+              </View>
+            </View>
           </View>
 
           <View style={{marginBottom: 24}}>
@@ -964,29 +1190,78 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
               </View>
               <Text style={styles.sectionSubtitle}>Select as many as you like or add your own.</Text>
               <View style={styles.allergenGrid}>
-                {persistentStaples.sort().map(s => (
-                  <TouchableOpacity 
-                    accessibilityRole="button"
-                    key={s} 
-                    style={[styles.allergenChip, selectedStaples.includes(s) && styles.allergenChipActive]} 
-                    onPress={() => toggleStaple(s)}
-                    testID={`fridge-staple-chip-${s.toLowerCase().replace(/\s+/g, '-')}`}
-                  >
-                     <Text style={[styles.allergenChipText, selectedStaples.includes(s) && styles.allergenChipTextActive]}>{s}</Text>
-                  </TouchableOpacity>
-                ))}
+                {persistentStaples.sort().map(s => {
+                  const isActive = selectedStaples.includes(s);
+                  return (
+                    <TouchableOpacity 
+                      accessibilityRole="button"
+                      key={s} 
+                      style={[styles.allergenChip, isActive && styles.allergenChipActive, {flexDirection: 'row', alignItems: 'center'}]} 
+                      onPress={() => toggleStaple(s)}
+                      testID={`fridge-staple-chip-${s.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                       <Text style={[styles.allergenChipText, isActive && styles.allergenChipTextActive]}>{s}</Text>
+                       <TouchableOpacity 
+                          onPress={() => purgeStaple(s)}
+                          style={{marginLeft: 8, padding: 2}}
+                          hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+                        >
+                          <MaterialCommunityIcons 
+                            name="close-circle" 
+                            size={14} 
+                            color={isActive ? "rgba(255,255,255,0.6)" : "#64748b"} 
+                          />
+                        </TouchableOpacity>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
-              <View style={{marginTop: 10, marginBottom: 10}}>
-                  <Text style={{color: '#94a3b8', fontSize: 11, marginBottom: 8}}>Add your own fridge staples (comma separated):</Text>
-                  <TextInput 
-                    style={[styles.input, {minHeight: 45, height: 45, fontSize: 14}]} 
-                    placeholder="e.g. Garlic, Onions, Spinach"
-                    placeholderTextColor="#475569"
-                    value={staplesInput}
-                    onChangeText={setStaplesInput}
-                    onBlur={handleStaplesBlur}
-                    testID="fridge-staples-input"
-                  />
+              <View style={{marginTop: 15}}>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                    <View style={{flex: 1}}>
+                      <TextInput 
+                        style={[styles.input, {minHeight: 44, height: 44, fontSize: 14}]} 
+                        placeholder="Add custom staple (e.g. Garlic)"
+                        placeholderTextColor="#475569"
+                        value={staplesInput}
+                        onChangeText={(val) => {
+                          setStaplesInput(val);
+                          if (val.trim().length > 1) {
+                            const query = val.toLowerCase();
+                            const matches = FRIDGE_INGREDIENTS
+                              .filter(item => item.toLowerCase().includes(query))
+                              .sort((a, b) => a.length - b.length || a.localeCompare(b))
+                              .slice(0, 3);
+                            setStapleSuggestions(matches);
+                          } else {
+                            setStapleSuggestions([]);
+                          }
+                        }}
+                        onSubmitEditing={() => handleAddStaple(staplesInput)}
+                        onBlur={handleStaplesBlur}
+                        testID="fridge-staples-input"
+                      />
+                    </View>
+                    <TouchableOpacity 
+                      style={{backgroundColor: '#334155', borderRadius: 8, width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}} 
+                      onPress={() => handleAddStaple(staplesInput)}
+                    >
+                       <MaterialCommunityIcons name="plus" size={24} color="white" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={{height: 24, justifyContent: 'center'}}>
+                    <View style={{flexDirection: 'row', gap: 6}}>
+                      {stapleSuggestions.map(item => (
+                        <TouchableOpacity 
+                          key={item}
+                          onPress={() => handleAddStaple(item)}
+                          style={{backgroundColor: '#334155', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4}}
+                        >
+                          <Text style={{color: '#38bdf8', fontSize: 9, fontWeight: 'bold'}}>{item.toUpperCase()}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
               </View>
           </View>
           
@@ -1027,14 +1302,19 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
                 {freezerList.length > 0 ? freezerList.sort().map(name => (
                   <TouchableOpacity 
                     key={name}
-                    style={[styles.allergenChip, !excludedFreezer.includes(name) && styles.stockChipActive]}
+                    style={[styles.allergenChip, !excludedFreezer.includes(name) && styles.stockChipActive, { flexDirection: 'row', alignItems: 'center' }]}
                     onPress={() => toggleFreezer(name)}
                   >
+                     <MaterialCommunityIcons name="snowflake" size={12} color={!excludedFreezer.includes(name) ? "white" : "#64748b"} style={{ marginRight: 6 }} />
                      <Text style={[styles.allergenChipText, !excludedFreezer.includes(name) && styles.allergenChipTextActive]}>{name}</Text>
                   </TouchableOpacity>
                 )) : (
                   <Text style={styles.sectionSubtitle}>No additional freezer stock available.</Text>
                 )}
+              </View>
+              <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 10}}>
+                <MaterialCommunityIcons name="snowflake" size={12} color="#38bdf8" />
+                <Text style={{color: '#64748b', fontSize: 10, marginLeft: 6}}>Frozen stores (fresh-frozen, raw or pre-prepared).</Text>
               </View>
           </View>
           </View>
@@ -1163,29 +1443,6 @@ ${recipeMode === "experimental" ? "" : `### Chef's Note\n[1-3 sentences in the s
         <View style={{height: 100}} /> 
       </KeyboardAwareScrollView>
 
-      {showConfirm ? (
-        <View style={styles.fabConfirmBlock}>
-          <MaterialCommunityIcons name="alert" size={24} color="#fbbf24" style={{marginBottom: 10}} />
-          <Text style={styles.confirmText}>No Mandatory Supplies.</Text>
-          <View style={{flexDirection: 'row', gap: 10}}>
-             <TouchableOpacity accessibilityRole="button" style={[styles.generateBtn, {flex: 1, backgroundColor: '#334155'}]} onPress={() => setShowConfirm(false)}>
-               <Text style={[styles.generateText, {color: 'white'}]}>BACK</Text>
-             </TouchableOpacity>
-             <TouchableOpacity accessibilityRole="button" style={[styles.generateBtn, {flex: 1}]} onPress={handleView}>
-               <Text style={styles.generateText}>CONTINUE</Text>
-             </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <TouchableOpacity accessibilityRole="button" style={styles.fab} onPress={handleView} testID="generate-prompt-btn">
-          <MaterialCommunityIcons name="auto-fix" size={24} color="black" />
-          <View style={styles.fabTextContainer}>
-            <Text style={styles.fabText}>GENERATE</Text>
-            <Text style={styles.fabSubText}>PROMPT</Text>
-          </View>
-        </TouchableOpacity>
-      )}
-
       {renderStatus()}
     </View>
   );
@@ -1270,7 +1527,7 @@ const styles = StyleSheet.create({
   allergenChipActive: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
   stockChipActive: { backgroundColor: '#3b82f6', borderColor: '#3b82f6' },
   allergenChipText: { color: '#94a3b8', fontSize: 13 },
-  allergenChipTextActive: { color: 'white', fontWeight: 'bold' },
+  allergenChipTextActive: { color: 'white' },
   sectionSubtitle: { color: '#94a3b8', fontSize: 12, marginTop: -10, marginBottom: 15 },
   footer: { padding: 20, backgroundColor: '#1e293b', borderBottomWidth: 1, borderBottomColor: '#334155' },
   generateBtn: { backgroundColor: '#fbbf24', borderRadius: 8, padding: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },

@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useState, useCallback, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform, ScrollView } from 'react-native';
+import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { BackupService, BackupMetadata } from '../services/BackupService';
@@ -10,7 +10,7 @@ import { useBilling } from '../context/BillingContext';
 export default function CatalogScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
-  const { isPremium, hasFullAccess, checkEntitlement } = useBilling();
+  const { isPremium, hasFullAccess, checkEntitlement, isTrialActive, trialLabel, requestPurchase, isSergeanOrAbove, isGeneralOrAbove, isCadet, isPrivate, graduateEarly, limits, isSergeant, isGeneral } = useBilling();
   const [categories, setCategories] = useState<any[]>([]);
   const [newCatName, setNewCatName] = useState('');
   const [newItemName, setNewItemName] = useState('');
@@ -33,11 +33,20 @@ export default function CatalogScreen() {
   const [cabinets, setCabinets] = useState<any[]>([]);
   const [newCabName, setNewCabName] = useState('');
   const [newCabLocation, setNewCabLocation] = useState('');
+  const [newCabError, setNewCabError] = useState<string | null>(null);
   const [editingCabId, setEditingCabId] = useState<number | null>(null);
   const [editingCabName, setEditingCabName] = useState('');
   const [editingCabLocation, setEditingCabLocation] = useState('');
+  const [editingCabError, setEditingCabError] = useState<string | null>(null);
   
-  const [activeTab, setActiveTab] = useState<'catalog' | 'cabinets' | 'system' | 'backups'>('catalog');
+  const params = useLocalSearchParams();
+  const [activeTab, setActiveTab] = useState<'catalog' | 'cabinets' | 'system' | 'backups' | 'rank'>('catalog');
+
+  useEffect(() => {
+    if (params.tab === 'rank') {
+      setActiveTab('rank');
+    }
+  }, [params.tab]);
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
   const [logisticsEmail, setLogisticsEmail] = useState('');
@@ -46,6 +55,8 @@ export default function CatalogScreen() {
   const [totalItemCount, setTotalItemCount] = useState(0);
   const [minReqCount, setMinReqCount] = useState(0);
   const [maxReqCount, setMaxReqCount] = useState(0);
+  const [freezerItemCount, setFreezerItemCount] = useState(0);
+  const [freezerCabCount, setFreezerCabCount] = useState(0);
   const [expandedCatId, setExpandedCatId] = useState<number | null>(null);
   const [newCabType, setNewCabType] = useState<'standard' | 'freezer'>('standard');
   const [editingCabType, setEditingCabType] = useState<'standard' | 'freezer'>('standard');
@@ -55,8 +66,9 @@ export default function CatalogScreen() {
   const load = async () => {
     const rows = await db.getAllAsync(`
       SELECT c.id as cat_id, c.name as cat_name, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size,
-             i.min_stock_level, i.max_stock_level, i.freeze_months,
-             (SELECT COUNT(*) FROM Inventory v WHERE v.item_type_id = i.id) as type_stock_count
+             i.min_stock_level, i.max_stock_level, i.freeze_months, i.default_cabinet_id,
+             (SELECT COUNT(*) FROM Inventory v WHERE v.item_type_id = i.id) as type_stock_count,
+             EXISTS(SELECT 1 FROM Inventory v JOIN Cabinets cab ON v.cabinet_id = cab.id WHERE v.item_type_id = i.id AND cab.cabinet_type = 'freezer') as in_freezer
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
       ORDER BY c.name, i.name
@@ -80,6 +92,8 @@ export default function CatalogScreen() {
             min_stock: row.min_stock_level,
             max_stock: row.max_stock_level,
             freeze_months: row.freeze_months ?? null,
+            in_freezer: row.in_freezer === 1,
+            default_cabinet_id: row.default_cabinet_id,
         });
       }
       return acc;
@@ -92,24 +106,31 @@ export default function CatalogScreen() {
 
     setMinReqCount(rows.filter((r: any) => r.type_id !== null && r.min_stock_level !== null).length);
     setMaxReqCount(rows.filter((r: any) => r.type_id !== null && r.max_stock_level !== null).length);
-
-    const cabRows = await db.getAllAsync(`
+    const cabRows = await db.getAllAsync<any>(`
       SELECT c.*, (SELECT COUNT(*) FROM Inventory v WHERE v.cabinet_id = c.id) as stock_count
       FROM Cabinets c
       ORDER BY c.name
     `);
-    setCabinets(cabRows);
 
-    const setRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'month_brief_enabled');
+    setFreezerItemCount(rows.filter((r: any) => {
+        if (r.type_id === null) return false;
+        if (r.freeze_months !== null || r.in_freezer === 1) return true;
+        const defaultCab = cabRows.find((c: any) => c.id === r.default_cabinet_id);
+        return defaultCab?.cabinet_type === 'freezer';
+    }).length);
+    setCabinets(cabRows);
+    setFreezerCabCount(cabRows.filter((c: any) => c.cabinet_type === 'freezer').length);
+
+    const setRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['month_brief_enabled']);
     setAlertsEnabled(setRes?.value === '1');
 
-    const backupRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'auto_backup_enabled');
+    const backupRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['auto_backup_enabled']);
     setAutoBackupEnabled(backupRes?.value === '1');
 
-    const mirrorRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'persistence_mirror_uri');
+    const mirrorRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['persistence_mirror_uri']);
     setMirrorUri(mirrorRes?.value || null);
 
-    const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'logistics_email');
+    const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['logistics_email']);
     setLogisticsEmail(emailRes?.value || '');
 
     const backupList = await BackupService.getBackupsList();
@@ -124,13 +145,24 @@ export default function CatalogScreen() {
 
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
-    await db.runAsync('INSERT INTO Categories (name, icon) VALUES (?, ?)', newCatName, 'box');
+
+    if (categories.length >= limits.categories && !hasFullAccess) {
+      checkEntitlement('CATEGORY_LIMIT');
+      return;
+    }
+
+    await db.runAsync('INSERT INTO Categories (name, icon) VALUES (?, ?)', [newCatName, 'box']);
     setNewCatName('');
     load();
   };
 
   const handleAddItemType = async (catId: number) => {
     if (!newItemName.trim() || selectedCat !== catId) return;
+
+    if (totalItemCount >= limits.items && !hasFullAccess) {
+      checkEntitlement('ITEM_LIMIT');
+      return;
+    }
 
     let finalDefaultSize = null;
     const rawNumber = newItemDefaultSize.replace(/[^0-9.]/g, '');
@@ -141,12 +173,19 @@ export default function CatalogScreen() {
       return;
     }
 
-    await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size, min_stock_level, max_stock_level, freeze_months) VALUES (?, ?, ?, ?, ?, ?, ?)', 
+    if (newItemFreezeMonths && !hasFullAccess) {
+      if (freezerItemCount >= limits.freezer_items) {
+        checkEntitlement('FREEZER_LIMIT');
+        return;
+      }
+    }
+
+    await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size, min_stock_level, max_stock_level, freeze_months) VALUES (?, ?, ?, ?, ?, ?, ?)', [
         catId, newItemName, newItemUnit, finalDefaultSize, 
         newItemMinStock ? parseInt(newItemMinStock) : null,
         newItemMaxStock ? parseInt(newItemMaxStock) : null,
         newItemFreezeMonths ? parseInt(newItemFreezeMonths) : null
-    );
+    ]);
     setNewItemName('');
     setNewItemDefaultSize('');
     setSelectedCat(null);
@@ -158,12 +197,12 @@ export default function CatalogScreen() {
   };
 
   const handleDeleteItemType = async (typeId: number) => {
-    const count = await db.getFirstAsync<{c: number}>('SELECT COUNT(*) as c FROM Inventory WHERE item_type_id = ?', typeId);
+    const count = await db.getFirstAsync<{c: number}>('SELECT COUNT(*) as c FROM Inventory WHERE item_type_id = ?', [typeId]);
     if (count && count.c > 0) {
       Alert.alert('Cannot Delete', 'This item type has stock. Please delete the stock first.');
       return;
     }
-    await db.runAsync('DELETE FROM ItemTypes WHERE id = ?', typeId);
+    await db.runAsync('DELETE FROM ItemTypes WHERE id = ?', [typeId]);
     load();
   };
 
@@ -172,7 +211,7 @@ export default function CatalogScreen() {
       setEditingCatId(null);
       return;
     }
-    await db.runAsync('UPDATE Categories SET name = ? WHERE id = ?', editingCatName, catId);
+    await db.runAsync('UPDATE Categories SET name = ? WHERE id = ?', [editingCatName, catId]);
     setEditingCatId(null);
     load();
   };
@@ -180,12 +219,23 @@ export default function CatalogScreen() {
   const handleAddCabinet = async () => {
     if (!newCabName.trim()) return;
 
-    if (cabinets.length >= 1 && !hasFullAccess) {
+    if (cabinets.some(c => c.name.toLowerCase() === newCabName.trim().toLowerCase())) {
+      setNewCabError(`"${newCabName.trim()}" is already deployed in your logistics network.`);
+      return;
+    }
+    setNewCabError(null);
+
+    if (cabinets.length >= limits.cabinets && !hasFullAccess) {
       checkEntitlement('CABINET_LIMIT');
       return;
     }
 
-    await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', newCabName, newCabLocation, newCabType);
+    if (newCabType === 'freezer' && freezerCabCount >= limits.freezer_cabs && !hasFullAccess) {
+      checkEntitlement('FREEZER_CABINET_LIMIT');
+      return;
+    }
+
+    await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', [newCabName, newCabLocation, newCabType]);
     setNewCabName('');
     setNewCabLocation('');
     setNewCabType('standard');
@@ -194,26 +244,41 @@ export default function CatalogScreen() {
 
   const handleUpdateCabinet = async (cabId: number) => {
     if (!editingCabName.trim()) return;
-    await db.runAsync('UPDATE Cabinets SET name = ?, location = ?, cabinet_type = ? WHERE id = ?', editingCabName, editingCabLocation, editingCabType, cabId);
+
+    if (cabinets.some(c => c.id !== cabId && c.name.toLowerCase() === editingCabName.trim().toLowerCase())) {
+      setEditingCabError(`"${editingCabName.trim()}" is already deployed in your logistics network.`);
+      return;
+    }
+    setEditingCabError(null);
+
+    if (editingCabType === 'freezer' && !hasFullAccess) {
+      const currentCab = cabinets.find(c => c.id === cabId);
+      if (currentCab?.cabinet_type !== 'freezer' && freezerCabCount >= limits.freezer_cabs) {
+        checkEntitlement('FREEZER_CABINET_LIMIT');
+        return;
+      }
+    }
+
+    await db.runAsync('UPDATE Cabinets SET name = ?, location = ?, cabinet_type = ? WHERE id = ?', [editingCabName, editingCabLocation, editingCabType, cabId]);
     setEditingCabId(null);
     load();
   };
 
   const handleDeleteCabinet = async (cabId: number, hasStock: boolean) => {
     if (hasStock) return;
-    await db.runAsync('DELETE FROM Cabinets WHERE id = ?', cabId);
+    await db.runAsync('DELETE FROM Cabinets WHERE id = ?', [cabId]);
     load();
   };
 
   const toggleAlerts = async (val: boolean) => {
     setAlertsEnabled(val);
-    await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', val ? '1' : '0', 'month_brief_enabled');
+    await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', [val ? '1' : '0', 'month_brief_enabled']);
     load();
   };
 
   const toggleAutoBackup = async (val: boolean) => {
     setAutoBackupEnabled(val);
-    await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', val ? '1' : '0', 'auto_backup_enabled');
+    await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', [val ? '1' : '0', 'auto_backup_enabled']);
     load();
   };
 
@@ -303,12 +368,36 @@ export default function CatalogScreen() {
       return;
     }
 
-    await db.runAsync('UPDATE ItemTypes SET name = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ?, freeze_months = ? WHERE id = ?', 
+    const isNowFreezer = !!editingTypeFreezeMonths || cabinets.find(c => c.id === Number(editingTypeDefaultCabinet))?.cabinet_type === 'freezer';
+
+    if (isNowFreezer && !hasFullAccess) {
+      // Find the existing item to see if it was ALREADY a freezer item
+      let wasFreezer = false;
+      categories.forEach(c => {
+        const found = c.types.find((t: any) => t.id === typeId);
+        if (found) {
+            const defaultCab = cabinets.find(cab => cab.id === found.default_cabinet_id);
+            if (found.freeze_months !== null || found.in_freezer || defaultCab?.cabinet_type === 'freezer') {
+                wasFreezer = true;
+            }
+        }
+      });
+
+      if (!wasFreezer) {
+        if (freezerItemCount >= limits.freezer_items) {
+          checkEntitlement('FREEZER_LIMIT');
+          return;
+        }
+      }
+    }
+
+    await db.runAsync('UPDATE ItemTypes SET name = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ?, freeze_months = ? WHERE id = ?', [
         editingTypeName, editingTypeUnit, finalDefaultSize, editingTypeDefaultCabinet, 
         editingTypeMinStock ? parseInt(editingTypeMinStock) : null,
         editingTypeMaxStock ? parseInt(editingTypeMaxStock) : null,
         editingTypeFreezeMonths ? parseInt(editingTypeFreezeMonths) : null,
-        typeId);
+        typeId
+    ]);
     setEditingTypeId(null);
     setEditingTypeFreezeMonths('');
     load();
@@ -341,6 +430,7 @@ export default function CatalogScreen() {
           onPress={() => toggleCategory(cat.id)}
           style={[styles.catHeader, {flexDirection: 'column', alignItems: 'stretch'}]}
           activeOpacity={0.7}
+          testID={`category-header-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
         >
           <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
             <View style={{flex: 1, marginRight: 10}}>
@@ -411,7 +501,7 @@ export default function CatalogScreen() {
                           </View>
                           <View style={{flex: 1}}>
                             <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
-                            <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f', flex: 0, height: 40}]} value={editingTypeFreezeMonths} onChangeText={setEditingTypeFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
+                            <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f', flex: 0, height: 40}]} value={editingTypeFreezeMonths} onChangeText={setEditingTypeFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" testID="edit-item-freeze-months-input" />
                           </View>
                         </View>
                         <View style={{flexDirection: 'row', gap: 10}}>
@@ -476,15 +566,8 @@ export default function CatalogScreen() {
             {selectedCat === cat.id ? (
               <View style={styles.newTypeContainer}>
                 <Text style={styles.formLabel}>New Item Specification</Text>
-                {(totalItemCount >= 20 && !hasFullAccess) ? (
-                  <TouchableOpacity style={styles.lockOverlay} onPress={() => checkEntitlement('ITEM_LIMIT')}>
-                    <MaterialCommunityIcons name="lock" size={24} color="#fbbf24" />
-                    <Text style={styles.lockText}>{"PREMIUM COMMAND REQUIRED FOR OVER 20 ASSETS"}</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <>
-                    <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={newItemName} onChangeText={setNewItemName} placeholder="Item Name" placeholderTextColor="#64748b" testID="new-item-name-input" />
-                    <View style={{flexDirection: 'column', gap: 12, marginBottom: 10}}>
+                <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={newItemName} onChangeText={setNewItemName} placeholder="Item Name" placeholderTextColor="#64748b" testID="new-item-name-input" />
+                <View style={{flexDirection: 'column', gap: 12, marginBottom: 10}}>
                        <View style={{flexDirection: 'row', gap: 10}}>
                           <View style={{flex: 1}}>
                              <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({newItemUnit === 'volume' ? 'ml' : newItemUnit === 'weight' ? 'g' : 'Units'})</Text>
@@ -492,7 +575,7 @@ export default function CatalogScreen() {
                           </View>
                           <View style={{flex: 1}}>
                              <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
-                             <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f', flex: 0, height: 40}]} value={newItemFreezeMonths} onChangeText={setNewItemFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" />
+                             <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f', flex: 0, height: 40}]} value={newItemFreezeMonths} onChangeText={setNewItemFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" testID="new-item-freeze-months-input" />
                           </View>
                        </View>
                        <View style={{flexDirection: 'row', gap: 10}}>
@@ -512,10 +595,8 @@ export default function CatalogScreen() {
                       <TouchableOpacity style={[styles.unitChip, newItemUnit === 'count' && styles.unitChipActive]} onPress={() => setNewItemUnit('count')} testID="unit-selector-count"><Text style={[styles.tabText, newItemUnit === 'count' && styles.tabTextActive, { fontSize: 12 }]}>Count</Text></TouchableOpacity>
                     </View>
                     <TouchableOpacity onPress={() => handleAddItemType(cat.id)} style={[styles.addSaveBtnFull, { marginTop: 12, marginHorizontal: 0 }]} testID="submit-item-type-btn"><Text style={styles.addSaveText}>DEPLOY ITEM</Text></TouchableOpacity>
-                  </>
-                )}
-                <TouchableOpacity style={{marginTop: 15, alignItems: 'center'}} onPress={() => setSelectedCat(null)}><Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>CANCEL</Text></TouchableOpacity>
-              </View>
+                    <TouchableOpacity style={{marginTop: 15, alignItems: 'center'}} onPress={() => setSelectedCat(null)}><Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>CANCEL</Text></TouchableOpacity>
+                </View>
             ) : (
               <TouchableOpacity style={styles.addNewBtn} onPress={() => setSelectedCat(cat.id)} testID={`expand-add-item-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}>
                 <Text style={styles.addNewText}>+ Add Item Type</Text>
@@ -535,7 +616,14 @@ export default function CatalogScreen() {
             <Text style={[styles.formLabel, { marginTop: 10, marginBottom: 10, marginHorizontal: 0 }]}>Edit Cabinet</Text>
             <View>
               <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET NAME</Text>
-              <TextInput style={styles.inputSmall} value={editingCabName} onChangeText={setEditingCabName} placeholder="e.g. Spare Supplies, Spice Cupboard" placeholderTextColor="#64748b" />
+              <TextInput
+                style={[styles.inputSmall, editingCabError ? { borderColor: '#ef4444', borderWidth: 1 } : {}]}
+                value={editingCabName}
+                onChangeText={(v) => { setEditingCabName(v); setEditingCabError(null); }}
+                placeholder="e.g. Spare Supplies, Spice Cupboard"
+                placeholderTextColor="#64748b"
+              />
+              {editingCabError && <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginTop: 4, paddingLeft: 4 }}>{editingCabError}</Text>}
             </View>
             <View style={{marginTop: 8}}>
               <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>PHYSICAL LOCATION</Text>
@@ -550,20 +638,22 @@ export default function CatalogScreen() {
                 <TouchableOpacity
                   style={[styles.unitChip, {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}, editingCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
                   onPress={() => { if (editingCabType === 'freezer') { setEditingCabType('standard'); } else { if (checkEntitlement('FREEZER')) setEditingCabType('freezer'); } }}
+                  testID="edit-cab-type-freezer"
                 >
                   <MaterialCommunityIcons name="snowflake" size={12} color={editingCabType === 'freezer' ? '#60a5fa' : '#64748b'} />
                   <Text style={[styles.unitChipText, editingCabType === 'freezer' && {color: '#60a5fa'}]}>Freezer</Text>
                 </TouchableOpacity>
               </View>
             </View>
-            <TouchableOpacity onPress={() => handleUpdateCabinet(cab.id)} style={[styles.addSaveBtnFull, { marginTop: 12 }]}><Text style={styles.addSaveText}>SAVE CHANGES</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => handleUpdateCabinet(cab.id)} style={[styles.addSaveBtnFull, { marginTop: 12 }]} testID="save-cabinet-btn"><Text style={styles.addSaveText}>SAVE CHANGES</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => setEditingCabId(null)} style={{ marginTop: 10, alignItems: 'center' }} testID="close-edit-cab-btn"><Text style={{ color: '#64748b', fontSize: 12, fontWeight: 'bold' }}>CANCEL</Text></TouchableOpacity>
           </View>
         ) : (
           <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-between'}}>
             <View><Text style={styles.catTitle}>{cab.name}</Text><Text style={{color: '#64748b', fontSize: 13}}>{cab.location || 'No Location'}</Text>{cab.cabinet_type === 'freezer' && (<View style={{flexDirection:'row',alignItems:'center',gap:4,marginTop:3}}><MaterialCommunityIcons name="snowflake" size={11} color="#60a5fa" /><Text style={{color:'#60a5fa',fontSize:11,fontWeight:'bold'}}>FREEZER</Text></View>)}</View>
             <View style={styles.catActions}>
-              <TouchableOpacity onPress={() => { setEditingCabId(cab.id); setEditingCabName(cab.name); setEditingCabLocation(cab.location || ''); setEditingCabType(cab.cabinet_type || 'standard'); }} style={{marginRight: 10}}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
-              <TouchableOpacity disabled={cab.stock_count > 0} onPress={() => handleDeleteCabinet(cab.id, cab.stock_count > 0)}><MaterialCommunityIcons name="delete" size={20} color={cab.stock_count > 0 ? "#334155" : "#ef4444"} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => { setEditingCabId(cab.id); setEditingCabName(cab.name); setEditingCabLocation(cab.location || ''); setEditingCabType(cab.cabinet_type || 'standard'); }} style={{marginRight: 10}} testID={`edit-cab-btn-${cab.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
+                <TouchableOpacity disabled={cab.stock_count > 0} onPress={() => handleDeleteCabinet(cab.id, cab.stock_count > 0)}><MaterialCommunityIcons name="delete" size={20} color={cab.stock_count > 0 ? "#334155" : "#ef4444"} /></TouchableOpacity>
             </View>
           </View>
         )}
@@ -574,20 +664,21 @@ export default function CatalogScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => { if (router.canGoBack()) { router.back(); } else { router.replace('/'); } }}>
+        <TouchableOpacity accessibilityRole="button" onPress={() => router.back()} style={styles.backBtn} testID="back-btn">
           <MaterialCommunityIcons name="arrow-left" size={24} color="#f8fafc" />
         </TouchableOpacity>
         <View style={{flex: 1, marginLeft: 16}}>
-          <Text style={styles.title}>Strategic Deployments</Text>
-          <Text style={styles.headerSubtitle}>Application configuration & protocols</Text>
+          <Text style={styles.title}>Recon & Logistics</Text>
+          <Text style={styles.headerSubtitle}>Catalog & Site Configuration</Text>
         </View>
       </View>
 
       <View style={styles.tabRow}>
         <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'catalog' && styles.tabActive]} onPress={() => setActiveTab('catalog')} testID="tab-catalog"><Text style={[styles.tabText, activeTab === 'catalog' && styles.tabTextActive]}>CATALOG</Text></TouchableOpacity>
-        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')}><Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text></TouchableOpacity>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')} testID="tab-cabinets"><Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text></TouchableOpacity>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'rank' && styles.tabActive]} onPress={() => setActiveTab('rank')} testID="tab-rank"><Text style={[styles.tabText, activeTab === 'rank' && styles.tabTextActive]}>RANK</Text></TouchableOpacity>
         <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'system' && styles.tabActive]} onPress={() => setActiveTab('system')} testID="tab-system"><Text style={[styles.tabText, activeTab === 'system' && styles.tabTextActive]}>STOCK ALERTS</Text></TouchableOpacity>
-        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => { if (checkEntitlement('BACKUPS')) setActiveTab('backups'); }}><Text style={[styles.tabText, activeTab === 'backups' && styles.tabTextActive]}>BACKUPS</Text></TouchableOpacity>
+        <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'backups' && styles.tabActive]} onPress={() => { if (checkEntitlement('BACKUPS')) setActiveTab('backups'); }} testID="tab-backups"><Text style={[styles.tabText, activeTab === 'backups' && styles.tabTextActive]}>BACKUPS</Text></TouchableOpacity>
       </View>
 
       {activeTab === 'catalog' ? (
@@ -622,17 +713,10 @@ export default function CatalogScreen() {
 
               <View style={styles.newCatBlock}>
                 <Text style={styles.label}>New Category</Text>
-                {(categories.length >= 6 && !hasFullAccess) ? (
-                  <TouchableOpacity style={styles.lockOverlay} onPress={() => checkEntitlement('CATEGORY_LIMIT')}>
-                    <MaterialCommunityIcons name="lock" size={24} color="#fbbf24" />
-                    <Text style={styles.lockText}>{"PREMIUM COMMAND REQUIRED FOR MORE THAN 6 CATEGORIES"}</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.newRow}>
-                    <TextInput style={styles.inputMedium} value={newCatName} onChangeText={setNewCatName} placeholder="Category Name" placeholderTextColor="#64748b" testID="new-cat-input" />
-                    <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge} testID="create-cat-btn"><Text style={styles.addSaveTextLarge}>CREATE</Text></TouchableOpacity>
-                  </View>
-                )}
+                <View style={styles.newRow}>
+                  <TextInput style={styles.inputMedium} value={newCatName} onChangeText={setNewCatName} placeholder="Category Name" placeholderTextColor="#64748b" testID="new-cat-input" />
+                  <TouchableOpacity onPress={handleAddCategory} style={styles.addSaveBtnLarge} testID="create-cat-btn"><Text style={styles.addSaveTextLarge}>CREATE</Text></TouchableOpacity>
+                </View>
               </View>
             </View>
           )} />
@@ -640,16 +724,17 @@ export default function CatalogScreen() {
         <FlatList data={cabinets} keyExtractor={i => i.id.toString()} renderItem={renderCabinet} ListHeaderComponent={(
             <View style={[styles.newCatBlock, { backgroundColor: '#0f172a', borderRadius: 8, padding: 10, paddingTop: 0 }]}>
               <Text style={styles.formLabel}>New Cabinet / Location</Text>
-              {(cabinets.length >= 1 && !hasFullAccess) ? (
-                <TouchableOpacity style={styles.lockOverlay} onPress={() => checkEntitlement('CABINET_LIMIT')}>
-                  <MaterialCommunityIcons name="lock" size={24} color="#fbbf24" />
-                  <Text style={styles.lockText}>PREMIUM COMMAND REQUIRED FOR MULTIPLE CABS</Text>
-                </TouchableOpacity>
-              ) : (
-                <>
-                  <View style={{ marginBottom: 10 }}>
+              <View style={{ marginBottom: 10 }}>
                     <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET NAME</Text>
-                    <TextInput style={styles.inputSmall} value={newCabName} onChangeText={setNewCabName} placeholder="e.g. Spare Supplies, Spice Cupboard" placeholderTextColor="#64748b" testID="new-cab-name-input" />
+                    <TextInput
+                      style={[styles.inputSmall, newCabError ? { borderColor: '#ef4444', borderWidth: 1 } : {}]}
+                      value={newCabName}
+                      onChangeText={(v) => { setNewCabName(v); setNewCabError(null); }}
+                      placeholder="e.g. Spare Supplies, Spice Cupboard"
+                      placeholderTextColor="#64748b"
+                      testID="new-cab-name-input"
+                    />
+                    {newCabError && <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginTop: 4, paddingLeft: 4 }}>{newCabError}</Text>}
                   </View>
                   <View style={{ marginBottom: 10 }}>
                     <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>PHYSICAL LOCATION</Text>
@@ -664,6 +749,7 @@ export default function CatalogScreen() {
                       <TouchableOpacity
                         style={[styles.unitChip, {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}, newCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
                         onPress={() => { if (newCabType === 'freezer') { setNewCabType('standard'); } else { if (checkEntitlement('FREEZER')) setNewCabType('freezer'); } }}
+                        testID="new-cab-type-freezer"
                       >
                         <MaterialCommunityIcons name="snowflake" size={12} color={newCabType === 'freezer' ? '#60a5fa' : '#64748b'} />
                         <Text style={[styles.unitChipText, newCabType === 'freezer' && {color: '#60a5fa'}]}>Freezer</Text>
@@ -671,10 +757,8 @@ export default function CatalogScreen() {
                     </View>
                   </View>
                   <TouchableOpacity onPress={handleAddCabinet} style={styles.addSaveBtnFull} testID="create-cab-btn"><Text style={styles.addSaveText}>DEPLOY CABINET</Text></TouchableOpacity>
-                </>
-              )}
-            </View>
-          )} />
+              </View>
+            )} />
       ) : activeTab === 'system' ? (
         <View style={{padding: 10}}>
           <View style={styles.prefRow}>
@@ -707,6 +791,103 @@ export default function CatalogScreen() {
           <Text style={styles.label}>Local Snapshot Archive (Rolling 5)</Text>
           <FlatList data={backups} keyExtractor={item => item.name} renderItem={({ item }) => (<View style={styles.backupItem}><View style={{flex: 1}}><Text style={styles.backupName}>{new Date(item.timestamp).toLocaleDateString()}</Text><Text style={styles.backupMeta}>{new Date(item.timestamp).toLocaleTimeString()}</Text></View><View style={{flexDirection: 'row', gap: 8}}><TouchableOpacity onPress={() => handleLocalRestore(item)} style={[styles.shareBtn, {backgroundColor: '#ef4444'}]}><MaterialCommunityIcons name="backup-restore" size={20} color="white" /></TouchableOpacity><TouchableOpacity onPress={() => BackupService.shareBackup(item.uri)} style={styles.shareBtn}><MaterialCommunityIcons name="share-variant" size={20} color="#3b82f6" /></TouchableOpacity></View></View>)} ListEmptyComponent={<Text style={{color: '#64748b', textAlign: 'center', marginTop: 20}}>No backups recorded yet.</Text>} ListFooterComponent={Platform.OS === 'android' ? (<View style={{marginTop: 24, paddingBottom: 40}}><Text style={styles.prefTitle}>Strategic Shadow Mirroring</Text><Text style={styles.prefSub}>On Android, auto-backups are wiped if the app is uninstalled. Enable mirroring for disaster recovery.</Text><TouchableOpacity style={[styles.testBtn, {marginTop: 12, backgroundColor: mirrorUri ? '#22c55e' : '#334155'}]} onPress={handlePersistentMirrorSetup}><MaterialCommunityIcons name="folder-sync" size={24} color="white" /><Text style={styles.testBtnText}>{mirrorUri ? 'MIRROR ACTIVE' : 'SETUP MIRROR FOLDER'}</Text></TouchableOpacity></View>) : null} />
         </View>
+      ) : activeTab === 'rank' ? (
+        <ScrollView style={{padding: 16}} contentContainerStyle={{paddingBottom: 40}}>
+          <View style={[styles.promoHeader, { marginBottom: 24 }]}>
+              <MaterialCommunityIcons name="medal-outline" size={32} color="#fbbf24" style={{ marginBottom: 8 }} />
+              <Text style={styles.promoTitle}>SERVICE PROMOTION CENTRE</Text>
+              <Text style={styles.promoSub}>Advance your rank to unlock advanced strategic command & logistics.</Text>
+          </View>
+
+          {/* ACTIVE STATUS HEADER (CADET ONLY) */}
+          {isCadet && (
+            <View style={[styles.tierCard, styles.tierCardActive, { backgroundColor: '#0f172a', marginBottom: 24, borderLeftWidth: 4, borderLeftColor: '#fbbf24' }]}>
+              <View style={styles.tierStatusRow}>
+                <Text style={[styles.tierCardRank, { color: '#fbbf24' }]}>RANK: CADET (IN TRAINING)</Text>
+                <View style={[styles.activeRankBadge, { backgroundColor: '#fbbf24' }]}><Text style={[styles.activeRankText, { color: '#000' }]}>CURRENT</Text></View>
+              </View>
+              <Text style={[styles.tierPrice, { color: '#fbbf24', marginTop: 8 }]}>HIGH-COMMAND INTEL ACTIVE</Text>
+              <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>
+                Your 7-day tactical evaluation is underway. Full AI &amp; Alerts enabled.
+                Scale limited: 2 Cabinets · 4 Categories · 12 Items. Freezer trial: 1 Cabinet · 3 Item types.
+              </Text>
+              <View style={styles.trialBadge}>
+                <Text style={styles.trialBadgeText}>{trialLabel.toUpperCase()} REMAINING</Text>
+              </View>
+            </View>
+          )}
+
+          {/* PRIVATE TIER (The First Promotion) */}
+          <View style={[styles.tierCard, isPrivate && styles.tierCardActive]}>
+            <View style={styles.tierStatusRow}>
+              <Text style={styles.tierCardRank}>RANK: PRIVATE</Text>
+              {isPrivate && <View style={styles.activeRankBadge}><Text style={styles.activeRankText}>CURRENT</Text></View>}
+            </View>
+            <Text style={styles.tierPrice}>FREE — ENLISTED STATUS</Text>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="check" size={16} color="#22c55e" /><Text style={styles.featureText}>4 Cabinets · 8 Categories · 24 Items</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="close-circle" size={16} color="#475569" /><Text style={styles.featureText}>No AI recipes, no alerts, no freezer logistics</Text></View>
+            
+            {isCadet && (
+              <TouchableOpacity 
+                style={[styles.upgradeBtn, { backgroundColor: '#334155', marginTop: 16 }]} 
+                onPress={graduateEarly}
+              >
+                <Text style={styles.upgradeBtnText}>GRADUATE EARLY TO PRIVATE</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* SERGEANT TIER */}
+          <View style={[styles.tierCard, isSergeant && styles.tierCardActive, { borderColor: '#3b82f6' }]}>
+            <View style={styles.tierStatusRow}>
+              <Text style={[styles.tierCardRank, { color: '#60a5fa' }]}>RANK: SERGEANT</Text>
+              {isSergeant && <View style={[styles.activeRankBadge, { backgroundColor: '#3b82f6' }]}><Text style={styles.activeRankText}>CURRENT</Text></View>}
+            </View>
+            <Text style={[styles.tierPrice, { color: '#60a5fa' }]}>£2.99 — ONE-TIME LICENCE</Text>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="infinity" size={16} color="#60a5fa" /><Text style={styles.featureText}>Unlimited cabinets, categories &amp; items</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="snowflake" size={16} color="#60a5fa" /><Text style={styles.featureText}>Full freezer logistics — age-based tracking</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="truck-delivery" size={16} color="#60a5fa" /><Text style={styles.featureText}>The Quartermaster — low-stock reports &amp; sharing</Text></View>
+            {!isSergeanOrAbove && (
+              <TouchableOpacity style={[styles.upgradeBtn, { backgroundColor: '#3b82f6' }]} onPress={() => requestPurchase('SERGEANT')}>
+                <Text style={styles.upgradeBtnText}>COMMISSION SERGEANT RANK</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* GENERAL TIER */}
+          <View style={[styles.tierCard, isGeneral && styles.tierCardActive, { borderColor: '#fbbf24' }]}>
+            <View style={styles.tierStatusRow}>
+              <Text style={[styles.tierCardRank, { color: '#fbbf24' }]}>RANK: GENERAL</Text>
+              {isGeneral && <View style={[styles.activeRankBadge, { backgroundColor: '#fbbf24' }]}><Text style={[styles.activeRankText, { color: '#000' }]}>CURRENT</Text></View>}
+            </View>
+            <Text style={[styles.tierPrice, { color: '#fbbf24' }]}>£1.49/MONTH · £9.99/YEAR — HIGH COMMAND</Text>
+            <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginBottom: 8 }}>Everything in Sergeant, plus:</Text>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="bell-ring" size={16} color="#fbbf24" /><Text style={styles.featureText}>Automated low-stock &amp; expiry alerts</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="chef-hat" size={16} color="#fbbf24" /><Text style={styles.featureText}>The Mess Hall — waste-conscious AI recipes</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="file-sync" size={16} color="#fbbf24" /><Text style={styles.featureText}>Automated backups &amp; disaster recovery</Text></View>
+            {!isGeneralOrAbove && (
+              <TouchableOpacity style={[styles.upgradeBtn, { backgroundColor: '#fbbf24' }]} onPress={() => requestPurchase('GENERAL')}>
+                <Text style={[styles.upgradeBtnText, { color: '#000' }]}>ASSUME HIGH COMMAND — £1.49/MO</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {__DEV__ && (
+            <TouchableOpacity 
+              style={{ backgroundColor: '#ef4444', padding: 16, borderRadius: 8, marginTop: 24, alignItems: 'center' }} 
+              onPress={async () => {
+                await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key');
+                await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key_general');
+                await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key_sergeant');
+                Alert.alert('Demoted', 'Licenses revoked. Completely reload the app to reflect as Cadet.');
+              }}
+            >
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>DEVELOPER DEMOTE (CLEAR LICENSES)</Text>
+            </TouchableOpacity>
+          )}
+
+          <Text style={styles.promoFooter}>Sergeant is a one-time licence. General is a monthly or annual subscription — cancel any time. All upgrades are permanent to this device.</Text>
+        </ScrollView>
       ) : null}
     </View>
   );
@@ -731,6 +912,7 @@ const styles = StyleSheet.create({
   tabRow: { flexDirection: 'row', marginTop: 16, marginBottom: 20, marginHorizontal: 16, backgroundColor: '#1e293b', borderRadius: 8, padding: 4 },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 6 },
   tabActive: { backgroundColor: '#3b82f6' },
+  feedbackText: { color: '#3b82f6', fontWeight: 'bold', fontSize: 13, letterSpacing: 1 },
   tabText: { color: '#64748b', fontWeight: 'bold', fontSize: 11, letterSpacing: 0.2 },
   tabTextActive: { color: 'white' },
   label: { color: '#94a3b8', fontSize: 16, marginBottom: 8, marginTop: 10, marginHorizontal: 16 },
@@ -802,5 +984,22 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 8
   },
-  lockText: { color: '#fbbf24', fontSize: 10, fontWeight: 'bold', textAlign: 'center' }
+  lockText: { color: '#fbbf24', fontSize: 10, fontWeight: 'bold', textAlign: 'center' },
+  promoHeader: { alignItems: 'center', backgroundColor: '#1e293b', padding: 20, borderRadius: 12, borderWidth: 1, borderColor: '#334155' },
+  promoTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', letterSpacing: 1 },
+  promoSub: { color: '#94a3b8', fontSize: 12, textAlign: 'center', marginTop: 8, lineHeight: 18 },
+  tierCard: { backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#334155' },
+  tierCardActive: { backgroundColor: '#1e293b', borderColor: '#22c55e', borderLeftWidth: 4 },
+  tierStatusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  tierCardRank: { color: '#94a3b8', fontSize: 13, fontWeight: 'bold', letterSpacing: 1 },
+  activeRankBadge: { backgroundColor: '#22c55e', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  activeRankText: { color: 'white', fontSize: 9, fontWeight: 'bold' },
+  tierPrice: { fontSize: 13, fontWeight: 'bold', marginBottom: 16, marginTop: 4 },
+  featureItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 10 },
+  featureText: { color: '#cbd5e1', fontSize: 12, fontWeight: '500' },
+  upgradeBtn: { padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 16 },
+  upgradeBtnText: { color: 'white', fontWeight: 'bold', fontSize: 13, letterSpacing: 0.5 },
+  lockedNote: { marginTop: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#334155' },
+  lockedNoteText: { color: '#64748b', fontSize: 11, fontStyle: 'italic' },
+  promoFooter: { color: '#94a3b8', fontSize: 11, textAlign: 'center', marginTop: 10, lineHeight: 16 }
 });

@@ -11,7 +11,7 @@ import { useBilling } from '../context/BillingContext';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
-  const { checkEntitlement, isTrialActive, trialLabel, isSergeanOrAbove, requestPurchase } = useBilling();
+  const { checkEntitlement, isTrialActive, trialLabel, isSergeanOrAbove, requestPurchase, isPremium, isGeneralOrAbove: isGeneral, isCadet, isPrivate } = useBilling();
   
   // Tactical Bridge (E2E Only)
   useEffect(() => {
@@ -788,7 +788,12 @@ export default function HomeScreen() {
         </TouchableOpacity>
         <View style={{alignItems: 'center'}}>
           <Text style={styles.headerTitle} testID="app-header-title">War Cabinet</Text>
-          <Text style={styles.headerSubtitle}>Elite military inventory management</Text>
+          <TouchableOpacity testID="rank-badge-pill" onPress={() => router.push('/catalog?tab=rank')} style={styles.rankPill}>
+            <MaterialCommunityIcons name="shield-star" size={10} color={isPremium ? "#fbbf24" : "#94a3b8"} style={{marginRight: 4}} />
+            <Text style={[styles.rankPillText, isPremium && {color: '#fbbf24'}]}>
+              {isPremium ? (isGeneral ? 'RANK: GENERAL' : 'RANK: SERGEANT') : (isCadet ? 'RANK: CADET' : 'RANK: PRIVATE')}
+            </Text>
+          </TouchableOpacity>
         </View>
         <Link href="/briefing" asChild>
           <TouchableOpacity style={styles.briefingBtn} testID="briefing-btn">
@@ -802,11 +807,11 @@ export default function HomeScreen() {
         </Link>
       </View>
 
-      {isTrialActive && !isSergeanOrAbove && (
-        <TouchableOpacity onPress={() => requestPurchase()} style={styles.trialBanner} activeOpacity={0.85}>
+      {isTrialActive && !isPremium && (
+        <TouchableOpacity onPress={() => router.push('/catalog?tab=rank')} style={styles.trialBanner} activeOpacity={0.85}>
           <MaterialCommunityIcons name="clock-alert-outline" size={14} color="#fbbf24" style={{ marginRight: 6 }} />
-          <Text style={styles.trialBannerText}>FREE TRIAL — {trialLabel} remaining</Text>
-          <Text style={styles.trialBannerCta}>UPGRADE ›</Text>
+          <Text style={styles.trialBannerText}>CADET EVALUATION — {trialLabel} remaining</Text>
+          <Text style={styles.trialBannerCta}>PROMOTION HUB ›</Text>
         </TouchableOpacity>
       )}
 
@@ -1074,6 +1079,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc', textAlign: 'center' },
   headerSubtitle: { color: '#94a3b8', fontSize: 13, marginTop: 2, textAlign: 'center' },
+  rankPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12, marginTop: 6, borderWidth: 1, borderColor: '#334155' },
+  rankPillText: { color: '#94a3b8', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 },
   settingsBtn: { position: 'absolute', right: 16, bottom: 20 },
   briefingBtn: { position: 'absolute', right: 56, bottom: 20 },
   logisticsBtn: { position: 'absolute', left: 16, bottom: 20 },

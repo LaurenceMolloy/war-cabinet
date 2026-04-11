@@ -4,11 +4,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { markModified } from '../db/sqlite';
+import { useBilling } from '../context/BillingContext';
 
 export default function AddInventoryScreen() {
   const { typeId, editBatchId, inheritedCabinetId, categoryId } = useLocalSearchParams();
   const router = useRouter();
   const db = useSQLiteContext();
+  const { isCadet, isPrivate, hasFullAccess, limits, checkEntitlement } = useBilling();
 
   const [quantity, setQuantity] = useState('1');
   const [size, setSize] = useState('');
@@ -49,7 +51,7 @@ export default function AddInventoryScreen() {
   const [freezeLimit, setFreezeLimit] = useState('6');
 
   // Derived: is the currently selected cabinet a freezer?
-  const selectedCabinet = cabinets.find(c => c.id === selectedCabinetId);
+  const selectedCabinet = cabinets.find(c => c.id === Number(selectedCabinetId));
   const isFreezerMode = selectedCabinet?.cabinet_type === 'freezer';
 
   useEffect(() => {
@@ -146,7 +148,23 @@ export default function AddInventoryScreen() {
       const freezeY = parseInt(freezeYear);
       const entryM = (isFreezerMode && !isNaN(freezeM)) ? freezeM : currentMonth;
       const entryY = (isFreezerMode && !isNaN(freezeY)) ? freezeY : currentYear;
-
+      
+      // Freezer Item Limit Check for Cadets/Privates
+      if (isFreezerMode && (isCadet || isPrivate) && !hasFullAccess) {
+        // Find existing freezer items
+        const freezerTypes = await db.getAllAsync<any>(`
+          SELECT DISTINCT i.id 
+          FROM ItemTypes i 
+          LEFT JOIN Inventory v ON i.id = v.item_type_id 
+          LEFT JOIN Cabinets c ON v.cabinet_id = c.id 
+          WHERE i.freeze_months IS NOT NULL OR c.cabinet_type = 'freezer'
+        `);
+        const alreadyInFreezer = freezerTypes.some(t => t.id === Number(typeId));
+        if (!alreadyInFreezer && freezerTypes.length >= limits.freezer_items) {
+           checkEntitlement('FREEZER_LIMIT');
+           return;
+        }
+      }
       if (isFreezerMode) {
         if ((entryY * 12 + entryM) > (currentYear * 12 + currentMonth)) {
           setErrorField('freezeDate');

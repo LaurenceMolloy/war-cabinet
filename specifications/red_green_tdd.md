@@ -110,3 +110,31 @@ This document tracks the implementation of new features and bug fixes using the 
 *   **Status**: [COMPLETED]
 
 ---
+
+## Iteration 73: The Strategic Squeeze (Cadet Evaluation)
+
+### 🔴 Phase 1: RED (Requirement & Test)
+**Goal**: Verify that the Cadet rank correctly enforces all tactical evaluation limits (2 Cabinets, 3 Categories, 12 Items) and that the "Graduate Early" flow properly transitions the user to the permanent Private rank with a custom confirmation modal.
+
+**[TC-73.1] VERIFICATION: Cadet Evaluation Limits & Graduation (Web/Playwright)**
+*   **App Status**: Web Deployment (Playwright)
+*   **Conditions**: 
+    1. New User (Cadet Rank).
+    2. Zero categories, cabinets, and items.
+*   **Expected Behavior**:
+    1. **Onboarding**: Welcome Modal appears with correct 2/3/12/3 spec.
+    2. **Scale Limits**:
+        - Block 3rd Cabinet creation.
+        - Block 4th Category creation.
+        - Block 13th Item Type creation.
+    3. **Freezer Limits**:
+        - Limit to 1 Freezer Cabinet.
+        - Limit to 3 Freezer-tracked Item Types.
+    4. **Rank Promotion**:
+        - Clicking Cadet badge navigates to Promotion Centre.
+        - Tapping "GRADUATE EARLY" shows custom Tactical Modal (Confirm/Abort).
+        - Confirming graduation immediately unlocks Private rank (6/6/24 scale).
+*   **Status**: 🔴 [RED] (Test scripted, pending run)
+
+### 🟢 Phase 2: GREEN (Implementation)
+*   **Status**: [COMPLETED] (Logic implemented in BillingContext and Catalog)
