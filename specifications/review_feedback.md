@@ -1,6 +1,98 @@
-# Review Feedback
-
 This document tracks items that were strictly specified in the `requirements.md` but were initially overlooked during the first iteration of development.
+
+## Iteration 77: Allied Service & Developer Post-Script
+1. **Sister Service Integration (Reestit)**: Established a non-intrusive "Allied Operations" card in the Rank tab, promoting the developer's sister service (Reestit.com) as a personal recommendation rather than a commercial ad.
+2. **Onboarding Sign-off (Human Touch)**: Expanded the 3-page welcome sequence to 4 pages. Added a final "A Word from the Dev" slide that explicitly thanks the user for downloading and mentions the Allied Intel network.
+3. **Dispatch Injection**: Injected a dedicated "ALLIED INTEL" entry into the briefing rotation, providing pithy context about the developer's broader ecosystem of tools.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 77)
+**[TC-77.1] VERIFICATION: Allied Operations & Developer Sign-off**
+*   **Conditions**: Clean database (Welcome Modal visible).
+*   **Actions**: 
+    1. Click through the Welcome sequence to the 4th page -> Verify "A Word from the Dev" header and Reestit mention.
+    2. Tap **BEGIN MISSION** -> Verify landing on Dashboard.
+    3. Navigate to **Catalog > Rank** -> Verify the "Allied Operations" card is present and themed in indigo.
+    4. Link out to **reestit.com** -> Verify URL opening.
+*   **Assertions**:
+    1. BRANDING: Reestit is framed as a "Sister Service" or "From the Developer" to maintain community trust.
+    2. NAVIGATION: The welcome modal dismissal logic correctly registers `seen` status even with the extra page.
+
+## Iteration 76: Mess Hall Intelligence & Vocabulary Purge
+1. **Commit-First Auto-Inclusion**: Re-architected the "Fridge Staples" inclusion logic. Tapping a search-rule (auto-complete chip) now triggers an immediate `finalizeCommit`, ensuring items are added to the "Must Use" list without requiring a manual click of the PLUS button.
+2. **Tiered Relevance Search Protocol**: Implemented a precision ordering engine for auto-complete suggestions. The rule is strictly tiered as:
+    *   **Tier 1 (Prefix Match)**: Items that *start* with the search string (e.g., "Milk" for search "Mil").
+    *   **Tier 2 (Substring Match)**: Items containing the string anywhere (e.g., "Oat Milk" for search "Mil").
+    *   **Tie-Breaker (Operational Frequency)**: Within each tier, items are sorted by `usageCount`. Your most frequent assets naturally float to the left.
+    *   **Metric Brevity**: For equal frequency, the shortest matching string is prioritized.
+3. **Scorched Earth (Clear All)**: Implemented a "CLEAR ALL" action for ingredients that triggers an immediate vocabulary commit, allowing for rapid reset of the prompt context.
+4. **Vocabulary Purge (Trash System)**: Added a "Trash Can" icon to the Staples input belt. This allows users to wipe their high-frequency vocabulary history (stored in chefs/ingredients data) if it becomes cluttered with irrelevancies.
+5. **Search Logic Harmonization**: Standardized the 'Bin' and 'Clear' iconography across the Mess Hall, ensuring consistent interactive metaphors for inventory removal.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 76)
+**[TC-76.1] VERIFICATION: Auto-Inclusion & Vocabulary Purge**
+*   **Conditions**: Clean database; Recipes screen accessible.
+*   **Actions**:
+    1. In the "Ingredients Search", type "Lemon".
+    2. Tap the suggested "Lemon" chip in the auto-complete row.
+    3. Verify: Lemon is immediately moved to the "MUST USE" checklist (no second tap needed).
+    4. Tap the **Trash Can** icon next to "STAPLES".
+    5. Verify: All learned ingredient chips are removed from the suggestion belt.
+*   **Assertions**:
+    1. ZERO-FRICTION: Tapping a suggestion is an atomic "Pick and Add" operation.
+    2. DATA INTEGRITY: The "Clear All" action and the "Trash" action both trigger a clean state commit.
+
+## Iteration 75: Logistics Command & Cabinet Transfers
+1. **Atomic Split-Move Engine**: Re-engineered the inventory transfer logic to support partial quantity moves between cabinets. The system now uses a `BEGIN TRANSACTION` block to ensure that if a 10-unit batch is split, both the donor and recipient records are updated as a single atomic operation.
+2. **Batch Heritage Preservation**: Established a "Date Heritage" rule. Moving stock between cabinets (e.g., Pantry to Freezer) now **preserves** the original `entry_month` and `entry_year`. This ensures that freezer age and FIFO integrity are maintained regardless of physical relocation.
+3. **Occlusion Fix (Email Setting)**: Relocated the "Strategic Briefing Recipient" email setting in the Quartermaster from the bottom of the list to the `ListHeaderComponent`. This ensures the setting remains visible on mobile devices where bottom navigation bars often occluded input fields.
+4. **Interactive Destination Picker**: Replaced standard dropdowns with a high-fidelity secondary Modal for cabinet selection during moves, providing a stable, full-screen UI for large cabinetry fleets.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 75)
+**[TC-75.1] VERIFICATION: Atomic Split-Move & Date Heritage**
+*   **Conditions**: One "Rice" batch exists (Pantry, Qty: 5, Entry: Jan 2026).
+*   **Actions**:
+    1. Tap the **Transfer (Pencil/Move)** icon for Rice.
+    2. Set destination to "Kitchen Freezer".
+    3. Use the stepper to move exactly **2 units**.
+    4. Tap **Confirm Transfer**.
+*   **Assertions**:
+    1. ATOMICITY: Pantry now shows 3 units; Freezer shows 2 units.
+    2. HERITAGE: The 2 units in the Freezer MUST still show "Jan 2026" as the stored date.
+    3. FEEDBACK: The move confirms with a pluralized phrase: *"3 items will remain in Pantry after the move."*
+
+## Iteration 74: Freezer Guardrails & Entitlement Enforcement
+1. **Freezer Capacity Enforcement**: Hardened the Cadet and Private rank limits to strictly enforce "Freezer Item" counts. Any item type with an assigned "Preserving Months" limit (or assigned to a Freezer Cabinet) now counts against these specific strategic caps.
+2. **Proactive Upsell (Feature Lock)**: Replaced silent limits with the standardized "Feature Lock" upsell modal. Users are now presented with a clear promotional prompt for Sergeant/General ranks when trying to exceed rank-based logistical limits.
+3. **Sync-Check Protocol**: Standardized item/cabinet count logic across both the primary Add form and the Catalog setup to ensure consistent enforcement regardless of the user's entry point.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 74)
+**[TC-74.1] VERIFICATION: Freezer Logistical Locks**
+*   **Conditions**: Rank: Cadet; 3 Freezer items already configured.
+*   **Actions**:
+    1. Attempt to add a 4th freezer item (CabinetType: Freezer).
+    2. Verify: The **Feature Lock** modal appears immediately.
+*   **Assertions**:
+    1. VISIBILITY: The lock modal explains that 4+ freezer items require a Sergeant rank.
+
+## Iteration 73: Tactical Rank Hardening & Onboarding
+1. **Rank Badge Synchronization**: Implemented always-visible "Rank Badge" pills in the header and catalog to provide instant context on the user's current clearance (Cadet, Private, Sergeant, General).
+2. **Deterministic Onboarding Dismissal**: Tied the initial welcome sequence to a `SecureStore` key, ensuring it only appears once per install but remains accessible for re-verification in the Rank tab if needed.
+3. **Promotion Navigation**: Unified the "Rank Tab" in the Catalog as the central hub for all entitlement management and rank-up actions.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 73)
+**[TC-73.1] VERIFICATION: Rank Visibility & Landing**
+*   **Conditions**: First-launch state.
+*   **Actions**:
+    1. Verify the Welcome Modal appears.
+    2. Dismiss modal -> Verify the "RANK: CADET" pill in the header.
+    3. Tap the pill -> Verify landing directly on the Rank tab in Catalog.
+*   **Assertions**:
+    1. ACCURACY: The rank title must match the current billing entitlement exactly.
 
 ## Iteration 72: Batch Intel Logistics & Intelligent Consolidation
 1. **Intel-Aware Consolidation Engine**: Re-engineered the batch enrollment logic to intelligently detect specs matches. The system now automatically merges batches with identical Intel and provides a high-fidelity modal for manual consolidation when brands or notes differ.

@@ -20,9 +20,11 @@ export default defineConfig({
   ],
 
   // Automatically start the Expo web dev server before testing
+/*
   webServer: {
     command: 'npx cross-env CI=1 npx expo start --web',
     url: 'http://localhost:8081',
     reuseExistingServer: true,
   },
+*/
 });

@@ -1,0 +1,191 @@
+﻿            <Text style={styles.protocolRibbonSummary}>
+              {[
+                recipeMode === 'experimental' ? 'Experimental' : `${recipeMode === 'inspired' ? 'Inspired' : 'Authentic'} (${selectedChef || 'No Chef'})`,
+                extraRequests.split(',').filter(s => s.trim().length > 0).length > 0 ? `${extraRequests.split(',').filter(s => s.trim().length > 0).length} Directive${extraRequests.split(',').filter(s => s.trim().length > 0).length === 1 ? '' : 's'}` : null,
+              ].filter(Boolean).join('  Â·  ')}
+            </Text>
+          </View>
+          <Animated.View style={{ transform: [{ rotate: modeAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+            <Text style={styles.protocolChevron}>âŒ„</Text>
+          </Animated.View>
+        </TouchableOpacity>
+
+        {activeAccordion === 'mode' && (
+          <View style={styles.protocolBody}>
+          <View style={{marginTop: 16, marginBottom: 24}}>
+             <Text style={styles.sectionTitle}>RECIPE MODE <Text style={styles.sectionInlineSubtitle}>(choose your approach)</Text></Text>
+             <View style={styles.modeTabs}>
+                {(['experimental', 'inspired', 'authentic'] as const).map(mode => (
+                  <TouchableOpacity 
+                    accessibilityRole="tab"
+                    key={mode} 
+                    style={[styles.modeTab, recipeMode === mode && styles.modeTabActive]} 
+                    onPress={() => { setRecipeMode(mode); savePref('recipe_mode', mode); }}
+                    testID={`mode-tab-${mode}`}
+                  >
+                    <Text style={[styles.modeTabText, recipeMode === mode && styles.modeTabTextActive]}>
+                      {mode.toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+             </View>
+             <Text style={[styles.sectionSubtitle, {marginTop: 8}]}>
+                {recipeMode === 'experimental' ? "Pure AI improvisation focused on zero-waste utility." : 
+                 recipeMode === 'inspired' ? "AI improvisation adopting the seasoning, style, and voice of your chosen chef." : 
+                 "Robust archive search for real, published recipes verified by the AI."}
+             </Text>
+          </View>
+
+          {(recipeMode === "inspired" || recipeMode === "authentic") && (
+            <View style={{marginBottom: 24}}>
+              <Text style={styles.sectionTitle}>LEGENDARY CHEF INTEL <Text style={styles.sectionInlineSubtitle}>(adopt an identity)</Text></Text>
+              <View style={styles.allergenGrid}>
+                {chefs.map(chef => (
+                  <TouchableOpacity 
+                    accessibilityRole="button"
+                    key={chef} 
+                    style={[styles.chefChip, selectedChef === chef && styles.chefChipActive]} 
+                    onPress={() => { setSelectedChef(chef); savePref('recipe_chef', chef); setCustomInput(""); }}
+                    testID={`chef-chip-${chef.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <Text style={[styles.chefChipText, selectedChef === chef && styles.chefChipTextActive]}>{chef}</Text>
+                  </TouchableOpacity>
+                ))}
+
+                {wildcardChef && (
+                  <TouchableOpacity 
+                    accessibilityRole="button"
+                    key="wildcard" 
+                    style={[styles.chefChip, selectedChef === wildcardChef && styles.chefChipActive]} 
+                    onPress={() => { setSelectedChef(wildcardChef); savePref('recipe_chef', wildcardChef); setCustomInput(""); }}
+                    testID="wildcard-chef-chip"
+                  >
+                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                      <MaterialCommunityIcons name="satellite-variant" size={13} color={selectedChef === wildcardChef ? "black" : "#fbbf24"} style={{marginRight: 6}} />
+                      <Text style={[styles.chefChipText, selectedChef === wildcardChef && styles.chefChipTextActive]}>{wildcardChef}</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+                
+                {lastCustomChef && (
+                  <TouchableOpacity 
+                    accessibilityRole="button"
+                    key="last-custom" 
+                    style={[
+                      styles.chefChip, 
+                      selectedChef === lastCustomChef && styles.chefChipActive,
+                      (recipeMode === 'authentic' && !(CHEFS_DATA[lastCustomChef as keyof typeof CHEFS_DATA] as any)?.authentic) && {opacity: 0.4}
+                    ]} 
+                    onPress={() => { 
+                      const isAuth = (CHEFS_DATA[lastCustomChef as keyof typeof CHEFS_DATA] as any)?.authentic;
+                      if (recipeMode === 'authentic' && !isAuth) {
+                        triggerStatus("IDENTITY INCOMPATIBLE WITH AUTHENTIC PROTOCOL.");
+                        return;
+                      }
+                      setSelectedChef(lastCustomChef); 
+                      savePref('recipe_chef', lastCustomChef); 
+                      setCustomInput(""); 
+                    }}
+                    testID="last-custom-chef-chip"
+                  >
+                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                      <MaterialCommunityIcons name="account-circle-outline" size={13} color={selectedChef === lastCustomChef ? "black" : "#94a3b8"} style={{marginRight: 6}} />
+                      <Text style={[styles.chefChipText, selectedChef === lastCustomChef && styles.chefChipTextActive]}>{lastCustomChef}</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <View style={{flexDirection: 'row', gap: 15, marginTop: 8, marginBottom: 4, paddingHorizontal: 4}}>
+                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                    <MaterialCommunityIcons name="satellite-variant" size={10} color="#fbbf24" style={{marginRight: 4}} />
+                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>WILDCARD CHEF</Text>
+                 </View>
+                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                    <MaterialCommunityIcons name="account-circle-outline" size={10} color="#94a3b8" style={{marginRight: 4}} />
+                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>USER SUGGESTED</Text>
+                 </View>
+              </View>
+
+              {selectedChef ? (
+                <View style={{marginTop: 12, padding: 12, backgroundColor: '#0f172a', borderRadius: 8}}>
+                  <Text style={{color: '#94a3b8', fontSize: 12, fontStyle: 'italic', lineHeight: 18}}>
+                    {CHEF_PHILOSOPHIES[selectedChef] || 
+                     (CHEFS_DATA[selectedChef as keyof typeof CHEFS_DATA] as any)?.philosophy || 
+                     "User suggested chef - no character intel available"}
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={{marginTop: 10}}>
+                <TextInput 
+                  style={[styles.input, {minHeight: 45, height: 45, fontSize: 14, marginBottom: 4}]} 
+                  placeholder="e.g. Marco Pierre White"
+                  placeholderTextColor="#475569"
+                  value={customInput}
+                  onChangeText={(val) => {
+                    setCustomInput(val);
+                    setSelectedChef(val);
+                    savePref('recipe_chef', val);
+                    
+                    if (val.trim().length > 1) {
+                      const matches = Object.keys(CHEFS_DATA)
+                        .filter(name => {
+                          const isMatch = name.toLowerCase().startsWith(val.toLowerCase());
+                          if (recipeMode === 'authentic') {
+                            return isMatch && (CHEFS_DATA[name as keyof typeof CHEFS_DATA] as any).authentic === true;
+                          }
+                          return isMatch;
+                        })
+                        .sort((a, b) => a.length - b.length || a.localeCompare(b))
+                        .slice(0, 3);
+                      setSuggestedChefs(matches);
+                    } else {
+                      setSuggestedChefs([]);
+                    }
+                  }}
+                  testID="custom-chef-input"
+                />
+                <View style={{height: 24, justifyContent: 'center'}}>
+                  <View style={{flexDirection: 'row', gap: 6}}>
+                    {suggestedChefs.map(chef => (
+                      <TouchableOpacity 
+                        key={chef}
+                        onPress={() => {
+                          setCustomInput(chef);
+                          setSelectedChef(chef);
+                          savePref('recipe_chef', chef);
+                          setSuggestedChefs([]);
+                        }}
+                        style={{backgroundColor: '#334155', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4}}
+                      >
+                        <Text style={{color: '#fbbf24', fontSize: 9, fontWeight: 'bold'}}>{chef.toUpperCase()}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+              <View style={{marginBottom: 24}}>
+             <Text style={styles.sectionTitle}>MISSION DIRECTIVES <Text style={styles.sectionInlineSubtitle}>(custom rules)</Text></Text>
+             <Text style={[styles.sectionSubtitle, {marginTop: -5, marginBottom: 10}]}>Additional constraints or requests (e.g. "under 30 mins", "spicy", "one pan").</Text>
+             <TextInput 
+               style={[styles.input, {minHeight: 45, height: 45, fontSize: 14}]} 
+               placeholder='e.g. "Under 30 minutes", "Kid friendly"'
+               placeholderTextColor="#475569"
+               value={extraRequests}
+               onChangeText={(val) => { setExtraRequests(val); savePref('recipe_extra', val); }}
+               testID="extra-requests-input"
+             />
+          </View>
+          </View>
+        )}
+
+        {/* â”€â”€ TIER 1: CORE INGREDIENTS (collapsible) â”€â”€ */}
+        <TouchableOpacity
+          accessibilityRole="button"
+          onPress={() => toggleAccordion('core')}
+          style={styles.protocolRibbon}
+          testID="core-ribbon"
+        >
+          <View style={{flex: 1}}>
+            <Text style={styles.protocolRibbonTitle}>CORE INGREDIENTS</Text>

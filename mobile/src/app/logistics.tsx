@@ -287,9 +287,9 @@ export default function LogisticsScreen() {
               <Text style={styles.emptyText}>All tracked stockpiles are at or above their designated thresholds.</Text>
             </View>
           }
-          ListFooterComponent={
+          ListHeaderComponent={
             <View style={styles.emailFooter}>
-              <Text style={styles.emailFooterLabel}>RESUPPLY RECIPIENT</Text>
+              <Text style={styles.emailFooterLabel}>STRATEGIC BRIEFING RECIPIENT</Text>
               <TextInput
                 style={styles.emailInput}
                 value={logisticsEmail}
@@ -304,6 +304,7 @@ export default function LogisticsScreen() {
               />
             </View>
           }
+
         />
       )}
     </SafeAreaView>
@@ -340,7 +341,7 @@ const styles = StyleSheet.create({
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 100 },
   emptyTitle: { color: '#f8fafc', fontSize: 20, fontWeight: 'bold', marginTop: 16 },
   emptyText: { color: '#94a3b8', fontSize: 14, textAlign: 'center', marginTop: 8, paddingHorizontal: 40 },
-  emailFooter: { marginTop: 32, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#1e293b' },
+  emailFooter: { marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   emailFooterLabel: { color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 6, paddingLeft: 4 },
   emailInput: { backgroundColor: '#1e293b', color: '#f8fafc', borderRadius: 8, padding: 12, fontSize: 14, borderWidth: 1, borderColor: '#334155' },
 });

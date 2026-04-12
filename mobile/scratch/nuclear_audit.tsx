@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, LayoutAnimation, Platform, UIManager, Linking } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
@@ -29,7 +29,7 @@ export default function RecipesScreen() {
   const router = useRouter();
   const { checkEntitlement } = useBilling();
 
-  const [selectedDietary, setSelectedDietary] = useState<string[]>([]);
+  const [dietary, setDietary] = useState("Meat");
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
   const [expiringList, setExpiringList] = useState<{name: string, cabinetType: string}[]>([]);
   const [pantryList, setPantryList] = useState<string[]>([]);
@@ -148,7 +148,6 @@ export default function RecipesScreen() {
            if (r.value === 'protocols') protocolsAnim.setValue(1);
            if (r.value === 'deploy') deployAnim.setValue(1);
         }
-        if (r.key === 'recipe_dietary') setSelectedDietary(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_allergens') setSelectedAllergens(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_expiring') setExcludedExpiring(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_pantry') setExcludedPantry(r.value ? r.value.split(',') : []);
@@ -294,14 +293,6 @@ export default function RecipesScreen() {
     }
   };
 
-  const toggleDietary = (c: string) => {
-    const next = selectedDietary.includes(c)
-      ? selectedDietary.filter(x => x !== c)
-      : [...selectedDietary, c];
-    setSelectedDietary(next);
-    savePref('recipe_dietary', next.join(','));
-  };
-
   const toggleAllergen = (a: string) => {
     const next = selectedAllergens.includes(a) 
       ? selectedAllergens.filter(x => x !== a)
@@ -372,7 +363,7 @@ export default function RecipesScreen() {
     
     // Add to persistent vocabulary (Rule 6)
     setPersistentStaples(prev => {
-      if (prev.includes(cleaned) || FRIDGE_INGREDIENTS.includes(cleaned)) return prev;
+      if (prev.includes(cleaned)) return prev;
       const next = [...prev, cleaned];
       savePref('recipe_fridge_staples_persistent', next.join(','));
       return next;
@@ -593,7 +584,7 @@ export default function RecipesScreen() {
     ].join('\n');
 
     return RECIPE_PROMPT_TEMPLATE
-      .replace('[DIETARY_PREF]', selectedDietary.join(', ') || "None recorded.")
+      .replace('[DIETARY_PREF]', dietary)
       .replace('[LIST_ALLERGENS]', selectedAllergens.length > 0 ? selectedAllergens.map(a => `- ${a}`).sort().join('\n') : "None declared.")
       .replace('[LIST_STAPLES]', selectedStaples.length > 0 ? selectedStaples.sort().map(s => `- ${s}`).join('\n') : "No fresh staples defined.")
       .replace('[LIST_EXPIRING]', allExpiringString || "No mandatory supplies found in inventory.")
@@ -713,12 +704,12 @@ export default function RecipesScreen() {
   if (showDeployGuide) {
     return (
       <View style={[styles.container, {justifyContent: 'center', padding: 20}]}>
-          <View style={[styles.panelBase, styles.card]}>
+          <View style={styles.card}>
               <View style={styles.cardHeader}>
                   <MaterialCommunityIcons name="information-outline" size={24} color="#38bdf8" style={{marginRight: 10}} />
-                  <Text style={[styles.textHighlightTitle, { fontSize: 13, marginTop: 0, marginBottom: 0, letterSpacing: 0 }]}>DEPLOYMENT BRIEFING</Text>
+                  <Text style={styles.cardTitle}>DEPLOYMENT BRIEFING</Text>
               </View>
-              <Text style={styles.textSecondary}>
+              <Text style={styles.cardBody}>
                   The system will now copy the tactical briefing to your clipboard and launch your chosen AI command center.
                   {"\n\n"}
                   <Text style={{fontWeight: 'bold', color: 'white'}}>INSTRUCTIONS:</Text>
@@ -749,11 +740,11 @@ export default function RecipesScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity 
-                style={[styles.btnBase, styles.btnPrimary, styles.btnLarge, {marginTop: 30}]} 
+                style={[styles.generateBtn, {marginTop: 30}]} 
                 onPress={confirmDeploy}
                 accessibilityRole="button"
               >
-                  <Text style={styles.btnTextPrimary}>PROCEED TO DEPLOYMENT</Text>
+                  <Text style={styles.generateText}>PROCEED TO DEPLOYMENT</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -778,7 +769,7 @@ export default function RecipesScreen() {
            </TouchableOpacity>
            <View style={{flex: 1, marginLeft: 16}}>
              <Text style={styles.title}>Recipe Briefing</Text>
-             <Text style={[styles.textMuted, { fontSize: 13, marginTop: 2 }]}>Ready for AI station transmission</Text>
+             <Text style={styles.headerSubtitle}>Ready for AI station transmission</Text>
            </View>
         </View>
         {/* ANCHORED COMMAND PANEL */}
@@ -817,36 +808,34 @@ export default function RecipesScreen() {
         </TouchableOpacity>
         <View style={{flex: 1, marginLeft: 16}}>
           <Text style={styles.title}>The Mess Hall</Text>
-          <Text style={[styles.textMuted, { fontSize: 13, marginTop: 2 }]}>Waste-conscious recipe suggestions</Text>
+          <Text style={styles.headerSubtitle}>Waste-conscious recipe suggestions</Text>
         </View>
-        {!showConfirm && (
-          <TouchableOpacity 
-            style={[styles.btnBase, {backgroundColor: '#3b82f6', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, gap: 6}]} 
-            onPress={handleView} 
-            testID="generate-prompt-btn"
-          >
-            <MaterialCommunityIcons name="auto-fix" size={20} color="white" />
-            <Text style={{color: 'white', fontWeight: 'bold', fontSize: 12}}>GENERATE</Text>
-          </TouchableOpacity>
-        )}
       </View>
 
       {/* â”€â”€ COMMAND DECK (Top-Anchored) â”€â”€ */}
-      {showConfirm && (
-        <View style={styles.anchoredPanel}>
+      <View style={styles.anchoredPanel}>
+        {showConfirm ? (
           <View style={{alignItems: 'center'}}>
-            <Text style={[styles.textHighlightTitle, {fontSize: 13, textAlign: 'center', marginBottom: 20, lineHeight: 18}]}>NO MANDATORY SUPPLIES SELECTED. PROCEED?</Text>
+            <Text style={[styles.confirmText, {marginBottom: 10}]}>NO MANDATORY SUPPLIES SELECTED. PROCEED?</Text>
             <View style={{flexDirection: 'row', gap: 10, width: '100%'}}>
-              <TouchableOpacity accessibilityRole="button" style={[styles.btnBase, styles.btnSecondary, {flex: 1, padding: 12}]} onPress={() => setShowConfirm(false)}>
-                <Text style={[styles.btnTextSecondary, {fontSize: 13}]}>BACK</Text>
+              <TouchableOpacity accessibilityRole="button" style={[styles.generateBtn, {flex: 1, backgroundColor: '#334155', padding: 12}]} onPress={() => setShowConfirm(false)}>
+                <Text style={[styles.generateText, {color: 'white', fontSize: 13}]}>BACK</Text>
               </TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" style={[styles.btnBase, styles.btnPrimary, {flex: 1, padding: 12}]} onPress={() => { setShowConfirm(false); handleView(); }}>
-                <Text style={[styles.btnTextPrimary, {fontSize: 13}]}>CONTINUE</Text>
+              <TouchableOpacity accessibilityRole="button" style={[styles.generateBtn, {flex: 1, padding: 12}]} onPress={() => { setShowConfirm(false); handleView(); }}>
+                <Text style={[styles.generateText, {fontSize: 13}]}>CONTINUE</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
-      )}
+        ) : (
+          <TouchableOpacity accessibilityRole="button" style={styles.generateBtn} onPress={handleView} testID="generate-prompt-btn">
+            <MaterialCommunityIcons name="auto-fix" size={20} color="#0f172a" />
+            <View style={{marginLeft: 12, alignItems: 'flex-start'}}>
+              <Text style={[styles.generateText, {fontSize: 14}]}>GENERATE MISSION BRIEFING</Text>
+              <Text style={{color: '#0f172a', fontSize: 9, fontWeight: 'bold', opacity: 0.7}}>ANALYZE INVENTORY & DEPLOY PROMPT</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      </View>
 
       <KeyboardAwareScrollView 
         contentContainerStyle={styles.scrollContent}
@@ -856,12 +845,12 @@ export default function RecipesScreen() {
         extraHeight={182}
       >
         <View>
-          <View style={[styles.panelBase, styles.card]}>
+          <View style={styles.card}>
             <View style={styles.cardHeader}>
               <MaterialCommunityIcons name="chef-hat" size={20} color="#fbbf24" style={{marginRight: 8}} />
-              <Text style={[styles.textHighlightTitle, { fontSize: 13, marginTop: 0, marginBottom: 0, letterSpacing: 0 }]}>MESS HALL MISSION</Text>
+              <Text style={styles.cardTitle}>MESS HALL MISSION</Text>
             </View>
-            <Text style={styles.textSecondary}>
+            <Text style={styles.cardBody}>
               Turn your expiring ingredients into elite recipes. Select your mode, define your ingredient preferences, hit generate, and deploy to your favourite AI.
             </Text>
           </View>
@@ -874,23 +863,23 @@ export default function RecipesScreen() {
             testID="mode-ribbon"
           >
             <View style={{flex: 1}}>
-              <Text style={styles.textHighlightTitle}>RECIPE MODE & CHEF</Text>
-              <Text style={[styles.textSecondary, { fontSize: 12, marginTop: 4 }]}>
+              <Text style={styles.protocolRibbonTitle}>RECIPE MODE & CHEF</Text>
+              <Text style={styles.protocolRibbonSummary}>
                 {[
                   recipeMode === 'experimental' ? 'Experimental' : `${recipeMode === 'inspired' ? 'Inspired' : 'Authentic'} (${selectedChef || 'No Chef'})`,
                   extraRequests.split(',').filter(s => s.trim().length > 0).length > 0 ? `${extraRequests.split(',').filter(s => s.trim().length > 0).length} Directive${extraRequests.split(',').filter(s => s.trim().length > 0).length === 1 ? '' : 's'}` : null,
-                ].filter(Boolean).join('  ·  ')}
+                ].filter(Boolean).join('  Â·  ')}
               </Text>
             </View>
             <Animated.View style={{ transform: [{ rotate: modeAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
-              <MaterialCommunityIcons name="chevron-down" size={20} color="#64748b" />
+              <Text style={styles.protocolChevron}>âŒ„</Text>
             </Animated.View>
           </TouchableOpacity>
 
           {activeAccordion === 'mode' && (
             <View style={styles.protocolBody}>
               <View style={{marginTop: 16, marginBottom: 24}}>
-                <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>RECIPE MODE <Text style={styles.textMutedItalic}>(choose your approach)</Text></Text>
+                <Text style={styles.sectionTitle}>RECIPE MODE <Text style={styles.sectionInlineSubtitle}>(choose your approach)</Text></Text>
                 <View style={styles.modeTabs}>
                   {(['experimental', 'inspired', 'authentic'] as const).map(mode => (
                     <TouchableOpacity 
@@ -915,17 +904,17 @@ export default function RecipesScreen() {
 
               {(recipeMode === "inspired" || recipeMode === "authentic") && (
                 <View style={{marginBottom: 24}}>
-                  <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>LEGENDARY CHEF INTEL <Text style={styles.textMutedItalic}>(adopt an identity)</Text></Text>
+                  <Text style={styles.sectionTitle}>LEGENDARY CHEF INTEL <Text style={styles.sectionInlineSubtitle}>(adopt an identity)</Text></Text>
                   <View style={styles.allergenGrid}>
                     {chefs.map(chef => (
                       <TouchableOpacity 
                         accessibilityRole="button"
                         key={chef} 
-                        style={[styles.chipBase, styles.chefChip, selectedChef === chef && styles.chipActiveBlue]} 
+                        style={[styles.chefChip, selectedChef === chef && styles.chefChipActive]} 
                         onPress={() => { setSelectedChef(chef); savePref('recipe_chef', chef); setCustomInput(""); }}
                         testID={`chef-chip-${chef.toLowerCase().replace(/\s+/g, '-')}`}
                       >
-                        <Text style={[styles.textChip, selectedChef === chef && styles.textPrimary]}>{chef}</Text>
+                        <Text style={[styles.chefChipText, selectedChef === chef && styles.chefChipTextActive]}>{chef}</Text>
                       </TouchableOpacity>
                     ))}
 
@@ -933,13 +922,13 @@ export default function RecipesScreen() {
                       <TouchableOpacity 
                         accessibilityRole="button"
                         key="wildcard" 
-                        style={[styles.chipBase, styles.chefChip, selectedChef === wildcardChef && styles.chipActiveBlue]} 
+                        style={[styles.chefChip, selectedChef === wildcardChef && styles.chefChipActive]} 
                         onPress={() => { setSelectedChef(wildcardChef); savePref('recipe_chef', wildcardChef); setCustomInput(""); }}
                         testID="wildcard-chef-chip"
                       >
                         <View style={{flexDirection: 'row', alignItems: 'center'}}>
                           <MaterialCommunityIcons name="satellite-variant" size={13} color={selectedChef === wildcardChef ? "black" : "#fbbf24"} style={{marginRight: 6}} />
-                          <Text style={[styles.textChip, selectedChef === wildcardChef && styles.textPrimary]}>{wildcardChef}</Text>
+                          <Text style={[styles.chefChipText, selectedChef === wildcardChef && styles.chefChipTextActive]}>{wildcardChef}</Text>
                         </View>
                       </TouchableOpacity>
                     )}
@@ -949,8 +938,8 @@ export default function RecipesScreen() {
                         accessibilityRole="button"
                         key="last-custom" 
                         style={[
-                          styles.chipBase, styles.chefChip, 
-                          selectedChef === lastCustomChef && styles.chipActiveBlue,
+                          styles.chefChip, 
+                          selectedChef === lastCustomChef && styles.chefChipActive,
                           (recipeMode === 'authentic' && !(CHEFS_DATA[lastCustomChef as keyof typeof CHEFS_DATA] as any)?.authentic) && {opacity: 0.4}
                         ]} 
                         onPress={() => { 
@@ -967,7 +956,7 @@ export default function RecipesScreen() {
                       >
                         <View style={{flexDirection: 'row', alignItems: 'center'}}>
                           <MaterialCommunityIcons name="account-circle-outline" size={13} color={selectedChef === lastCustomChef ? "black" : "#94a3b8"} style={{marginRight: 6}} />
-                          <Text style={[styles.textChip, selectedChef === lastCustomChef && styles.textPrimary]}>{lastCustomChef}</Text>
+                          <Text style={[styles.chefChipText, selectedChef === lastCustomChef && styles.chefChipTextActive]}>{lastCustomChef}</Text>
                         </View>
                       </TouchableOpacity>
                     )}
@@ -1046,7 +1035,7 @@ export default function RecipesScreen() {
               )}
 
               <View style={{marginBottom: 24}}>
-                <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>MISSION DIRECTIVES <Text style={styles.textMutedItalic}>(custom rules)</Text></Text>
+                <Text style={styles.sectionTitle}>MISSION DIRECTIVES <Text style={styles.sectionInlineSubtitle}>(custom rules)</Text></Text>
                 <Text style={[styles.sectionSubtitle, {marginTop: -5, marginBottom: 10}]}>Additional constraints or requests (e.g. "under 30 mins", "spicy", "one pan").</Text>
                 <TextInput 
                   style={[styles.input, {minHeight: 45, height: 45, fontSize: 14}]} 
@@ -1060,41 +1049,28 @@ export default function RecipesScreen() {
             </View>
           )}
 
+          {/* â”€â”€ TIER 1: CORE INGREDIENTS (collapsible) â”€â”€ */}
           <TouchableOpacity
-          accessibilityRole="button"
-          onPress={() => toggleAccordion('core')}
+            accessibilityRole="button"
+            onPress={() => toggleAccordion('core')}
             style={styles.protocolRibbon}
             testID="core-ribbon"
           >
             <View style={{flex: 1}}>
-              <Text style={styles.textHighlightTitle}>CORE INGREDIENTS</Text>
-              <Text style={[styles.textSecondary, { fontSize: 12, marginTop: 4 }]}>
-                {(() => {
-                  const activeExpiring = expiringList.filter(it => !excludedExpiring.includes(it.name));
-                  const mustUseCount = activeExpiring.length + sessionCustomExp.length;
-                  if (mustUseCount === 0) {
-                    return <Text style={{color: '#ef4444', fontWeight: 'bold'}}>No mandatory supplies</Text>;
-                  }
-                  
-                  const pantryCount = activeExpiring.filter(it => it.cabinetType === 'pantry').length;
-                  const freezerCount = activeExpiring.filter(it => it.cabinetType === 'freezer').length;
-                  const fridgeCount = activeExpiring.filter(it => it.cabinetType === 'fridge').length + sessionCustomExp.length;
-                  
-                  const breakdown = [];
-                  if (pantryCount > 0) breakdown.push(`${pantryCount} Pantry`);
-                  if (freezerCount > 0) breakdown.push(`${freezerCount} Freezer`);
-                  if (fridgeCount > 0) breakdown.push(`${fridgeCount} Fridge`);
-                  
-                  const breakdownStr = breakdown.length > 0 ? ` (${breakdown.join(', ')})` : '';
-                  return <Text>{`${mustUseCount} Must-Use${breakdownStr}`}</Text>;
-                })()}
+              <Text style={styles.protocolRibbonTitle}>CORE INGREDIENTS</Text>
+              <Text style={styles.protocolRibbonSummary}>
+                {expiringList.length === 0 ? (
+                  <Text style={{color: '#ef4444', fontWeight: 'bold'}}>No expiring ingredients</Text>
+                ) : (
+                  `${expiringList.length - excludedExpiring.length} Must-Use`
+                )}
                 {preferred.split(',').filter(s => s.trim().length > 0).length > 0 
-                  ? `  ·  ${preferred.split(',').filter(s => s.trim().length > 0).length} Preferred` 
+                  ? `  Â·  ${preferred.split(',').filter(s => s.trim().length > 0).length} Preferred` 
                   : null}
               </Text>
             </View>
             <Animated.View style={{ transform: [{ rotate: coreAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
-              <MaterialCommunityIcons name="chevron-down" size={20} color="#64748b" />
+              <Text style={styles.protocolChevron}>âŒ„</Text>
             </Animated.View>
           </TouchableOpacity>
 
@@ -1102,13 +1078,13 @@ export default function RecipesScreen() {
             <View style={styles.protocolBody}>
               <View style={{marginTop: 16, marginBottom: 24}}>
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10}}>
-                  <Text style={[styles.textHighlightTitle, {marginBottom: 0, marginTop: 0}]}>MUST-USE INGREDIENTS <Text style={styles.textMutedItalic}>(expiring stock)</Text></Text>
+                  <Text style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0}]}>MUST-USE INGREDIENTS <Text style={styles.sectionInlineSubtitle}>(expiring stock)</Text></Text>
                   <View style={{flexDirection: 'row', gap: 10}}>
                     <TouchableOpacity onPress={() => massActionExpiring(true)}><Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>INCLUDE ALL</Text></TouchableOpacity>
                     <TouchableOpacity onPress={() => massActionExpiring(false)}><Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>EXCLUDE ALL</Text></TouchableOpacity>
                   </View>
                 </View>
-                <Text style={[styles.textMuted, { fontSize: 12, marginTop: -10, marginBottom: 15 }]}>Tap to de-select any items you don't wish to use for this mission.</Text>
+                <Text style={styles.sectionSubtitle}>Tap to de-select any items you don't wish to use for this mission.</Text>
                 
                 {expiringList.length > 0 ? (
                   <View style={styles.allergenGrid}>
@@ -1116,28 +1092,28 @@ export default function RecipesScreen() {
                       <TouchableOpacity 
                         accessibilityRole="button"
                         key={item.name} 
-                        style={[styles.chipBase, styles.allergenChip, !excludedExpiring.includes(item.name) && styles.chipActiveBlue, { flexDirection: 'row', alignItems: 'center' }]} 
+                        style={[styles.allergenChip, !excludedExpiring.includes(item.name) && styles.stockChipActive, { flexDirection: 'row', alignItems: 'center' }]} 
                         onPress={() => toggleExpiring(item.name)}
                         testID={`stock-chip-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
                       >
                         {item.cabinetType === 'freezer' && <MaterialCommunityIcons name="snowflake" size={12} color={!excludedExpiring.includes(item.name) ? "white" : "#64748b"} style={{ marginRight: 6 }} />}
-                        <Text style={[styles.textChip, !excludedExpiring.includes(item.name) && styles.textPrimary]}>{item.name}</Text>
+                        <Text style={[styles.allergenChipText, !excludedExpiring.includes(item.name) && styles.allergenChipTextActive]}>{item.name}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
                 ) : (
-                  <Text style={[styles.textMuted, { fontSize: 12, marginTop: -10, marginBottom: 15 }]}>No stock items are due to expire soon.</Text>
+                  <Text style={styles.sectionSubtitle}>No stock items are due to expire soon.</Text>
                 )}
 
                 <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 12}}>
-                  <MaterialCommunityIcons name="snowflake" size={14} color="#38bdf8" />
-                  <Text style={{color: '#94a3b8', fontSize: 13, marginLeft: 6, fontStyle: 'italic'}}>Items marked with ❄️ are currently frozen.</Text>
+                  <MaterialCommunityIcons name="snowflake" size={12} color="#38bdf8" />
+                  <Text style={{color: '#64748b', fontSize: 10, marginLeft: 6}}>Items marked with â„ï¸ are currently frozen.</Text>
                 </View>
 
                 {/* Fridge Add-Ons */}
                 <View style={{marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#334155'}}>
                   <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap'}}>
-                    <Text style={[styles.textHighlightTitle, {marginBottom: 0, marginTop: 0}]}>FRIDGE ADD-ONS <Text style={styles.textMutedItalic}>(items going off)</Text></Text>
+                    <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>FRIDGE ADD-ONS <Text style={styles.sectionInlineSubtitle}>(items going off)</Text></Text>
                     <TouchableOpacity 
                         onPress={() => { setSessionCustomExp([]); triggerStatus("CORE ADD-ONS CLEARED."); }}
                         testID="clear-all-addons-btn"
@@ -1148,8 +1124,8 @@ export default function RecipesScreen() {
                   
                   <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10}}>
                     {sessionCustomExp.sort().map(item => (
-                      <View key={item} testID={`fridge-addon-chip-${item.toLowerCase().replace(/\s+/g, '-')}`} style={[styles.chipBase, styles.allergenChip, styles.chipActiveBlue, { flexDirection: 'row', alignItems: 'center' }]}>
-                          <Text style={[styles.textChip, styles.textPrimary]}>{item}</Text>
+                      <View key={item} style={[styles.allergenChip, styles.stockChipActive, { flexDirection: 'row', alignItems: 'center' }]}>
+                          <Text style={[styles.allergenChipText, styles.allergenChipTextActive]}>{item}</Text>
                           <TouchableOpacity onPress={() => setSessionCustomExp(prev => prev.filter(x => x !== item))} style={{marginLeft: 8}} testID={`remove-addon-${item.toLowerCase().replace(/\s+/g, '-')}`}>
                             <MaterialCommunityIcons name="close-circle" size={14} color="white" />
                           </TouchableOpacity>
@@ -1168,7 +1144,7 @@ export default function RecipesScreen() {
                           setCustomExpInput(val);
                           if (val.trim().length > 1) {
                               const query = val.toLowerCase();
-                              const matches = [...new Set([...FRIDGE_INGREDIENTS, ...persistentStaples])]
+                              const matches = [...FRIDGE_INGREDIENTS, ...persistentStaples]
                                 .filter(name => name.toLowerCase().includes(query))
                                 .sort((a, b) => {
                                     const aUsage = usageStats[a] || 0;
@@ -1204,14 +1180,14 @@ export default function RecipesScreen() {
                   <View style={{height: 24, justifyContent: 'center', marginTop: 4, zIndex: 10}}>
                         <View style={{flexDirection: 'row', gap: 6}}>
                           {fridgeSuggestions.map(item => {
-                            const isCustom = persistentStaples.includes(item) && !FRIDGE_INGREDIENTS.includes(item);
+                            const isCustom = persistentStaples.includes(item);
                             return (
                               <View key={item} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#334155', paddingLeft: 8, paddingRight: 4, paddingVertical: 4, borderRadius: 4, gap: 4}}>
                                 <TouchableOpacity onPress={() => handleAddStaple(item, 'selectedAddons')} testID={`addon-suggestion-${item.toLowerCase().replace(/\s+/g, '-')}`}>
                                   <Text style={{color: '#38bdf8', fontSize: 9, fontWeight: 'bold'}}>{item.toUpperCase()}</Text>
                                 </TouchableOpacity>
                                 {isCustom && (
-                                  <TouchableOpacity onPress={() => handlePurgeVocabulary(item)} testID={`purge-vocab-${item.toLowerCase().replace(/\s+/g, '-')}`}>
+                                  <TouchableOpacity onPress={() => handlePurgeVocabulary(item)} testID={`purge-vocab-addon-${item.toLowerCase().replace(/\s+/g, '-')}`}>
                                     <MaterialCommunityIcons name="trash-can-outline" size={12} color="#f43f5e" />
                                   </TouchableOpacity>
                                 )}
@@ -1224,7 +1200,7 @@ export default function RecipesScreen() {
               </View>
 
               <View style={{marginBottom: 24}}>
-                <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>PREFERRED INGREDIENTS <Text style={styles.textMutedItalic}>(favourites)</Text></Text>
+                <Text style={styles.sectionTitle}>PREFERRED INGREDIENTS <Text style={styles.sectionInlineSubtitle}>(favourites)</Text></Text>
                 <TextInput 
                   style={styles.input} 
                   placeholder="e.g. Lemon, Garlic, Pasta"
@@ -1232,9 +1208,6 @@ export default function RecipesScreen() {
                   value={preferred}
                   onChangeText={(val) => { setPreferred(val); savePref('recipe_preferred', val); }}
                   multiline
-                  spellCheck={false}
-                  autoCorrect={false}
-                  data-gramm={false}
                   testID="fav-ingredients-input"
                 />
               </View>
@@ -1249,17 +1222,17 @@ export default function RecipesScreen() {
             testID="optional-ribbon"
           >
             <View style={{flex: 1}}>
-              <Text style={styles.textHighlightTitle}>OPTIONAL INGREDIENTS</Text>
-              <Text style={[styles.textSecondary, { fontSize: 12, marginTop: 4 }]}>
+              <Text style={styles.protocolRibbonTitle}>OPTIONAL INGREDIENTS</Text>
+              <Text style={styles.protocolRibbonSummary}>
                 {[
                   selectedStaples.length > 0 ? `${selectedStaples.length} Fridge` : null,
                   pantryList.length > 0 ? `${pantryList.length - excludedPantry.length} Pantry` : null,
                   freezerList.length > 0 ? `${freezerList.length - excludedFreezer.length} Freezer` : null,
-                ].filter(Boolean).join('  ·  ') || 'No optional items'}
+                ].filter(Boolean).join('  Â·  ') || 'No optional items'}
               </Text>
             </View>
             <Animated.View style={{ transform: [{ rotate: optionalAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
-              <MaterialCommunityIcons name="chevron-down" size={20} color="#64748b" />
+              <Text style={styles.protocolChevron}>âŒ„</Text>
             </Animated.View>
           </TouchableOpacity>
 
@@ -1267,7 +1240,7 @@ export default function RecipesScreen() {
             <View style={styles.protocolBody}>
               <View style={{marginTop: 16, marginBottom: 24}}>
                   <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10}}>
-                    <Text style={[styles.textHighlightTitle, {marginBottom: 0, marginTop: 0}]} testID="fridge-staples-title">FRIDGE STAPLES <Text style={styles.textMutedItalic}>(select to include)</Text></Text>
+                    <Text style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0}]} testID="fridge-staples-title">FRIDGE STAPLES <Text style={styles.sectionInlineSubtitle}>(select to include)</Text></Text>
                     <View style={{flexDirection: 'row', gap: 10}}>
                       <TouchableOpacity 
                         onPress={() => {
@@ -1284,9 +1257,9 @@ export default function RecipesScreen() {
 
                   <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12}}>
                     {selectedStaples.sort().map(s => (
-                       <View key={s} testID={`fridge-staple-chip-${s.toLowerCase().replace(/\s+/g, '-')}`} style={[styles.chipBase, styles.allergenChip, styles.chipActiveBlue, { flexDirection: 'row', alignItems: 'center' }]}>
-                        <Text style={[styles.textChip, styles.textPrimary]}>{s}</Text>
-                        <TouchableOpacity onPress={() => toggleStaple(s)} style={{marginLeft: 8}} testID={`remove-staple-${s.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <View key={s} style={[styles.allergenChip, styles.stockChipActive, { flexDirection: 'row', alignItems: 'center' }]}>
+                        <Text style={[styles.allergenChipText, styles.allergenChipTextActive]}>{s}</Text>
+                        <TouchableOpacity onPress={() => toggleStaple(s)} style={{marginLeft: 8}} testID={`fridge-staple-chip-${s.toLowerCase().replace(/\s+/g, '-')}`}>
                           <MaterialCommunityIcons name="close-circle" size={14} color="white" />
                         </TouchableOpacity>
                       </View>
@@ -1304,7 +1277,7 @@ export default function RecipesScreen() {
                         setStaplesInput(val);
                         if (val.trim().length > 1) {
                             const query = val.toLowerCase();
-                            const matches = [...new Set([...FRIDGE_INGREDIENTS, ...persistentStaples])]
+                            const matches = [...FRIDGE_INGREDIENTS, ...persistentStaples]
                               .filter(name => name.toLowerCase().includes(query))
                               .sort((a, b) => {
                                   const aUsage = usageStats[a] || 0;
@@ -1340,14 +1313,14 @@ export default function RecipesScreen() {
                   <View style={{height: 24, justifyContent: 'center', marginTop: 4, zIndex: 10}}>
                     <View style={{flexDirection: 'row', gap: 6}}>
                       {stapleSuggestions.map(item => {
-                        const isCustom = persistentStaples.includes(item) && !FRIDGE_INGREDIENTS.includes(item);
+                        const isCustom = persistentStaples.includes(item);
                         return (
-                          <View key={item} testID={`staple-suggestion-${item.toLowerCase().replace(/\s+/g, '-')}`} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#334155', paddingLeft: 8, paddingRight: 4, paddingVertical: 4, borderRadius: 4, gap: 4}}>
-                            <TouchableOpacity onPress={() => handleAddStaple(item, 'selectedStaples')}>
+                          <View key={item} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#334155', paddingLeft: 8, paddingRight: 4, paddingVertical: 4, borderRadius: 4, gap: 4}}>
+                            <TouchableOpacity onPress={() => handleAddStaple(item, 'selectedStaples')} testID={`staple-suggestion-${item.toLowerCase().replace(/\s+/g, '-')}`}>
                               <Text style={{color: '#38bdf8', fontSize: 9, fontWeight: 'bold'}}>{item.toUpperCase()}</Text>
                             </TouchableOpacity>
                             {isCustom && (
-                              <TouchableOpacity onPress={() => handlePurgeVocabulary(item)} testID={`purge-vocab-${item.toLowerCase().replace(/\s+/g, '-')}`}>
+                              <TouchableOpacity onPress={() => handlePurgeVocabulary(item)} testID={`purge-vocab-staple-${item.toLowerCase().replace(/\s+/g, '-')}`}>
                                 <MaterialCommunityIcons name="trash-can-outline" size={12} color="#f43f5e" />
                               </TouchableOpacity>
                             )}
@@ -1360,48 +1333,48 @@ export default function RecipesScreen() {
                 
                 <View style={{marginBottom: 24}}>
                   <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10}}>
-                    <Text style={[styles.textHighlightTitle, {marginBottom: 0, marginTop: 0}]}>PANTRY STOCK <Text style={styles.textMutedItalic}>(room temp)</Text></Text>
+                    <Text style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0}]}>PANTRY STOCK <Text style={styles.sectionInlineSubtitle}>(room temp)</Text></Text>
                     <View style={{flexDirection: 'row', gap: 10}}>
                       <TouchableOpacity onPress={() => massActionPantry(true)}><Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>INCLUDE ALL</Text></TouchableOpacity>
                       <TouchableOpacity onPress={() => massActionPantry(false)}><Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>EXCLUDE ALL</Text></TouchableOpacity>
                     </View>
                   </View>
-                  <Text style={[styles.textMuted, { fontSize: 12, marginTop: -10, marginBottom: 15 }]}>Tap to include/exclude pantry items from the briefing.</Text>
+                  <Text style={styles.sectionSubtitle}>Tap to include/exclude pantry items from the briefing.</Text>
                   <View style={styles.allergenGrid}>
                     {pantryList.length > 0 ? pantryList.sort().map(name => (
                       <TouchableOpacity 
                         key={name}
-                        style={[styles.chipBase, styles.allergenChip, !excludedPantry.includes(name) && styles.chipActiveBlue]}
+                        style={[styles.allergenChip, !excludedPantry.includes(name) && styles.stockChipActive]}
                         onPress={() => togglePantry(name)}
                       >
-                        <Text style={[styles.textChip, !excludedPantry.includes(name) && styles.textPrimary]}>{name}</Text>
+                        <Text style={[styles.allergenChipText, !excludedPantry.includes(name) && styles.allergenChipTextActive]}>{name}</Text>
                       </TouchableOpacity>
                     )) : (
-                      <Text style={[styles.textMuted, { fontSize: 12, marginTop: -10, marginBottom: 15 }]}>No pantry items found.</Text>
+                      <Text style={styles.sectionSubtitle}>No pantry items found.</Text>
                     )}
                   </View>
                 </View>
 
                 <View style={{marginBottom: 24}}>
                   <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10}}>
-                    <Text style={[styles.textHighlightTitle, {marginBottom: 0, marginTop: 0}]}>FREEZER STOCK <Text style={styles.textMutedItalic}>(long term)</Text></Text>
+                    <Text style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0}]}>FREEZER STOCK <Text style={styles.sectionInlineSubtitle}>(long term)</Text></Text>
                     <View style={{flexDirection: 'row', gap: 10}}>
                       <TouchableOpacity onPress={() => massActionFreezer(true)}><Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>INCLUDE ALL</Text></TouchableOpacity>
                       <TouchableOpacity onPress={() => massActionFreezer(false)}><Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>EXCLUDE ALL</Text></TouchableOpacity>
                     </View>
                   </View>
-                  <Text style={[styles.textMuted, { fontSize: 12, marginTop: -10, marginBottom: 15 }]}>Tap to include/exclude freezer items from the briefing.</Text>
+                  <Text style={styles.sectionSubtitle}>Tap to include/exclude freezer items from the briefing.</Text>
                   <View style={styles.allergenGrid}>
                     {freezerList.length > 0 ? freezerList.sort().map(name => (
                       <TouchableOpacity 
                         key={name}
-                        style={[styles.chipBase, styles.allergenChip, !excludedFreezer.includes(name) && styles.chipActiveBlue]}
+                        style={[styles.allergenChip, !excludedFreezer.includes(name) && styles.stockChipActive]}
                         onPress={() => toggleFreezer(name)}
                       >
-                        <Text style={[styles.textChip, !excludedFreezer.includes(name) && styles.textPrimary]}>{name}</Text>
+                        <Text style={[styles.allergenChipText, !excludedFreezer.includes(name) && styles.allergenChipTextActive]}>{name}</Text>
                       </TouchableOpacity>
                     )) : (
-                      <Text style={[styles.textMuted, { fontSize: 12, marginTop: -10, marginBottom: 15 }]}>No freezer items found.</Text>
+                      <Text style={styles.sectionSubtitle}>No freezer items found.</Text>
                     )}
                   </View>
                 </View>
@@ -1416,46 +1389,46 @@ export default function RecipesScreen() {
             testID="protocols-ribbon"
           >
             <View style={{flex: 1}}>
-              <Text style={styles.textHighlightTitle}>DIETARY & SAFETY</Text>
-              <Text style={[styles.textSecondary, { fontSize: 12, marginTop: 4 }]}>
+              <Text style={styles.protocolRibbonTitle}>DIETARY & SAFETY</Text>
+              <Text style={styles.protocolRibbonSummary}>
                 {[
                   selectedDietary.length > 0 ? `${selectedDietary.length} Dietary` : null,
                   selectedAllergens.length > 0 ? `${selectedAllergens.length} Allergens` : null,
-                ].filter(Boolean).join('  ·  ') || 'Standard Protocols'}
+                ].filter(Boolean).join('  Â·  ') || 'Standard Protocols'}
               </Text>
             </View>
             <Animated.View style={{ transform: [{ rotate: protocolsAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
-              <MaterialCommunityIcons name="chevron-down" size={20} color="#64748b" />
+              <Text style={styles.protocolChevron}>âŒ„</Text>
             </Animated.View>
           </TouchableOpacity>
 
           {activeAccordion === 'protocols' && (
             <View style={styles.protocolBody}>
               <View style={{marginTop: 16, marginBottom: 24}}>
-                <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>DIETARY PREFERENCES <Text style={styles.textMutedItalic}>(global rules)</Text></Text>
+                <Text style={styles.sectionTitle}>DIETARY PREFERENCES <Text style={styles.sectionInlineSubtitle}>(global rules)</Text></Text>
                 <View style={styles.allergenGrid}>
-                  {DIETARY_CHOICES.map(c => (
+                  {DIETARY_CONSTRAINTS.map(c => (
                     <TouchableOpacity 
                       key={c}
-                      style={[styles.chipBase, styles.allergenChip, selectedDietary.includes(c) && styles.chipActiveRed]}
+                      style={[styles.allergenChip, selectedDietary.includes(c) && styles.allergenChipActive]}
                       onPress={() => toggleDietary(c)}
                       testID={`dietary-chip-${c.toLowerCase()}`}
                     >
-                      <Text style={[styles.textChip, selectedDietary.includes(c) && styles.textPrimary]}>{c}</Text>
+                      <Text style={[styles.allergenChipText, selectedDietary.includes(c) && styles.allergenChipTextActive]}>{c}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
 
-                <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>ALLERGEN FORBIDDEN LIST <Text style={styles.textMutedItalic}>(strict exclusion)</Text></Text>
+                <Text style={styles.sectionTitle}>ALLERGEN FORBIDDEN LIST <Text style={styles.sectionInlineSubtitle}>(strict exclusion)</Text></Text>
                 <View style={styles.allergenGrid}>
-                  {ALLERGENS.map(a => (
+                  {ALLERGENS_LIST.map(a => (
                     <TouchableOpacity 
                       key={a}
-                      style={[styles.chipBase, styles.allergenChip, selectedAllergens.includes(a) && styles.chipActiveRed]}
+                      style={[styles.allergenChip, selectedAllergens.includes(a) && styles.allergenChipActive]}
                       onPress={() => toggleAllergen(a)}
                       testID={`allergen-chip-${a.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      <Text style={[styles.textChip, selectedAllergens.includes(a) && styles.textPrimary]}>{a}</Text>
+                      <Text style={[styles.allergenChipText, selectedAllergens.includes(a) && styles.allergenChipTextActive]}>{a}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -1471,45 +1444,37 @@ export default function RecipesScreen() {
             testID="deploy-ribbon"
           >
             <View style={{flex: 1}}>
-              <Text style={styles.textHighlightTitle}>DEPLOYMENT STATIONS</Text>
-              <Text style={[styles.textSecondary, { fontSize: 12, marginTop: 4 }]}>3 Active Launchpads</Text>
+              <Text style={styles.protocolRibbonTitle}>DEPLOYMENT STATIONS</Text>
+              <Text style={styles.protocolRibbonSummary}>3 Active Launchpads</Text>
             </View>
             <Animated.View style={{ transform: [{ rotate: deployAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
-              <MaterialCommunityIcons name="chevron-down" size={20} color="#64748b" />
+              <Text style={styles.protocolChevron}>âŒ„</Text>
             </Animated.View>
           </TouchableOpacity>
 
           {activeAccordion === 'deploy' && (
             <View style={styles.protocolBody}>
               <View style={{marginTop: 16, marginBottom: 24}}>
-                <Text style={[styles.textSecondary, {marginBottom: 16, marginTop: 0}]}>Configure three AI command centers for one-click briefing transmission.</Text>
+                <Text style={{color: '#94a3b8', fontSize: 11, marginBottom: 10, marginTop: 10}}>Configure three AI command centers for one-click briefing transmission.</Text>
                 
                 {deployStations && deployStations.map((s, idx) => (
-                  <View key={idx} style={{marginBottom: 24}}>
-                    <Text style={[styles.textHighlightTitle, { marginBottom: 15 }]}>STATION {idx + 1}</Text>
-                    
-                    <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 12}}>
-                      <Text style={[styles.textSecondary, { fontSize: 13, fontWeight: 'bold', width: 55 }]}>Name</Text>
-                      <TextInput 
-                        style={[styles.input, {flex: 1, minHeight: 40, height: 40, fontSize: 14}]}
-                        placeholder="e.g. ChatGPT"
-                        placeholderTextColor="#475569"
-                        value={s.name}
-                        onChangeText={(val) => updateStation(idx, 'name', val)}
-                      />
-                    </View>
-
-                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                      <Text style={[styles.textSecondary, { fontSize: 13, fontWeight: 'bold', width: 55 }]}>URL</Text>
-                      <TextInput 
-                        style={[styles.input, {flex: 1, minHeight: 40, height: 40, fontSize: 13, color: '#94a3b8'}]}
-                        placeholder="e.g. https://chatgpt.com"
-                        placeholderTextColor="#475569"
-                        value={s.url}
-                        onChangeText={(val) => updateStation(idx, 'url', val)}
-                        autoCapitalize="none"
-                      />
-                    </View>
+                  <View key={idx} style={{backgroundColor: '#1e293b', borderRadius: 8, padding: 10, marginBottom: 10, borderLeftWidth: 3, borderLeftColor: '#38bdf8'}}>
+                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 5}}>STATION {idx + 1}</Text>
+                    <TextInput 
+                      style={[styles.input, {marginBottom: 8, height: 35, fontSize: 12, minHeight: 40}]}
+                      placeholder="Name (e.g. ChatGPT)"
+                      placeholderTextColor="#475569"
+                      value={s.name}
+                      onChangeText={(val) => updateStation(idx, 'name', val)}
+                    />
+                    <TextInput 
+                      style={[styles.input, {height: 35, fontSize: 10, color: '#94a3b8', minHeight: 40}]}
+                      placeholder="URL (https://...)"
+                      placeholderTextColor="#475569"
+                      value={s.url}
+                      onChangeText={(val) => updateStation(idx, 'url', val)}
+                      autoCapitalize="none"
+                    />
                   </View>
                 ))}
               </View>
@@ -1538,53 +1503,132 @@ const styles = StyleSheet.create({
     borderBottomColor: '#334155' 
   },
   title: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc' },
+  headerSubtitle: { color: '#94a3b8', fontSize: 13, marginTop: 2 },
   backBtn: { padding: 10, backgroundColor: '#334155', borderRadius: 24 },
   scrollContent: { padding: 20 },
-
-  /* --- TYPOGRAPHY --- */
-  textPrimary: { color: '#f8fafc', fontSize: 14 },
-  textSecondary: { color: '#cbd5e1', fontSize: 13, lineHeight: 20 },
-  textMuted: { color: '#94a3b8', fontSize: 11 },
-  textMutedItalic: { color: '#94a3b8', fontSize: 11, fontStyle: 'italic' },
-  textHighlightTitle: { color: '#fbbf24', fontSize: 11, fontWeight: 'bold', letterSpacing: 1.5 },
-  textChip: { color: '#cbd5e1', fontSize: 13, fontWeight: 'bold' },
-
-  /* --- CONTAINERS & PANELS --- */
-  panelBase: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', borderRadius: 12 },
-  card: { padding: 16, marginBottom: 24 },
-  prefGroup: { padding: 12, marginBottom: 24 },
-  anchoredPanel: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#334155', backgroundColor: '#1e293b' },
+  card: { backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: '#334155' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-
-  /* --- CHIPS --- */
-  chipBase: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, margin: 4 },
-  allergenChip: { backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8 },
-  chefChip: { backgroundColor: '#111827', borderColor: '#374151', borderRadius: 99, paddingHorizontal: 16, paddingVertical: 10 },
-  chipActiveBlue: { backgroundColor: '#3b82f6', borderColor: '#60a5fa' },
-  chipActiveRed: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
-
-  /* --- BUTTONS --- */
-  btnBase: { borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  btnPrimary: { backgroundColor: '#fbbf24' },
-  btnSecondary: { backgroundColor: '#334155' },
-  btnTextPrimary: { color: '#0f172a', fontWeight: 'bold', fontSize: 16 },
-  btnTextSecondary: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  btnLarge: { padding: 18 },
-  btnAction: { paddingHorizontal: 12, paddingVertical: 10 },
-
-  /* --- MISC --- */
-  modeTabs: { flexDirection: 'row', backgroundColor: '#111827', borderRadius: 12, padding: 2, marginTop: 10, borderWidth: 1, borderColor: '#374151' },
-  modeTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
-  modeTabActive: { backgroundColor: '#334155' },
-  modeTabText: { color: '#475569', fontSize: 12, fontWeight: 'bold' },
-  modeTabTextActive: { color: '#f8fafc' },
+  cardTitle: { color: '#3b82f6', fontSize: 13, fontWeight: 'bold' },
+  cardBody: { color: '#cbd5e1', fontSize: 14, lineHeight: 20 },
+  chefChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#111827',
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: '#374151',
+    margin: 4,
+  },
+  chefChipActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#60a5fa',
+  },
+  chefChipText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  chefChipTextActive: {
+    color: '#ffffff',
+  },
+  modeTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    padding: 2,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  modeTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 10,
+  },
+  modeTabActive: {
+    backgroundColor: '#334155',
+  },
+  modeTabText: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  modeTabTextActive: {
+    color: '#f8fafc',
+  },
+  sectionTitle: { color: '#fbbf24', fontSize: 11, fontWeight: 'bold', letterSpacing: 1.5, marginBottom: 15, marginTop: 10 },
+  sectionInlineSubtitle: { color: '#94a3b8', fontSize: 11, fontWeight: 'normal', letterSpacing: 0, fontStyle: 'italic' },
+  prefGroup: { backgroundColor: '#1e293b', borderRadius: 12, padding: 12, marginBottom: 24, borderWidth: 1, borderColor: '#334155' },
+  radioRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#334155' },
+  radioText: { color: '#94a3b8', fontSize: 16, marginLeft: 12 },
+  inputGroup: { marginBottom: 20 },
   input: { backgroundColor: '#0f172a', borderRadius: 8, padding: 12, color: 'white', fontSize: 15, borderWidth: 1, borderColor: '#334155', minHeight: 80, textAlignVertical: 'top' },
   allergenGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 24, marginHorizontal: -4 },
+  allergenChip: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, margin: 4 },
+  allergenChipActive: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
+  stockChipActive: { backgroundColor: '#3b82f6', borderColor: '#3b82f6' },
+  allergenChipText: { color: '#94a3b8', fontSize: 13 },
+  allergenChipTextActive: { color: 'white' },
+  sectionSubtitle: { color: '#94a3b8', fontSize: 12, marginTop: -10, marginBottom: 15 },
+  footer: { padding: 20, backgroundColor: '#1e293b', borderBottomWidth: 1, borderBottomColor: '#334155' },
+  generateBtn: { backgroundColor: '#fbbf24', borderRadius: 8, padding: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  generateText: { color: '#0f172a', fontWeight: 'bold', fontSize: 16 },
+  copyBtn: { backgroundColor: '#fbbf24', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  actionBtn: { backgroundColor: '#fbbf24', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  confirmBlock: { alignItems: 'center' },
+  confirmText: { color: '#fbbf24', fontSize: 13, textAlign: 'center', marginBottom: 20, lineHeight: 18 },
+  confirmActions: { flexDirection: 'row', gap: 10, width: '100%' },
+  cancelBtnInline: { flex: 1, backgroundColor: '#334155', borderRadius: 8, padding: 16, alignItems: 'center' },
+  confirmBtnInline: { flex: 1, backgroundColor: '#fbbf24', borderRadius: 8, padding: 16, alignItems: 'center' },
+  cancelBtnText: { color: 'white', fontWeight: 'bold' },
+  confirmBtnText: { color: '#0f172a', fontWeight: 'bold' },
+  anchoredPanel: {
+    backgroundColor: '#1e293b',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+  },
   statusBanner: { position: 'absolute', bottom: 100, left: 20, right: 20, backgroundColor: '#1e293b', borderRadius: 8, padding: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#fbbf24' },
-  protocolRibbon: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', borderRadius: 10, borderWidth: 1, borderColor: '#334155', paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4, marginTop: 8 },
-  protocolBody: { overflow: 'hidden' },
+  statusText: { color: '#fbbf24', fontWeight: 'bold', fontSize: 13, letterSpacing: 1, textAlign: 'center', width: '100%' },
+  protocolRibbon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 4,
+    marginTop: 8,
+  },
+  protocolRibbonTitle: {
+    color: '#fbbf24',
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 1.5,
+  },
+  protocolRibbonSummary: {
+    color: '#64748b',
+    fontSize: 11,
+    marginTop: 3,
+  },
+  protocolChevron: {
+    color: '#64748b',
+    fontSize: 20,
+    lineHeight: 22,
+    marginLeft: 8,
+  },
+  protocolBody: {
+    overflow: 'hidden',
+  },
+  fab: { position: 'absolute', bottom: 30, right: 20, backgroundColor: '#fbbf24', borderRadius: 30, paddingLeft: 18, paddingRight: 22, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 6 },
+  fabTextContainer: { marginLeft: 10, alignItems: 'flex-start' },
+  fabText: { color: '#0f172a', fontWeight: '900', fontSize: 13, letterSpacing: 0.5 },
+  fabSubText: { color: '#0f172a', fontWeight: 'bold', fontSize: 10, letterSpacing: 1.5, marginTop: -2 },
+  fabConfirmBlock: { position: 'absolute', bottom: 30, left: 20, right: 20, backgroundColor: '#1e293b', padding: 20, borderRadius: 16, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 10, borderWidth: 1, borderColor: '#334155' },
 });
-
 
 const markdownStyles = StyleSheet.create({
   body: { color: '#cbd5e1', fontSize: 15, lineHeight: 22 },

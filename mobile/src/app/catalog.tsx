@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform, ScrollView, Linking } from 'react-native';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -887,7 +887,35 @@ export default function CatalogScreen() {
           )}
 
           <Text style={styles.promoFooter}>Sergeant is a one-time licence. General is a monthly or annual subscription — cancel any time. All upgrades are permanent to this device.</Text>
+
+          {/* ALLIED OPERATIONS (REESTIT) */}
+          <View style={{ borderTopWidth: 1, borderTopColor: '#1e293b', marginTop: 32, paddingTop: 32 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 }}>
+              <MaterialCommunityIcons name="shield-account" size={20} color="#6366f1" />
+              <Text style={{ color: '#818cf8', fontWeight: 'bold', letterSpacing: 1, fontSize: 13 }}>PERSONNEL DISPATCH (SISTER SERVICE)</Text>
+            </View>
+            
+            <View style={[styles.tierCard, { borderColor: '#4f46e5', borderLeftWidth: 4, borderLeftColor: '#6366f1', padding: 20 }]}>
+              <View style={styles.tierStatusRow}>
+                <Text style={{ color: '#f8fafc', fontSize: 18, fontWeight: 'bold' }}>REESTIT: R&R INTEL</Text>
+                <View style={{ backgroundColor: '#4f46e5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                  <Text style={{ color: 'white', fontSize: 8, fontWeight: 'bold' }}>FROM THE DEVELOPER</Text>
+                </View>
+              </View>
+              <Text style={{ color: '#94a3b8', fontSize: 13, marginTop: 8, lineHeight: 20 }}>
+                From the same tactical lab that built the War Cabinet. Reestit provides pithy, AI-driven summaries of holiday rental reviews. Know the strengths and pitfalls of your retreat before you deploy.
+              </Text>
+              <TouchableOpacity 
+                style={[styles.upgradeBtn, { backgroundColor: '#6366f1', marginTop: 20 }]} 
+                onPress={() => Linking.openURL('https://reestit.com')}
+              >
+                <MaterialCommunityIcons name="launch" size={18} color="white" style={{ position: 'absolute', left: 16 }} />
+                <Text style={styles.upgradeBtnText}>EXPLORE REESTIT INTEL</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </ScrollView>
+
       ) : null}
     </View>
   );

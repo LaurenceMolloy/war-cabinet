@@ -246,5 +246,105 @@
     "title": "Intelligent Stock Consolidation",
     "text": "The logistical engine now performing an 'Intel-Aware' check during enrollment. If you add a batch that matches an existing one in Size, Location, and Expiry, the system checks the Intel. If the Intel is identical, they merge silently. If the Intel differs, a premium Consolidation Modal appears, allowing you to either merge the stock into a single entry or keep them as distinct batches.",
     "tags": ["batch", "merge", "consolidation", "modal", "intel", "aggregation", "safety"]
+  },
+  {
+    "id": "TC-75.1",
+    "test_marker": "TC-75.1",
+    "iteration": 75,
+    "screen": "index",
+    "entity": "batch",
+    "action": "transfer-full",
+    "title": "Full Batch Transfer (Stock Relocation)",
+    "text": "You can relocate an entire batch using the gold Transfer button (⇄). This is a location-only update: the cabinet changes, but the original 'Stored Date' and 'Expiry Date' are preserved. This ensures the batch's true age and freeze-lifespan remain accurate, regardless of how many times you reorganize your cabinets.",
+    "tags": ["batch", "transfer", "move", "cabinet", "relocation", "stored-date"]
+  },
+  {
+    "id": "TC-75.2",
+    "test_marker": "TC-75.2",
+    "iteration": 75,
+    "screen": "index",
+    "entity": "batch",
+    "action": "transfer-partial",
+    "title": "Partial Batch Split (Stock Rotation)",
+    "text": "The gold Transfer button (⇄) supports partial moves. For split moves, the new record at the destination inherits all metadata from the source—including the original Stored Date and Expiry Date. Both the subtraction and the new record are written as a single atomic transaction, preserving the batch's historical integrity across your entire kitchen storage network.",
+    "tags": ["batch", "transfer", "partial", "split", "rotation", "fifo", "atomic"]
+  },
+
+  {
+    "id": "TC-75.3",
+    "test_marker": "TC-75.3",
+    "iteration": 75,
+    "screen": "index",
+    "entity": "cabinet",
+    "action": "same-type-rule",
+    "title": "Transfer Is Always Same-Type",
+    "text": "The Transfer destination picker only offers cabinets of the same type as the source. Pantry stock can only move to another Pantry, and Freezer stock can only move to another Freezer. This is enforced by omission—the wrong type simply never appears in the list. If no valid same-type destination exists, the Transfer button is hidden entirely.",
+    "tags": ["transfer", "cabinet", "type", "freezer", "pantry", "safety"]
+  },
+  {
+    "id": "TC-75.4",
+    "test_marker": "TC-75.4",
+    "iteration": 75,
+    "screen": "index",
+    "entity": "inventory",
+    "action": "fridge-philosophy",
+    "title": "The Fridge Is a Consumption Zone",
+    "text": "The War Cabinet does not track fridge contents. The fridge is a transitory space—access is uncontrolled and items are consumed casually. When you freeze something, record it directly as a new Freezer batch. When you defrost something to cook (Freezer → Fridge), simply mark it as used (delete it). This keeps the system lean and accurate without the impossible chore of tracking everything that touches a fridge shelf.",
+    "tags": ["fridge", "philosophy", "freezer", "consumption", "design", "simplicity"]
+  },
+  {
+    "id": "TC-75.5",
+    "test_marker": "TC-75.5",
+    "iteration": 75,
+    "screen": "index",
+    "entity": "inventory",
+    "action": "fifo",
+    "title": "FIFO Discipline (Multi-Batch Management)",
+    "text": "When you have two batches of the same item—for example, old Kidney Beans from last month and a new tin from today's shop—add them as separate entries with their own expiry dates. The dashboard automatically sorts batches by soonest expiry, so the oldest stock always surfaces first. This enforces First-In, First-Out (FIFO) discipline without any manual sorting effort.",
+    "tags": ["fifo", "batch", "rotation", "expiry", "sort", "multi-batch"]
+  },
+  {
+    "id": "TC-75.6",
+    "test_marker": "TC-75.6",
+    "iteration": 75,
+    "screen": "recipes",
+    "entity": "draft",
+    "action": "auto-include",
+    "title": "Mess Hall: Auto-Inclusion Drafting Model",
+    "text": "The Mess Hall operates on a 'Commit-First' model. Any ingredient you add to the Fridge Add-Ons or Fridge Staples decks is immediately active and included in the mission briefing—there is no separate 'Include' toggle. Visibility equals commitment. If an ingredient chip is on screen, your AI chef will see it. To remove it from the current mission without deleting it permanently, tap the X on the chip.",
+    "tags": ["recipes", "mess-hall", "auto-include", "commit-first", "draft", "chip"]
+  },
+  {
+    "id": "TC-75.7",
+    "test_marker": "TC-75.7",
+    "iteration": 75,
+    "screen": "recipes",
+    "entity": "draft",
+    "action": "clear-all",
+    "title": "Mess Hall: Scorched Earth (Clear All)",
+    "text": "When you need to abort a recipe mission and start clean, the 'CLEAR ALL' command wipes the entire Add-Ons and Staples decks from your current session in one action. This is a Screen Tidy operation—it resets your draft, but does not erase the underlying vocabulary the system has learned about your kitchen. Your saved staples and previous searches remain available the next time you open the Mess Hall.",
+    "tags": ["recipes", "mess-hall", "clear-all", "scorched-earth", "reset", "session"]
+  },
+  {
+    "id": "TC-75.8",
+    "test_marker": "TC-75.8",
+    "iteration": 75,
+    "screen": "recipes",
+    "entity": "vocabulary",
+    "action": "purge",
+    "title": "Mess Hall: Permanent Vocabulary Purge",
+    "text": "The X on a visible chip is a Screen Tidy—it removes the ingredient from the current mission only. To permanently delete a typo or unwanted word from the system's learned vocabulary (so it never appears in autocomplete suggestions again), use the Trash icon that appears alongside it in the suggestion dropdown. This is an intentional, two-step action to prevent accidental data loss.",
+    "tags": ["recipes", "mess-hall", "vocabulary", "purge", "trash", "autocomplete", "typo"]
+  },
+  {
+    "id": "ALLIED-01",
+    "test_marker": "ALLIED-01",
+    "iteration": 75,
+    "screen": "index",
+    "entity": "allied",
+    "action": "recon",
+    "title": "ALLIED INTEL: R&R RECON",
+    "text": "Personnel morale is critical. Reestit is a sister service from the War Cabinet developer—a tactical summary engine for holiday rental reviews. Don't waste strategic resources scanning reviews manually; use Reestit to identify pitfalls in seconds. A personal recommendation from High Command. (Visit Reestit.com)",
+    "tags": ["allied", "reestit", "intel", "recon", "r&r", "developer"]
   }
 ]

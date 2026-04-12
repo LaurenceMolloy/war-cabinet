@@ -48,6 +48,16 @@ export default function HomeScreen() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleteBatch, setDeleteBatch] = useState<any>(null);
+
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [moveBatch, setMoveBatch] = useState<any>(null);
+  const [moveType, setMoveType] = useState<any>(null);
+  const [moveQty, setMoveQty] = useState(1);
+  const [moveDestCabId, setMoveDestCabId] = useState<number | null>(null);
+  const [moveDestCabinets, setMoveDestCabinets] = useState<any[]>([]);
+  const [showMoveCabinetPicker, setShowMoveCabinetPicker] = useState(false);
+
+
   const params = useLocalSearchParams();
 
   useEffect(() => {
@@ -167,6 +177,7 @@ export default function HomeScreen() {
              i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count,
              i.freeze_months as type_freeze_months,
              inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.batch_intel,
+             inv.cabinet_id as inv_cabinet_id, inv.item_type_id as inv_item_type_id,
              cab.name as cab_name, cab.location as cab_location, cab.cabinet_type as cab_type
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
@@ -239,6 +250,7 @@ export default function HomeScreen() {
             id: row.inv_id, quantity: row.quantity, size: row.size,
             expiry_month: row.expiry_month, expiry_year: row.expiry_year,
             entry_month: row.entry_month, entry_year: row.entry_year,
+            cabinet_id: row.inv_cabinet_id, item_type_id: row.inv_item_type_id,
             cab_name: row.cab_name, cab_location: row.cab_location,
             cab_type: row.cab_type, batch_intel: row.batch_intel,
           });
@@ -413,6 +425,66 @@ export default function HomeScreen() {
     await db.runAsync('UPDATE Inventory SET quantity = quantity + 1 WHERE id = ?', invId);
     if (typeId) await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
     await markModified(db);
+    load();
+  };
+
+  const handleMoveRequest = (inv: any, type: any) => {
+    // Filter to same cabinet type, excluding the current cabinet
+    const validDests = cabinets.filter(
+      (c: any) => c.cabinet_type === (inv.cab_type || 'standard') && c.id !== inv.cabinet_id
+    );
+    if (validDests.length === 0) return; // No valid destinations — button should not have been shown
+    setMoveBatch(inv);
+    setMoveType(type);
+    setMoveQty(inv.quantity); // Default to full batch
+    setMoveDestCabId(validDests[0].id);
+    setMoveDestCabinets(validDests);
+    setShowMoveCabinetPicker(false);
+    setShowMoveModal(true);
+
+
+  };
+
+  const handleConfirmMove = async () => {
+    if (!moveBatch || !moveDestCabId) return;
+    setShowMoveModal(false);
+
+    const now = new Date();
+    const entryMonth = now.getMonth() + 1;
+    const entryYear = now.getFullYear();
+    const isFullMove = moveQty >= moveBatch.quantity;
+
+    if (isFullMove) {
+      // Case A: In-record update — update cabinet ID ONLY.
+      // We preserve the original entry_month/year to maintain FIFO and Freezer age integrity.
+      await db.runAsync(
+        'UPDATE Inventory SET cabinet_id = ? WHERE id = ?',
+        [moveDestCabId, moveBatch.id]
+      );
+    } else {
+      // Case B: Split — reduce source quantity, create new record at destination inheriting original dates.
+      await db.execAsync(
+        `BEGIN TRANSACTION;
+         UPDATE Inventory SET quantity = quantity - ${moveQty} WHERE id = ${moveBatch.id};
+         INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel)
+           VALUES (
+             ${moveBatch.item_type_id ?? moveType.id},
+             ${moveQty},
+             '${moveBatch.size ?? ''}',
+             ${moveBatch.expiry_month ?? 'NULL'},
+             ${moveBatch.expiry_year ?? 'NULL'},
+             ${moveBatch.entry_month},
+             ${moveBatch.entry_year},
+             ${moveDestCabId},
+             ${moveBatch.batch_intel ? `'${moveBatch.batch_intel.replace(/'/g, "''")}'` : 'NULL'}
+           );
+         COMMIT;`
+      );
+    }
+
+    await markModified(db);
+    const destName = moveDestCabinets.find(c => c.id === moveDestCabId)?.name ?? 'DESTINATION';
+    triggerFeedback(`${moveQty} × ${moveType.name} → ${destName.toUpperCase()}`);
     load();
   };
 
@@ -745,6 +817,15 @@ export default function HomeScreen() {
                           >
                             <MaterialCommunityIcons name="pencil" size={16} color="white" />
                           </TouchableOpacity>
+                          {cabinets.filter((c: any) => c.cabinet_type === (inv.cab_type || 'standard') && c.id !== inv.cabinet_id).length > 0 && (
+                            <TouchableOpacity
+                              onPress={() => handleMoveRequest(inv, type)}
+                              style={[styles.actionBtn, {backgroundColor: '#d97706'}]}
+                              testID={`move-batch-${inv.id}`}
+                            >
+                              <MaterialCommunityIcons name="transfer" size={16} color="white" />
+                            </TouchableOpacity>
+                          )}
                           <TouchableOpacity onPress={() => handleDeductRequest(inv, type)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}><MaterialCommunityIcons name="minus" size={16} color="white" /></TouchableOpacity>
                           <TouchableOpacity onPress={() => addQuantity(inv.id, type.id)} style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}><MaterialCommunityIcons name="plus" size={16} color="white" /></TouchableOpacity>
                         </View>
@@ -987,6 +1068,185 @@ export default function HomeScreen() {
           <TouchableOpacity style={styles.cancelLink} onPress={() => setShowDeleteModal(false)}><Text style={{color: '#64748b'}}>CANCEL</Text></TouchableOpacity>
         </View></View>
       </Modal>
+
+      {/* ─── MOVE BATCH MODAL ─── */}
+      <Modal visible={showMoveModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}><View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>TRANSFER STOCK</Text>
+          <Text style={{color: '#f8fafc', textAlign: 'center', fontSize: 16, fontWeight: 'bold', marginBottom: 4}}>{moveType?.name}</Text>
+          <Text style={{color: '#64748b', textAlign: 'center', fontSize: 11, marginBottom: 12}}>
+            {moveBatch?.cab_name?.toUpperCase()} → {(moveDestCabinets.find(c => c.id === moveDestCabId)?.name ?? 'DESTINATION').toUpperCase()}
+          </Text>
+
+
+          {/* Batch Detail Card */}
+          {moveBatch && (
+            <View style={{ backgroundColor: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16, width: '100%' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                <MaterialCommunityIcons name="warehouse" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                  {moveBatch.cab_name?.toUpperCase() || 'UNKNOWN'}
+                  {moveBatch.cab_location ? ` • ${moveBatch.cab_location.toUpperCase()}` : ''}
+                </Text>
+              </View>
+              {moveBatch.batch_intel ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="information" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>{moveBatch.batch_intel.toUpperCase()}</Text>
+                </View>
+              ) : null}
+              {moveBatch.size ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    {moveBatch.size}{moveType?.unit_type === 'weight' ? 'g' : moveType?.unit_type === 'volume' ? 'ml' : ' Units'}
+                  </Text>
+                </View>
+              ) : null}
+              {moveBatch.cab_type === 'freezer' && moveBatch.entry_month && moveBatch.entry_year ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="snowflake" size={14} color="#60a5fa" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    FROZEN {String(moveBatch.entry_month).padStart(2, '0')}/{moveBatch.entry_year}
+                  </Text>
+                </View>
+              ) : moveBatch.expiry_month && moveBatch.expiry_year ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="calendar-clock" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    EXPIRES {String(moveBatch.expiry_month).padStart(2, '0')}/{moveBatch.expiry_year}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
+
+          {/* Quantity Selector */}
+          {moveBatch && moveBatch.quantity > 1 && (
+            <View style={{width: '100%', marginBottom: 20}}>
+              <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginBottom: 10, textAlign: 'center'}}>QUANTITY TO MOVE</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20}}>
+                <TouchableOpacity
+                  onPress={() => setMoveQty(q => Math.max(1, q - 1))}
+                  style={{width: 40, height: 40, backgroundColor: '#334155', borderRadius: 8, alignItems: 'center', justifyContent: 'center'}}
+                >
+                  <MaterialCommunityIcons name="minus" size={20} color="white" />
+                </TouchableOpacity>
+                <View style={{alignItems: 'center'}}>
+                  <Text style={{color: '#f8fafc', fontSize: 28, fontWeight: 'bold', minWidth: 50, textAlign: 'center'}}>{moveQty}</Text>
+                  <Text style={{color: '#64748b', fontSize: 10}}>of {moveBatch?.quantity}</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setMoveQty(q => Math.min(moveBatch.quantity, q + 1))}
+                  style={{width: 40, height: 40, backgroundColor: '#334155', borderRadius: 8, alignItems: 'center', justifyContent: 'center'}}
+                >
+                  <MaterialCommunityIcons name="plus" size={20} color="white" />
+                </TouchableOpacity>
+              </View>
+              {moveQty < moveBatch?.quantity ? (
+                <Text style={{color: '#64748b', textAlign: 'center', fontSize: 10, marginTop: 8}}>
+                  {moveBatch.quantity - moveQty} {moveBatch.quantity - moveQty === 1 ? 'item' : 'items'} will remain in {moveBatch.cab_name} after the move
+                </Text>
+              ) : (
+                <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8, gap: 6}}>
+                  <MaterialCommunityIcons name="alert" size={13} color="#f59e0b" />
+                  <Text style={{color: '#f59e0b', textAlign: 'center', fontSize: 10, fontWeight: 'bold'}}>
+                    No stock will remain in {moveBatch.cab_name} after this transfer.
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Static Quantity Display for single-unit batches */}
+          {moveBatch && moveBatch.quantity === 1 && (
+            <View style={{width: '100%', marginBottom: 24, alignItems: 'center'}}>
+              <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginBottom: 12, textAlign: 'center'}}>QUANTITY TO MOVE</Text>
+              <View style={{backgroundColor: '#1e293b', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 12}}>
+                <Text style={{color: '#f8fafc', fontSize: 24, fontWeight: 'bold'}}>1 UNIT</Text>
+              </View>
+              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: 'rgba(245, 158, 11, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6}}>
+                <MaterialCommunityIcons name="alert" size={14} color="#f59e0b" />
+                <Text style={{color: '#f59e0b', textAlign: 'center', fontSize: 11, fontWeight: 'bold'}}>
+                  FULL TRANSFER: No stock will remain in {moveBatch.cab_name}.
+                </Text>
+              </View>
+            </View>
+          )}
+
+
+          {/* Cabinet Selector (Add-Batch Style) */}
+          <View style={{width: '100%', marginBottom: 20}}>
+            <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginBottom: 8, textAlign: 'center'}}>DESTINATION CABINET</Text>
+            <TouchableOpacity
+              onPress={() => setShowMoveCabinetPicker(true)}
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                backgroundColor: '#1e293b', borderRadius: 8, borderWidth: 1, borderColor: '#334155',
+                paddingHorizontal: 14, paddingVertical: 12,
+              }}
+            >
+              <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
+                {moveDestCabinets.find((c: any) => c.id === moveDestCabId)?.cabinet_type === 'freezer' && (
+                  <MaterialCommunityIcons name="snowflake" size={14} color="#60a5fa" style={{marginRight: 8}} />
+                )}
+                <View>
+                  <Text style={{color: '#f8fafc', fontSize: 14, fontWeight: 'bold'}}>
+                    {moveDestCabinets.find((c: any) => c.id === moveDestCabId)?.name ?? 'Select...'}
+                  </Text>
+                  {moveDestCabinets.find((c: any) => c.id === moveDestCabId)?.location ? (
+                    <Text style={{color: '#64748b', fontSize: 10}}>
+                      {moveDestCabinets.find((c: any) => c.id === moveDestCabId)?.location}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.confirmBtn, {backgroundColor: '#d97706'}]}
+            onPress={handleConfirmMove}
+            testID="confirm-move-btn"
+          >
+            <MaterialCommunityIcons name="transfer" size={18} color="white" style={{marginRight: 8}} />
+            <Text style={{color: 'white', fontWeight: 'bold'}}>CONFIRM TRANSFER</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cancelLink} onPress={() => setShowMoveModal(false)}>
+            <Text style={{color: '#64748b'}}>CANCEL</Text>
+          </TouchableOpacity>
+        </View></View>
+      </Modal>
+
+      {/* ─── SECONDARY CABINET PICKER MODAL (Add-Batch Style) ─── */}
+      <Modal visible={showMoveCabinetPicker} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Destination Site</Text>
+            {moveDestCabinets.map(cab => (
+              <TouchableOpacity 
+                key={cab.id} 
+                style={[styles.modalItem, moveDestCabId === cab.id && styles.modalItemActive]}
+                onPress={() => {
+                  setMoveDestCabId(cab.id);
+                  setShowMoveCabinetPicker(false);
+                }}
+              >
+                <View style={{flex: 1}}>
+                  <Text style={[styles.modalItemText, moveDestCabId === cab.id && styles.modalItemTextActive]}>{cab.name}</Text>
+                  <Text style={{color: '#64748b', fontSize: 12}}>{cab.location}</Text>
+                </View>
+                {moveDestCabId === cab.id && <MaterialCommunityIcons name="check" size={20} color="#3b82f6" />}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowMoveCabinetPicker(false)}>
+              <Text style={styles.modalCloseText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
 
       <Modal visible={showConfirmModal} transparent animationType="slide">
         <View style={styles.modalOverlay}><View style={styles.modalContent}>

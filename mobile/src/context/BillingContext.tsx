@@ -320,7 +320,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             {/* PAGE INDICATOR DOTS */}
             <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 20 }}>
-              {[0, 1, 2].map(i => (
+              {[0, 1, 2, 3].map(i => (
                 <View key={i} style={[{
                   height: 6, borderRadius: 3,
                   width: i === welcomePage ? 20 : 6,
@@ -448,8 +448,28 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   Manage your service records and adjust your rank at any time in the <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>Promotion Centre</Text>.
                 </Text>
               </View>
-              <TouchableOpacity testID="welcome-dismiss-btn" style={styles.welcomeBtn} onPress={dismissWelcome}>
-                <Text style={styles.welcomeBtnText}>BEGIN DEPLOYMENT  →</Text>
+            </>)}
+
+            {/* ── PAGE 3: Message from the Developer (Allied Intel) ── */}
+            {welcomePage === 3 && (<>
+              <MaterialCommunityIcons name="shield-account" size={40} color="#6366f1" style={{ alignSelf: 'center', marginBottom: 12 }} />
+              <Text style={styles.welcomeTitle}>A Word from the Dev</Text>
+              <Text style={styles.welcomeSub}>
+                Personal thanks for downloading the app!
+              </Text>
+              <View style={styles.welcomeDivider} />
+              <Text style={{ color: '#cbd5e1', fontSize: 13, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
+                High Command wishes you luck with your deployment. 
+                {"\n\n"}
+                P.S. If you like the tactical precision here, you might also find <Text style={{ color: '#818cf8', fontWeight: 'bold' }}>Reestit</Text> useful—it's a sister service from my tactical lab that provides pithy AI summaries of holiday rental reviews.
+              </Text>
+              
+              <TouchableOpacity testID="welcome-dismiss-btn" style={[styles.welcomeBtn, { marginBottom: 12 }]} onPress={dismissWelcome}>
+                <Text style={styles.welcomeBtnText}>BEGIN MISSION  →</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => {  import('react-native').then(rn => rn.Linking.openURL('https://reestit.com')); }}>
+                <Text style={{ color: '#6366f1', textAlign: 'center', fontSize: 12, fontWeight: 'bold' }}>VISIT REESTIT.COM</Text>
               </TouchableOpacity>
             </>)}
 
@@ -460,7 +480,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   <Text style={{ color: '#64748b', fontWeight: 'bold', fontSize: 13 }}>← BACK</Text>
                 </TouchableOpacity>
               ) : <View />}
-              {welcomePage < 2 ? (
+              {welcomePage < 3 ? (
                 <TouchableOpacity onPress={() => setWelcomePage(p => p + 1)} style={{ marginLeft: 'auto' }}>
                   <Text style={{ color: '#22c55e', fontWeight: 'bold', fontSize: 13 }}>NEXT →</Text>
                 </TouchableOpacity>
