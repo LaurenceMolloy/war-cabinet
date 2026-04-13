@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform, ScrollView, Linking } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform, ScrollView, Linking, Modal } from 'react-native';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { BackupService, BackupMetadata } from '../services/BackupService';
 import { markModified } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
+import SUPPLIERS_DATA from '../data/suppliers.json';
 
 export default function CatalogScreen() {
   const router = useRouter();
@@ -26,9 +27,19 @@ export default function CatalogScreen() {
   const [editingTypeDefaultCabinet, setEditingTypeDefaultCabinet] = useState<number | null>(null);
   const [editingTypeMinStock, setEditingTypeMinStock] = useState('');
   const [editingTypeMaxStock, setEditingTypeMaxStock] = useState('');
+  const [editingTypeSupplier, setEditingTypeSupplier] = useState('');
+  const [editingTypeRange, setEditingTypeRange] = useState('');
+  const [newItemSupplier, setNewItemSupplier] = useState('');
+  const [newItemRange, setNewItemRange] = useState('');
 
   const [newItemMinStock, setNewItemMinStock] = useState('');
   const [newItemMaxStock, setNewItemMaxStock] = useState('');
+  const [newItemDefaultCabinet, setNewItemDefaultCabinet] = useState<number | null>(null);
+  
+  const [supplierVocabulary, setSupplierVocabulary] = useState<string[]>([]);
+  const [rangeVocabulary, setRangeVocabulary] = useState<string[]>([]);
+  const [suggestedTypeAheadSuppliers, setSuggestedTypeAheadSuppliers] = useState<string[]>([]);
+  const [suggestedTypeAheadRanges, setSuggestedTypeAheadRanges] = useState<string[]>([]);
 
   const [cabinets, setCabinets] = useState<any[]>([]);
   const [newCabName, setNewCabName] = useState('');
@@ -62,11 +73,16 @@ export default function CatalogScreen() {
   const [editingCabType, setEditingCabType] = useState<'standard' | 'freezer'>('standard');
   const [newItemFreezeMonths, setNewItemFreezeMonths] = useState('');
   const [editingTypeFreezeMonths, setEditingTypeFreezeMonths] = useState('');
+  const [showInlineAddCabinet, setShowInlineAddCabinet] = useState(false);
+  const [inlineCabContext, setInlineCabContext] = useState<'new_item' | 'edit_item'>('new_item');
+  const [inlineCabName, setInlineCabName] = useState('');
+  const [inlineCabLoc, setInlineCabLoc] = useState('');
+  const [inlineCabType, setInlineCabType] = useState<'standard' | 'freezer'>('standard');
 
   const load = async () => {
     const rows = await db.getAllAsync(`
       SELECT c.id as cat_id, c.name as cat_name, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size,
-             i.min_stock_level, i.max_stock_level, i.freeze_months, i.default_cabinet_id,
+             i.min_stock_level, i.max_stock_level, i.freeze_months, i.default_cabinet_id, i.default_supplier, i.default_product_range,
              (SELECT COUNT(*) FROM Inventory v WHERE v.item_type_id = i.id) as type_stock_count,
              EXISTS(SELECT 1 FROM Inventory v JOIN Cabinets cab ON v.cabinet_id = cab.id WHERE v.item_type_id = i.id AND cab.cabinet_type = 'freezer') as in_freezer
       FROM Categories c
@@ -94,6 +110,8 @@ export default function CatalogScreen() {
             freeze_months: row.freeze_months ?? null,
             in_freezer: row.in_freezer === 1,
             default_cabinet_id: row.default_cabinet_id,
+            default_supplier: row.default_supplier || '',
+            default_product_range: row.default_product_range || '',
         });
       }
       return acc;
@@ -135,6 +153,29 @@ export default function CatalogScreen() {
 
     const backupList = await BackupService.getBackupsList();
     setBackups(backupList);
+
+    // Load Vocabulary
+    try {
+      const dbSuppliers = await db.getAllAsync<{default_supplier: string}>("SELECT DISTINCT default_supplier FROM ItemTypes WHERE default_supplier IS NOT NULL AND default_supplier != ''");
+      const invSuppliers = await db.getAllAsync<{supplier: string}>("SELECT DISTINCT supplier FROM Inventory WHERE supplier IS NOT NULL AND supplier != ''");
+      
+      const combinedS = new Set([
+        ...Object.keys(SUPPLIERS_DATA),
+        ...dbSuppliers.map(s => s.default_supplier),
+        ...invSuppliers.map(s => s.supplier)
+      ]);
+      setSupplierVocabulary(Array.from(combinedS).sort());
+
+      const dbRanges = await db.getAllAsync<{default_product_range: string}>("SELECT DISTINCT default_product_range FROM ItemTypes WHERE default_product_range IS NOT NULL AND default_product_range != ''");
+      const invRanges = await db.getAllAsync<{product_range: string}>("SELECT DISTINCT product_range FROM Inventory WHERE product_range IS NOT NULL AND product_range != ''");
+      const combinedR = new Set([
+        ...dbRanges.map(r => r.default_product_range),
+        ...invRanges.map(r => r.product_range)
+      ]);
+      setRangeVocabulary(Array.from(combinedR).sort());
+    } catch (e) {
+      console.error("Failed to load vocabulary", e);
+    }
   };
 
   useFocusEffect(
@@ -142,6 +183,69 @@ export default function CatalogScreen() {
       load();
     }, [])
   );
+
+
+  const updateSupplierSuggestions = (val: string) => {
+    if (val.trim().length > 0) {
+      const matches = supplierVocabulary
+        .filter(s => s.toLowerCase().includes(val.toLowerCase()))
+        .sort((a, b) => {
+          const aStart = a.toLowerCase().startsWith(val.toLowerCase());
+          const bStart = b.toLowerCase().startsWith(val.toLowerCase());
+          if (aStart && !bStart) return -1;
+          if (!aStart && bStart) return 1;
+          return a.localeCompare(b);
+        })
+        .slice(0, 3);
+      setSuggestedTypeAheadSuppliers(matches);
+    } else {
+      setSuggestedTypeAheadSuppliers([]);
+    }
+  };
+
+  const updateRangeSuggestions = (val: string) => {
+    if (val.trim().length > 0) {
+      const matches = rangeVocabulary
+        .filter(r => r.toLowerCase().includes(val.toLowerCase()))
+        .sort((a, b) => {
+          const aStart = a.toLowerCase().startsWith(val.toLowerCase());
+          const bStart = b.toLowerCase().startsWith(val.toLowerCase());
+          if (aStart && !bStart) return -1;
+          if (!aStart && bStart) return 1;
+          return a.localeCompare(b);
+        })
+        .slice(0, 3);
+      setSuggestedTypeAheadRanges(matches);
+    } else {
+      setSuggestedTypeAheadRanges([]);
+    }
+  };
+
+  const handlePurgeVocabulary = async (val: string, type: 'supplier' | 'range') => {
+    // Instant UI feedback: surgically remove from all active states
+    if (type === 'supplier') {
+      setSuggestedTypeAheadSuppliers(prev => prev.filter(item => item !== val));
+      setSupplierVocabulary(prev => prev.filter(s => s !== val));
+    } else {
+      setSuggestedTypeAheadRanges(prev => prev.filter(item => item !== val));
+      setRangeVocabulary(prev => prev.filter(r => r !== val));
+    }
+
+    // Background Database Cleanup
+    try {
+      if (type === 'supplier') {
+        await db.runAsync("UPDATE ItemTypes SET default_supplier = NULL WHERE default_supplier = ?", [val]);
+        await db.runAsync("UPDATE Inventory SET supplier = NULL WHERE supplier = ?", [val]);
+      } else {
+        await db.runAsync("UPDATE ItemTypes SET default_product_range = NULL WHERE default_product_range = ?", [val]);
+        await db.runAsync("UPDATE Inventory SET product_range = NULL WHERE product_range = ?", [val]);
+      }
+      load(); // Sync full state in background
+    } catch (e) {
+      console.error("Purge failed in background", e);
+    }
+  };
+
 
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
@@ -180,11 +284,14 @@ export default function CatalogScreen() {
       }
     }
 
-    await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size, min_stock_level, max_stock_level, freeze_months) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+    await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size, min_stock_level, max_stock_level, freeze_months, default_cabinet_id, default_supplier, default_product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
         catId, newItemName, newItemUnit, finalDefaultSize, 
         newItemMinStock ? parseInt(newItemMinStock) : null,
         newItemMaxStock ? parseInt(newItemMaxStock) : null,
-        newItemFreezeMonths ? parseInt(newItemFreezeMonths) : null
+        newItemFreezeMonths ? parseInt(newItemFreezeMonths) : null,
+        newItemDefaultCabinet,
+        newItemSupplier || null,
+        newItemRange || null
     ]);
     setNewItemName('');
     setNewItemDefaultSize('');
@@ -193,6 +300,9 @@ export default function CatalogScreen() {
     setNewItemMinStock('');
     setNewItemMaxStock('');
     setNewItemFreezeMonths('');
+    setNewItemSupplier('');
+    setNewItemRange('');
+    setNewItemDefaultCabinet(null);
     load();
   };
 
@@ -267,6 +377,33 @@ export default function CatalogScreen() {
   const handleDeleteCabinet = async (cabId: number, hasStock: boolean) => {
     if (hasStock) return;
     await db.runAsync('DELETE FROM Cabinets WHERE id = ?', [cabId]);
+    load();
+  };
+
+  const handleCreateInlineCabinet = async () => {
+    if (!inlineCabName.trim()) return;
+
+    if (cabinets.length >= limits.cabinets && !hasFullAccess) {
+      checkEntitlement('CABINET_LIMIT');
+      return;
+    }
+    if (inlineCabType === 'freezer' && freezerCabCount >= limits.freezer_cabs && !hasFullAccess) {
+      checkEntitlement('FREEZER_CABINET_LIMIT');
+      return;
+    }
+    const res = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', [inlineCabName.trim(), inlineCabLoc.trim(), inlineCabType]);
+    const newCabId = res.lastInsertRowId;
+    
+    setShowInlineAddCabinet(false);
+    setInlineCabName('');
+    setInlineCabLoc('');
+    setInlineCabType('standard');
+    
+    if (inlineCabContext === 'new_item') {
+       setNewItemDefaultCabinet(Number(newCabId));
+    } else {
+       setEditingTypeDefaultCabinet(Number(newCabId));
+    }
     load();
   };
 
@@ -391,15 +528,19 @@ export default function CatalogScreen() {
       }
     }
 
-    await db.runAsync('UPDATE ItemTypes SET name = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ?, freeze_months = ? WHERE id = ?', [
+    await db.runAsync('UPDATE ItemTypes SET name = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ?, freeze_months = ?, default_supplier = ?, default_product_range = ? WHERE id = ?', [
         editingTypeName, editingTypeUnit, finalDefaultSize, editingTypeDefaultCabinet, 
         editingTypeMinStock ? parseInt(editingTypeMinStock) : null,
         editingTypeMaxStock ? parseInt(editingTypeMaxStock) : null,
         editingTypeFreezeMonths ? parseInt(editingTypeFreezeMonths) : null,
+        editingTypeSupplier || null,
+        editingTypeRange || null,
         typeId
     ]);
     setEditingTypeId(null);
     setEditingTypeFreezeMonths('');
+    setEditingTypeSupplier('');
+    setEditingTypeRange('');
     load();
   };
 
@@ -491,36 +632,170 @@ export default function CatalogScreen() {
             {cat.types.map((type: any) => (
               <View key={type.id} style={styles.typeRow} testID={`type-row-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
                 {editingTypeId === type.id ? (
-                  <View style={{flexDirection: 'column', padding: 8, gap: 10, width: '100%'}}>
-                    <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={editingTypeName} onChangeText={setEditingTypeName} placeholder="Item Name" placeholderTextColor="#64748b" />
-                    <View style={{flexDirection: 'column', gap: 12, marginBottom: 10}}>
-                        <View style={{flexDirection: 'row', gap: 10}}>
+                  <View style={{flexDirection: 'column', padding: 12, backgroundColor: '#0f172a', borderRadius: 10, marginTop: 8}}>
+                    <View style={styles.formSection}>
+                      <Text style={styles.miniLabel}>NAME <Text style={{color: '#f43f5e'}}>*</Text></Text>
+                      <TextInput style={styles.inputSmall} value={editingTypeName} onChangeText={setEditingTypeName} placeholder="Item Name" placeholderTextColor="#64748b" />
+                    </View>
+
+                    <View style={styles.formSection}>
+                      <Text style={styles.miniLabel}>UNIT <Text style={{color: '#f43f5e'}}>*</Text></Text>
+                      <View style={styles.unitChipRowMini}>
+                        <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'weight' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('weight')}><Text style={[styles.unitChipText, editingTypeUnit === 'weight' && styles.unitChipTextActive]}>Weight</Text></TouchableOpacity>
+                        <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'volume' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('volume')}><Text style={[styles.unitChipText, editingTypeUnit === 'volume' && styles.unitChipTextActive]}>Volume</Text></TouchableOpacity>
+                        <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'count' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('count')}><Text style={[styles.unitChipText, editingTypeUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
+                        <MaterialCommunityIcons name="target" size={16} color="#fb923c" />
+                        <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
+                          <Text style={{fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal'}}>QUARTERMASTER: </Text>
+                          Set optional thresholds for stock alerts and restocking reports. Leave blank if you don't track stock levels for this item.
+                        </Text>
+                      </View>
+
+                      <View style={{flexDirection: 'row', gap: 10}}>
                           <View style={{flex: 1}}>
-                            <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({editingTypeUnit === 'volume' ? 'ml' : editingTypeUnit === 'weight' ? 'g' : 'Units'})</Text>
-                            <TextInput style={[styles.inputSmall, { flex: 0, height: 40 }]} value={editingTypeDefaultSize} onChangeText={setEditingTypeDefaultSize} keyboardType="numeric" placeholder="Size / Qty" placeholderTextColor="#64748b" />
+                            <Text style={styles.miniLabel}>MIN STOCK</Text>
+                            <TextInput style={styles.inputSmall} value={editingTypeMinStock} onChangeText={setEditingTypeMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
                           </View>
                           <View style={{flex: 1}}>
-                            <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
-                            <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f', flex: 0, height: 40}]} value={editingTypeFreezeMonths} onChangeText={setEditingTypeFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" testID="edit-item-freeze-months-input" />
+                            <Text style={styles.miniLabel}>MAX STOCK</Text>
+                            <TextInput style={styles.inputSmall} value={editingTypeMaxStock} onChangeText={setEditingTypeMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
                           </View>
+                      </View>
+                    </View>
+
+                    <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
+                        <MaterialCommunityIcons name="information-outline" size={16} color="#60a5fa" />
+                        <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
+                          <Text style={{fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal'}}>PRO TIP: </Text>
+                          Setting defaults below is optional, but pre-fills your forms to ensure frictionless batch entry in the heat of the moment.
+                        </Text>
+                      </View>
+
+                    <View style={{flexDirection: 'row', gap: 10, marginBottom: 12}}>
+                        <View style={{flex: 1}}>
+                          <Text style={styles.miniLabel}>DEFAULT SIZE ({editingTypeUnit === 'volume' ? 'ml' : editingTypeUnit === 'weight' ? 'g' : 'Units'})</Text>
+                          <TextInput style={styles.inputSmall} value={editingTypeDefaultSize} onChangeText={setEditingTypeDefaultSize} keyboardType="numeric" placeholder="Size / Qty" placeholderTextColor="#64748b" />
                         </View>
-                        <View style={{flexDirection: 'row', gap: 10}}>
-                          <View style={{flex: 1}}>
-                            <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
-                            <TextInput style={[styles.inputSmall, { flex: 0, height: 40 }]} value={editingTypeMinStock} onChangeText={setEditingTypeMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
-                          </View>
-                          <View style={{flex: 1}}>
-                            <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
-                            <TextInput style={[styles.inputSmall, { flex: 0, height: 40 }]} value={editingTypeMaxStock} onChangeText={setEditingTypeMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
-                          </View>
+                        <View style={{flex: 1}}>
+                          <Text style={[styles.miniLabel, {color: '#60a5fa'}]}>❄ FREEZE (M)</Text>
+                          <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={editingTypeFreezeMonths} onChangeText={setEditingTypeFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" testID="edit-item-freeze-months-input" />
                         </View>
                     </View>
-                    <View style={styles.unitChipRowMini}>
-                      <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'weight' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('weight')}><Text style={[styles.unitChipText, editingTypeUnit === 'weight' && styles.unitChipTextActive]}>Weight (g)</Text></TouchableOpacity>
-                      <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'volume' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('volume')}><Text style={[styles.unitChipText, editingTypeUnit === 'volume' && styles.unitChipTextActive]}>Volume (ml)</Text></TouchableOpacity>
-                      <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'count' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('count')}><Text style={[styles.unitChipText, editingTypeUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
+
+                    <View style={{ marginBottom: 8 }}>
+                      <Text style={styles.miniLabel}>DEFAULT SUPPLIER</Text>
+                      <TextInput 
+                        style={styles.inputSmall} 
+                        value={editingTypeSupplier} 
+                        onChangeText={(val) => {
+                          setEditingTypeSupplier(val);
+                          updateSupplierSuggestions(val);
+                        }} 
+                        placeholder="e.g. M&S" 
+                        placeholderTextColor="#64748b" 
+                      />
+                      <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
+                        {suggestedTypeAheadSuppliers.length > 0 && editingTypeSupplier.length > 0 && (
+                          <View style={{ flexDirection: 'row', gap: 4 }}>
+                            {suggestedTypeAheadSuppliers.slice(0, 3).map(s => {
+                              const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                              return (
+                                <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                                  <TouchableOpacity onPress={() => { setEditingTypeSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
+                                    <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
+                                  </TouchableOpacity>
+                                  {!isCore && (
+                                    <TouchableOpacity 
+                                      onPress={() => handlePurgeVocabulary(s, 'supplier')}
+                                      hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                                      style={{padding: 2}}
+                                    >
+                                      <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </View>
                     </View>
-                    <TouchableOpacity onPress={() => handleUpdateItemType(type.id)} style={[styles.addSaveBtnFull, { marginTop: 12, marginHorizontal: 0 }]}><Text style={styles.addSaveText}>SAVE CHANGES</Text></TouchableOpacity>
+
+                    <View style={{ marginBottom: 8 }}>
+                      <Text style={styles.miniLabel}>DEFAULT RANGE</Text>
+                      <TextInput 
+                        style={styles.inputSmall} 
+                        value={editingTypeRange} 
+                        onChangeText={(val) => {
+                          setEditingTypeRange(val);
+                          updateRangeSuggestions(val);
+                        }} 
+                        placeholder="e.g. Finest" 
+                        placeholderTextColor="#64748b" 
+                      />
+                      <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
+                        {suggestedTypeAheadRanges.length > 0 && editingTypeRange.length > 0 && (
+                          <View style={{ flexDirection: 'row', gap: 4 }}>
+                            {suggestedTypeAheadRanges.slice(0, 3).map(r => (
+                              <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                                <TouchableOpacity onPress={() => { setEditingTypeRange(r); setSuggestedTypeAheadRanges([]); }}>
+                                  <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                  onPress={() => handlePurgeVocabulary(r, 'range')}
+                                  hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                                  style={{padding: 2}}
+                                >
+                                  <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+
+                    <View style={styles.formSection}>
+                        <Text style={styles.miniLabel}>DEFAULT CABINET</Text>
+                        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8}}>
+                            <TouchableOpacity 
+                              key="none" 
+                              style={[styles.chip, !editingTypeDefaultCabinet && styles.chipActive]} 
+                              onPress={() => setEditingTypeDefaultCabinet(null)}
+                            >
+                              <Text style={[styles.chipText, !editingTypeDefaultCabinet && styles.chipTextActive]}>No Default</Text>
+                            </TouchableOpacity>
+                            {cabinets.map(cab => (
+                                <TouchableOpacity 
+                                  key={cab.id} 
+                                  style={[styles.chip, editingTypeDefaultCabinet === cab.id && styles.chipActive]} 
+                                  onPress={() => setEditingTypeDefaultCabinet(cab.id)}
+                                >
+                                    <Text style={[styles.chipText, editingTypeDefaultCabinet === cab.id && styles.chipTextActive]}>{cab.cabinet_type === 'freezer' ? '❄ ' : ''}{cab.name}</Text>
+                                </TouchableOpacity>
+                            ))}
+                            <TouchableOpacity 
+                              style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: '#0f172a' }]} 
+                              onPress={() => { setInlineCabContext('edit_item'); setShowInlineAddCabinet(true); }}
+                            >
+                                <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CABINET</Text>
+                            </TouchableOpacity>
+                        </View>
+                        {cabinets.some(c => c.cabinet_type === 'freezer') && (
+                            <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginTop: -2, marginBottom: 4 }}>❄ Designated Freezer Cabinet</Text>
+                        )}
+                    </View>
+                    </View>
+
+
+                    <TouchableOpacity onPress={() => handleUpdateItemType(type.id)} style={[styles.addSaveBtnFull, { marginTop: 16 }]}><Text style={styles.addSaveText}>SAVE CHANGES</Text></TouchableOpacity>
+                    <TouchableOpacity style={{marginTop: 12, alignItems: 'center'}} onPress={() => setEditingTypeId(null)}><Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>CANCEL</Text></TouchableOpacity>
                   </View>
                 ) : (
                   <View style={{flexDirection: 'column', width: '100%'}}>
@@ -530,7 +805,7 @@ export default function CatalogScreen() {
                       </TouchableOpacity>
                       <Text style={styles.typeText}>{type.name}</Text>
                       <View style={styles.catActions}>
-                        <TouchableOpacity onPress={() => { setEditingTypeId(type.id); setEditingTypeName(type.name); setEditingTypeUnit(type.unit_type || 'weight'); setEditingTypeDefaultSize(type.default_size || ''); setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : ''); setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : ''); setEditingTypeFreezeMonths(type.freeze_months !== null && type.freeze_months !== undefined ? type.freeze_months.toString() : ''); }} style={{marginRight: 10, marginTop: 4}} testID={`edit-type-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
+                        <TouchableOpacity onPress={async () => { setEditingTypeId(type.id); setEditingTypeName(type.name); setEditingTypeUnit(type.unit_type || 'weight'); setEditingTypeDefaultSize(type.default_size || ''); setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : ''); setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : ''); setEditingTypeFreezeMonths(type.freeze_months !== null && type.freeze_months !== undefined ? type.freeze_months.toString() : ''); setEditingTypeDefaultCabinet(type.default_cabinet_id || null); setEditingTypeSupplier(type.default_supplier || ''); setEditingTypeRange(type.default_product_range || ''); }} style={{marginRight: 10, marginTop: 4}} testID={`edit-type-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
                         <TouchableOpacity disabled={type.stock_count > 0} onPress={() => handleDeleteItemType(type.id)} style={{marginTop: 4}}><MaterialCommunityIcons name="delete" size={20} color={type.stock_count > 0 ? "#334155" : "#ef4444"} /></TouchableOpacity>
                       </View>
                     </View>
@@ -564,39 +839,172 @@ export default function CatalogScreen() {
               </View>
             ))}
             {selectedCat === cat.id ? (
-              <View style={styles.newTypeContainer}>
-                <Text style={styles.formLabel}>New Item Specification</Text>
-                <TextInput style={[styles.inputSmall, { marginBottom: 10 }]} value={newItemName} onChangeText={setNewItemName} placeholder="Item Name" placeholderTextColor="#64748b" testID="new-item-name-input" />
-                <View style={{flexDirection: 'column', gap: 12, marginBottom: 10}}>
-                       <View style={{flexDirection: 'row', gap: 10}}>
-                          <View style={{flex: 1}}>
-                             <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>DEFAULT SIZE ({newItemUnit === 'volume' ? 'ml' : newItemUnit === 'weight' ? 'g' : 'Units'})</Text>
-                             <TextInput style={[styles.inputSmall, {flex: 0, height: 40}]} value={newItemDefaultSize} onChangeText={setNewItemDefaultSize} keyboardType="numeric" placeholder="Size / Qty" placeholderTextColor="#64748b" testID="new-item-default-size-input" />
-                          </View>
-                          <View style={{flex: 1}}>
-                             <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>❄ FREEZE (M)</Text>
-                             <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f', flex: 0, height: 40}]} value={newItemFreezeMonths} onChangeText={setNewItemFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" testID="new-item-freeze-months-input" />
-                          </View>
-                       </View>
-                       <View style={{flexDirection: 'row', gap: 10}}>
-                          <View style={{flex: 1}}>
-                             <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MIN DESIRED STOCK</Text>
-                             <TextInput style={[styles.inputSmall, {flex: 0, height: 40}]} value={newItemMinStock} onChangeText={setNewItemMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
-                          </View>
-                          <View style={{flex: 1}}>
-                             <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>MAX DESIRED STOCK</Text>
-                             <TextInput style={[styles.inputSmall, {flex: 0, height: 40}]} value={newItemMaxStock} onChangeText={setNewItemMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
-                          </View>
-                       </View>
-                    </View>
-                    <View style={styles.unitChipRow}>
-                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'weight' && styles.unitChipActive]} onPress={() => setNewItemUnit('weight')} testID="unit-selector-weight"><Text style={[styles.unitChipText, newItemUnit === 'weight' && styles.unitChipTextActive]}>Weight (g)</Text></TouchableOpacity>
-                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'volume' && styles.unitChipActive]} onPress={() => setNewItemUnit('volume')} testID="unit-selector-volume"><Text style={[styles.unitChipText, newItemUnit === 'volume' && styles.unitChipTextActive]}>Volume (ml)</Text></TouchableOpacity>
-                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'count' && styles.unitChipActive]} onPress={() => setNewItemUnit('count')} testID="unit-selector-count"><Text style={[styles.tabText, newItemUnit === 'count' && styles.tabTextActive, { fontSize: 12 }]}>Count</Text></TouchableOpacity>
-                    </View>
-                    <TouchableOpacity onPress={() => handleAddItemType(cat.id)} style={[styles.addSaveBtnFull, { marginTop: 12, marginHorizontal: 0 }]} testID="submit-item-type-btn"><Text style={styles.addSaveText}>DEPLOY ITEM</Text></TouchableOpacity>
-                    <TouchableOpacity style={{marginTop: 15, alignItems: 'center'}} onPress={() => setSelectedCat(null)}><Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>CANCEL</Text></TouchableOpacity>
+              <View style={[styles.newTypeContainer, { padding: 12 }]}>
+                <View style={styles.formSection}>
+                  <Text style={styles.miniLabel}>NAME <Text style={{color: '#f43f5e'}}>*</Text></Text>
+                  <TextInput style={styles.inputSmall} value={newItemName} onChangeText={setNewItemName} placeholder="Item Name" placeholderTextColor="#64748b" testID="new-item-name-input" />
                 </View>
+
+                <View style={styles.formSection}>
+                   <Text style={styles.miniLabel}>UNIT <Text style={{color: '#f43f5e'}}>*</Text></Text>
+                   <View style={styles.unitChipRowMini}>
+                     <TouchableOpacity style={[styles.unitChip, newItemUnit === 'weight' && styles.unitChipActive]} onPress={() => setNewItemUnit('weight')} testID="unit-selector-weight"><Text style={[styles.unitChipText, newItemUnit === 'weight' && styles.unitChipTextActive]}>Weight</Text></TouchableOpacity>
+                     <TouchableOpacity style={[styles.unitChip, newItemUnit === 'volume' && styles.unitChipActive]} onPress={() => setNewItemUnit('volume')} testID="unit-selector-volume"><Text style={[styles.unitChipText, newItemUnit === 'volume' && styles.unitChipTextActive]}>Volume</Text></TouchableOpacity>
+                     <TouchableOpacity style={[styles.unitChip, newItemUnit === 'count' && styles.unitChipActive]} onPress={() => setNewItemUnit('count')} testID="unit-selector-count"><Text style={[styles.unitChipText, newItemUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
+                   </View>
+                </View>
+
+                <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
+                    <MaterialCommunityIcons name="target" size={16} color="#fb923c" />
+                    <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
+                      <Text style={{fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal'}}>QUARTERMASTER: </Text>
+                      Set optional thresholds for stock alerts and restocking reports. Leave blank if you don't track stock levels for this item.
+                    </Text>
+                  </View>
+
+                  <View style={{flexDirection: 'row', gap: 10}}>
+                      <View style={{flex: 1}}>
+                        <Text style={styles.miniLabel}>MIN STOCK</Text>
+                        <TextInput style={styles.inputSmall} value={newItemMinStock} onChangeText={setNewItemMinStock} keyboardType="numeric" placeholder="Min" placeholderTextColor="#64748b" />
+                      </View>
+                      <View style={{flex: 1}}>
+                        <Text style={styles.miniLabel}>MAX STOCK</Text>
+                        <TextInput style={styles.inputSmall} value={newItemMaxStock} onChangeText={setNewItemMaxStock} keyboardType="numeric" placeholder="Max" placeholderTextColor="#64748b" />
+                      </View>
+                  </View>
+                </View>
+
+                <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
+                    <MaterialCommunityIcons name="information-outline" size={16} color="#60a5fa" />
+                    <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
+                      <Text style={{fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal'}}>PRO TIP: </Text>
+                      Setting defaults below is optional, but pre-fills your forms to ensure frictionless batch entry in the heat of the moment.
+                    </Text>
+                  </View>
+
+                <View style={{flexDirection: 'row', gap: 10, marginBottom: 12}}>
+                    <View style={{flex: 1}}>
+                      <Text style={styles.miniLabel}>DEFAULT SIZE ({newItemUnit === 'volume' ? 'ml' : newItemUnit === 'weight' ? 'g' : 'Units'})</Text>
+                      <TextInput style={styles.inputSmall} value={newItemDefaultSize} onChangeText={setNewItemDefaultSize} keyboardType="numeric" placeholder="Size / Qty" placeholderTextColor="#64748b" testID="new-item-default-size-input" />
+                    </View>
+                    <View style={{flex: 1}}>
+                      <Text style={[styles.miniLabel, {color: '#60a5fa'}]}>❄ FREEZE (M)</Text>
+                      <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={newItemFreezeMonths} onChangeText={setNewItemFreezeMonths} keyboardType="numeric" placeholder="e.g. 6" placeholderTextColor="#475569" testID="new-item-freeze-months-input" />
+                    </View>
+                </View>
+
+                <View style={{ marginBottom: 8 }}>
+                  <Text style={styles.miniLabel}>DEFAULT SUPPLIER</Text>
+                  <TextInput 
+                    style={styles.inputSmall} 
+                    value={newItemSupplier} 
+                    onChangeText={(val) => {
+                      setNewItemSupplier(val);
+                      updateSupplierSuggestions(val);
+                    }} 
+                    placeholder="e.g. M&S" 
+                    placeholderTextColor="#64748b" 
+                  />
+                  <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
+                    {suggestedTypeAheadSuppliers.length > 0 && newItemSupplier.length > 0 && (
+                      <View style={{ flexDirection: 'row', gap: 4 }}>
+                        {suggestedTypeAheadSuppliers.slice(0, 3).map(s => {
+                          const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                          return (
+                            <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                              <TouchableOpacity onPress={() => { setNewItemSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
+                                <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
+                              </TouchableOpacity>
+                              {!isCore && (
+                                <TouchableOpacity 
+                                  onPress={() => handlePurgeVocabulary(s, 'supplier')} 
+                                  hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                                  style={{padding: 2}}
+                                >
+                                  <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                <View style={{ marginBottom: 8 }}>
+                  <Text style={styles.miniLabel}>DEFAULT RANGE</Text>
+                  <TextInput 
+                    style={styles.inputSmall} 
+                    value={newItemRange} 
+                    onChangeText={(val) => {
+                      setNewItemRange(val);
+                      updateRangeSuggestions(val);
+                    }} 
+                    placeholder="e.g. Finest" 
+                    placeholderTextColor="#64748b" 
+                  />
+                  <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
+                    {suggestedTypeAheadRanges.length > 0 && newItemRange.length > 0 && (
+                      <View style={{ flexDirection: 'row', gap: 4 }}>
+                        {suggestedTypeAheadRanges.slice(0, 3).map(r => (
+                          <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                            <TouchableOpacity onPress={() => { setNewItemRange(r); setSuggestedTypeAheadRanges([]); }}>
+                              <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                              onPress={() => handlePurgeVocabulary(r, 'range')}
+                              hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                              style={{padding: 2}}
+                            >
+                              <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                <View style={styles.formSection}>
+                    <Text style={styles.miniLabel}>DEFAULT CABINET</Text>
+                    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8}}>
+                        <TouchableOpacity 
+                          key="none" 
+                          style={[styles.chip, !newItemDefaultCabinet && styles.chipActive]} 
+                          onPress={() => setNewItemDefaultCabinet(null)}
+                        >
+                          <Text style={[styles.chipText, !newItemDefaultCabinet && styles.chipTextActive]}>No Default</Text>
+                        </TouchableOpacity>
+                        {cabinets.map(cab => (
+                            <TouchableOpacity 
+                              key={cab.id} 
+                              style={[styles.chip, newItemDefaultCabinet === cab.id && styles.chipActive]} 
+                              onPress={() => setNewItemDefaultCabinet(cab.id)}
+                            >
+                                <Text style={[styles.chipText, newItemDefaultCabinet === cab.id && styles.chipTextActive]}>{cab.cabinet_type === 'freezer' ? '❄ ' : ''}{cab.name}</Text>
+                            </TouchableOpacity>
+                        ))}
+                        <TouchableOpacity 
+                          style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: '#0f172a' }]} 
+                          onPress={() => { setInlineCabContext('new_item'); setShowInlineAddCabinet(true); }}
+                        >
+                            <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CABINET</Text>
+                        </TouchableOpacity>
+                    </View>
+                    {cabinets.some(c => c.cabinet_type === 'freezer') && (
+                        <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginTop: -2, marginBottom: 4 }}>❄ Designated Freezer Cabinet</Text>
+                    )}
+                </View>
+                </View>
+
+
+
+                <TouchableOpacity onPress={() => handleAddItemType(cat.id)} style={[styles.addSaveBtnFull, { marginTop: 16 }]} testID="submit-item-type-btn"><Text style={styles.addSaveText}>DEPLOY ITEM</Text></TouchableOpacity>
+                <TouchableOpacity style={{marginTop: 12, alignItems: 'center'}} onPress={() => setSelectedCat(null)}><Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>CANCEL</Text></TouchableOpacity>
+              </View>
             ) : (
               <TouchableOpacity style={styles.addNewBtn} onPress={() => setSelectedCat(cat.id)} testID={`expand-add-item-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}>
                 <Text style={styles.addNewText}>+ Add Item Type</Text>
@@ -917,6 +1325,42 @@ export default function CatalogScreen() {
         </ScrollView>
 
       ) : null}
+
+      {/* INLINE ADD CABINET MODAL */}
+      <Modal visible={showInlineAddCabinet} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>NEW STORAGE CABINET</Text>
+            
+            <View style={{ marginBottom: 16, width: '100%' }}>
+              <Text style={styles.miniLabel}>CABINET NAME</Text>
+              <TextInput style={styles.inputSmall} value={inlineCabName} onChangeText={setInlineCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
+            </View>
+
+            <View style={{ marginBottom: 16, width: '100%' }}>
+              <Text style={styles.miniLabel}>LOCATION</Text>
+              <TextInput style={styles.inputSmall} value={inlineCabLoc} onChangeText={setInlineCabLoc} placeholder="e.g. Garage" placeholderTextColor="#64748b" />
+            </View>
+
+            <View style={{ marginBottom: 24, width: '100%' }}>
+              <Text style={styles.miniLabel}>CABINET TYPE</Text>
+              <View style={styles.unitChipRowMini}>
+                <TouchableOpacity style={[styles.unitChip, inlineCabType === 'standard' && styles.unitChipActive]} onPress={() => setInlineCabType('standard')}><Text style={[styles.unitChipText, inlineCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.unitChip, inlineCabType === 'freezer' && styles.unitChipActive]} onPress={() => { if (inlineCabType === 'freezer') setInlineCabType('standard'); else if (checkEntitlement('FREEZER')) setInlineCabType('freezer'); }}><Text style={[styles.unitChipText, inlineCabType === 'freezer' && styles.unitChipTextActive]}>Freezer</Text></TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.saveButton} onPress={handleCreateInlineCabinet}>
+              <Text style={styles.saveText}>CREATE CABINET</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowInlineAddCabinet(false)}>
+              <Text style={styles.modalCloseText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -975,6 +1419,10 @@ const styles = StyleSheet.create({
   unitChipActive: { backgroundColor: '#3b82f6' },
   unitChipText: { color: '#64748b', fontSize: 12, fontWeight: 'bold' },
   unitChipTextActive: { color: 'white' },
+  chip: { backgroundColor: '#334155', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16, marginRight: 8 },
+  chipActive: { backgroundColor: '#3b82f6' },
+  chipText: { color: '#cbd5e1', fontWeight: 'bold' },
+  chipTextActive: { color: 'white' },
   actionRow: { flexDirection: 'row', gap: 10, marginBottom: 24, marginTop: 10 },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 10, gap: 8 },
   actionBtnText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
@@ -1029,5 +1477,14 @@ const styles = StyleSheet.create({
   upgradeBtnText: { color: 'white', fontWeight: 'bold', fontSize: 13, letterSpacing: 0.5 },
   lockedNote: { marginTop: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#334155' },
   lockedNoteText: { color: '#64748b', fontSize: 11, fontStyle: 'italic' },
-  promoFooter: { color: '#94a3b8', fontSize: 11, textAlign: 'center', marginTop: 10, lineHeight: 16 }
+  promoFooter: { color: '#94a3b8', fontSize: 11, textAlign: 'center', marginTop: 10, lineHeight: 16 },
+  miniLabel: { color: '#cbd5e1', fontSize: 12, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4, textTransform: 'uppercase' },
+  formSection: { marginBottom: 16 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 24, maxHeight: '80%' },
+  modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+  modalClose: { marginTop: 20, padding: 15, alignItems: 'center' },
+  modalCloseText: { color: '#ef4444', fontWeight: 'bold', letterSpacing: 1 },
+  saveButton: { backgroundColor: '#22c55e', padding: 18, borderRadius: 8, alignItems: 'center', marginTop: 20 },
+  saveText: { color: 'white', fontWeight: 'bold', fontSize: 18 }
 });

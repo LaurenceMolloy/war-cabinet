@@ -334,9 +334,8 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               <MaterialCommunityIcons name="shield-check" size={40} color="#22c55e" style={{ alignSelf: 'center', marginBottom: 12 }} />
               <Text style={styles.welcomeTitle}>Welcome, Cadet</Text>
               <Text style={styles.welcomeSub}>
-                You've been commissioned for a{' '}
-                <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>7-day tactical evaluation</Text>.
-                The full High-Command suite is yours to explore at your own pace.
+                Prepare for the <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>7-day tactical evaluation</Text> of your new 
+                <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}> Swiss Army Knife</Text> for home logistics.
               </Text>
               <View style={styles.welcomeDivider} />
               <View style={styles.tierHeader}>
@@ -420,7 +419,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               <MaterialCommunityIcons name="rocket-launch" size={40} color="#22c55e" style={{ alignSelf: 'center', marginBottom: 12 }} />
               <Text style={styles.welcomeTitle}>Ready for Deployment</Text>
               <Text style={styles.welcomeSub}>
-                You have been granted full High-Command clearance for 7 days. Use this time to master your logistics and stress-test the suite.
+                You have 7 days of full clearance to master every tool in this tactical Swiss Army Knife. Good luck.
               </Text>
               <View style={styles.welcomeDivider} />
               {/* ── Paragraph 1: Private ── */}

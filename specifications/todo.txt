@@ -1,0 +1,35 @@
+
+NOTE for AI: do NOT implement anything in this file. 
+This is simply an overflow for ideas that hit my brain 
+while waiting for you to complete your tasks.I needed
+somewhere to record those details so they don't get
+forgotten.
+
+I will explicitly feed you requests when I want you to
+work on any of these ideas. Until then, do not touch
+this file.
+
+* headings on all pages to foloow Quartermaster/Mess Hall
+* subtext on MEss Hall form needs to be UNDER headings rather than alongside it.
+* instruction in each section needs a little spacing above
+* instruction in each section needs finessing.
+
+* default supplier for items in config
+* I wonder if we should have a database of suppliers with ability to add your own (to add to memory like ingredients)
+* entering item type - keyboard in the way
+* remembering to go to config is a pain... it should be possible to spin up a new cabinet or item type on the fly from the main page.
+* when selecting cabinets- we shopuld know which are freezer cabinets - it doesn't say
+* freezer items - lifespan is off bottom of screen and looks empty
+* when you re-use an item it must remember the last place you stored it and use that as a default
+* save to stock is hidden partly behind on-screen buttons
+
+we need to consider our intelligent batch merge - identifying when 
+someone has manually entered a new batch, but it's actually the same
+as an existing batch - e.g. they bought two packs of the same thing
+and put them in different places. We should be able to merge them.
+Supplier & Range are now relevant aspects of this match to consider.
+
+We need to specify tests for Supplier & Range entry and suggestions
+We need to check the test spec for default suggested locations logic
+
+AUDIT MODE

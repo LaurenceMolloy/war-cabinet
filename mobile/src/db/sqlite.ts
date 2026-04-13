@@ -16,6 +16,15 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       category_id INTEGER,
       name TEXT NOT NULL,
       unit_type TEXT DEFAULT 'weight',
+      default_size TEXT,
+      default_cabinet_id INTEGER,
+      is_favorite INTEGER DEFAULT 0,
+      interaction_count INTEGER DEFAULT 0,
+      min_stock_level INTEGER,
+      max_stock_level INTEGER,
+      freeze_months INTEGER,
+      default_supplier TEXT,
+      default_product_range TEXT,
       FOREIGN KEY(category_id) REFERENCES Categories(id)
     );
 
@@ -30,6 +39,8 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       entry_year INTEGER NOT NULL,
       cabinet_id INTEGER,
       batch_intel TEXT,
+      supplier TEXT,
+      product_range TEXT,
       FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id)
     );
 
@@ -92,6 +103,16 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN freeze_months INTEGER');
     }
 
+    const hasDefSupplier = columnsRes.some(col => col.name === 'default_supplier');
+    if (!hasDefSupplier) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN default_supplier TEXT');
+    }
+
+    const hasDefRange = columnsRes.some(col => col.name === 'default_product_range');
+    if (!hasDefRange) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN default_product_range TEXT');
+    }
+
     // Freezer mode: cabinet type ('standard' | 'freezer')
     const cabColsRes = await db.getAllAsync<any>('PRAGMA table_info(Cabinets)');
     const hasCabinetType = cabColsRes.some(col => col.name === 'cabinet_type');
@@ -108,6 +129,16 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     const hasBatchIntel = invCols.some(col => col.name === 'batch_intel');
     if (!hasBatchIntel) {
       await db.execAsync('ALTER TABLE Inventory ADD COLUMN batch_intel TEXT');
+    }
+
+    const hasSupplier = invCols.some(col => col.name === 'supplier');
+    if (!hasSupplier) {
+      await db.execAsync('ALTER TABLE Inventory ADD COLUMN supplier TEXT');
+    }
+
+    const hasProductRange = invCols.some(col => col.name === 'product_range');
+    if (!hasProductRange) {
+      await db.execAsync('ALTER TABLE Inventory ADD COLUMN product_range TEXT');
     }
 
     // Iteration 73: Size Standardization - Robust Cross-Platform Cleanup

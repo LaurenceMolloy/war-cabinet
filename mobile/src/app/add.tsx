@@ -5,9 +5,10 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { markModified } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
+import SUPPLIERS_DATA from '../data/suppliers.json';
 
 export default function AddInventoryScreen() {
-  const { typeId, editBatchId, inheritedCabinetId, categoryId } = useLocalSearchParams();
+  const { typeId, editBatchId, inheritedCabinetId, categoryId, isNewType } = useLocalSearchParams();
   const router = useRouter();
   const db = useSQLiteContext();
   const { isCadet, isPrivate, hasFullAccess, limits, checkEntitlement } = useBilling();
@@ -24,16 +25,98 @@ export default function AddInventoryScreen() {
   const [customChips, setCustomChips] = useState<string[]>([]);
   const [unitType, setUnitType] = useState('weight');
   const [batchIntel, setBatchIntel] = useState('');
+  const [supplier, setSupplier] = useState('');
+  const [productRange, setProductRange] = useState('');
+  const [suggestedTypeAheadSuppliers, setSuggestedTypeAheadSuppliers] = useState<string[]>([]);
+  const [suggestedTypeAheadRanges, setSuggestedTypeAheadRanges] = useState<string[]>([]);
+  const [supplierVocabulary, setSupplierVocabulary] = useState<string[]>([]);
+  const [rangeVocabulary, setRangeVocabulary] = useState<string[]>([]);
+  const [showQuickAddType, setShowQuickAddType] = useState(false);
+  const [quickAddName, setQuickAddName] = useState('');
+  const [quickAddUnit, setQuickAddUnit] = useState('weight');
+  const [categories, setCategories] = useState<any[]>([]);
+  const [selectedQuickAddCat, setSelectedQuickAddCat] = useState<number | null>(null);
+  const [quickAddFreezeMonths, setQuickAddFreezeMonths] = useState('');
+  const [quickAddMinStock, setQuickAddMinStock] = useState('');
+  const [quickAddMaxStock, setQuickAddMaxStock] = useState('');
+  const [quickAddDefaultSize, setQuickAddDefaultSize] = useState('');
+  const [quickAddSupplier, setQuickAddSupplier] = useState('');
+  const [quickAddRange, setQuickAddRange] = useState('');
+  const [quickAddDefaultCabinet, setQuickAddDefaultCabinet] = useState<number | null>(null);
+  const [showAddCabinet, setShowAddCabinet] = useState(false);
+  const [newCabName, setNewCabName] = useState('');
+  const [newCabLoc, setNewCabLoc] = useState('');
+  const [newCabType, setNewCabType] = useState<'standard' | 'freezer'>('standard');
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [mergeCandidate, setMergeCandidate] = useState<any>(null);
   const [deferredSave, setDeferredSave] = useState<any>(null);
-  
   const getUnitSuffix = (type: string) => {
     if (type === 'weight') return 'g';
     if (type === 'volume') return 'ml';
     if (type === 'count') return 'Units';
     return '';
   };
+
+  const updateSupplierSuggestions = (val: string, segment: 'main' | 'quick') => {
+    if (val.trim().length > 0) {
+      const matches = supplierVocabulary
+        .filter(s => s.toLowerCase().includes(val.toLowerCase()))
+        .sort((a, b) => {
+          const aStart = a.toLowerCase().startsWith(val.toLowerCase());
+          const bStart = b.toLowerCase().startsWith(val.toLowerCase());
+          if (aStart && !bStart) return -1;
+          if (!aStart && bStart) return 1;
+          return a.localeCompare(b);
+        })
+        .slice(0, 3);
+      setSuggestedTypeAheadSuppliers(matches);
+    } else {
+      setSuggestedTypeAheadSuppliers([]);
+    }
+  };
+
+  const updateRangeSuggestions = (val: string) => {
+    if (val.trim().length > 0) {
+      const matches = rangeVocabulary
+        .filter(r => r.toLowerCase().includes(val.toLowerCase()))
+        .sort((a, b) => {
+          const aStart = a.toLowerCase().startsWith(val.toLowerCase());
+          const bStart = b.toLowerCase().startsWith(val.toLowerCase());
+          if (aStart && !bStart) return -1;
+          if (!aStart && bStart) return 1;
+          return a.localeCompare(b);
+        })
+        .slice(0, 3);
+      setSuggestedTypeAheadRanges(matches);
+    } else {
+      setSuggestedTypeAheadRanges([]);
+    }
+  };
+
+  const handlePurgeVocabulary = async (val: string, type: 'supplier' | 'range') => {
+    // Instant UI feedback using functional state updates
+    if (type === 'supplier') {
+      setSuggestedTypeAheadSuppliers(prev => prev.filter(item => item !== val));
+      setSupplierVocabulary(prev => prev.filter(s => s !== val));
+    } else {
+      setSuggestedTypeAheadRanges(prev => prev.filter(item => item !== val));
+      setRangeVocabulary(prev => prev.filter(r => r !== val));
+    }
+
+    // Background Database Cleanup
+    try {
+      if (type === 'supplier') {
+        await db.runAsync("UPDATE ItemTypes SET default_supplier = NULL WHERE default_supplier = ?", [val]);
+        await db.runAsync("UPDATE Inventory SET supplier = NULL WHERE supplier = ?", [val]);
+      } else {
+        await db.runAsync("UPDATE ItemTypes SET default_product_range = NULL WHERE default_product_range = ?", [val]);
+        await db.runAsync("UPDATE Inventory SET product_range = NULL WHERE product_range = ?", [val]);
+      }
+    } catch (e) {
+      console.error("Purge failed in background", e);
+    }
+  };
+
 
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [showYearPicker, setShowYearPicker] = useState(false);
@@ -56,7 +139,7 @@ export default function AddInventoryScreen() {
 
   useEffect(() => {
     async function loadData() {
-      const typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null}>('SELECT name, unit_type, default_size, default_cabinet_id, freeze_months FROM ItemTypes WHERE id = ?', [Number(typeId)]);
+      const typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null}>('SELECT name, unit_type, default_size, default_cabinet_id, freeze_months, default_supplier, default_product_range FROM ItemTypes WHERE id = ?', [Number(typeId)]);
       if (typeRes) {
         setUnitType(typeRes.unit_type || 'weight');
         setTypeName(typeRes.name);
@@ -66,17 +149,53 @@ export default function AddInventoryScreen() {
 
       const cabRows = await db.getAllAsync<any>('SELECT * FROM Cabinets');
       setCabinets(cabRows);
+
+      // Load Vocab
+      const dbSuppliers = await db.getAllAsync<{default_supplier: string}>("SELECT DISTINCT default_supplier FROM ItemTypes WHERE default_supplier IS NOT NULL AND default_supplier != ''");
+      const invSuppliers = await db.getAllAsync<{supplier: string}>("SELECT DISTINCT supplier FROM Inventory WHERE supplier IS NOT NULL AND supplier != ''");
+      const combinedS = new Set([
+        ...Object.keys(SUPPLIERS_DATA),
+        ...dbSuppliers.map(s => s.default_supplier),
+        ...invSuppliers.map(s => s.supplier)
+      ]);
+      setSupplierVocabulary(Array.from(combinedS).sort());
+
+      const dbRanges = await db.getAllAsync<{default_product_range: string}>("SELECT DISTINCT default_product_range FROM ItemTypes WHERE default_product_range IS NOT NULL AND default_product_range != ''");
+      const invRanges = await db.getAllAsync<{product_range: string}>("SELECT DISTINCT product_range FROM Inventory WHERE product_range IS NOT NULL AND product_range != ''");
+      const combinedR = new Set([
+        ...dbRanges.map(r => r.default_product_range),
+        ...invRanges.map(r => r.product_range)
+      ]);
+      setRangeVocabulary(Array.from(combinedR).sort());
       
-      // Determine Default Cabinet Selection
+      // --- INTELLIGENCE HIERARCHY FOR CABINET SELECTION ---
       if (editBatchId) {
         // Edit mode cabinet is handled later by batch load
       } else if (inheritedCabinetId) {
+        // Explicit intent from navigation (e.g. adding from within a cabinet view)
         setSelectedCabinetId(Number(inheritedCabinetId));
-      } else if (typeRes?.default_cabinet_id) {
-        setSelectedCabinetId(typeRes.default_cabinet_id);
-      } else if (cabRows.length > 0) {
-        setSelectedCabinetId(cabRows[0].id);
+      } else {
+        // TIER 1: Explicit Config
+        if (typeRes?.default_cabinet_id) {
+          setSelectedCabinetId(typeRes.default_cabinet_id);
+        } else {
+          // TIER 2: Item History
+          const lastForItem = await db.getFirstAsync<{cabinet_id: number}>('SELECT cabinet_id FROM Inventory WHERE item_type_id = ? ORDER BY id DESC LIMIT 1', [Number(typeId)]);
+          if (lastForItem) {
+            setSelectedCabinetId(lastForItem.cabinet_id);
+          } else {
+            // TIER 3: Global Recency (Persistent)
+            const globalRecency = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['last_used_cabinet_id']);
+            if (globalRecency && globalRecency.value) {
+              setSelectedCabinetId(Number(globalRecency.value));
+            } else if (cabRows.length > 0) {
+              // TIER 4: Global Fallback (Alpha)
+              setSelectedCabinetId(cabRows[0].id);
+            }
+          }
+        }
       }
+
 
       const res = await db.getAllAsync<{size: string}>(
         "SELECT size FROM Inventory WHERE item_type_id = ? AND size NOT GLOB '*[^0-9]*' GROUP BY size ORDER BY MAX(id) DESC LIMIT 3",
@@ -98,6 +217,8 @@ export default function AddInventoryScreen() {
           setExpiryYear(batch.expiry_year?.toString() || '');
           if (batch.cabinet_id) setSelectedCabinetId(batch.cabinet_id);
           if (batch.batch_intel) setBatchIntel(batch.batch_intel);
+          if (batch.supplier) setSupplier(batch.supplier);
+          if (batch.product_range) setProductRange(batch.product_range);
           // Pre-fill freeze date from entry date for freezer edits
           if (batch.entry_month) setFreezeMonth(batch.entry_month.toString());
           if (batch.entry_year) setFreezeYear(batch.entry_year.toString());
@@ -108,10 +229,23 @@ export default function AddInventoryScreen() {
         } else if (res && res.length > 0) {
           setSize(res[0].size.toString().replace(/[^0-9]/g, '') || '');
         }
+        if (typeRes && typeRes.default_supplier) setSupplier(typeRes.default_supplier);
+        if (typeRes && typeRes.default_product_range) setProductRange(typeRes.default_product_range);
+      }
+
+      const catRows = await db.getAllAsync<any>('SELECT * FROM Categories ORDER BY name');
+      setCategories(catRows);
+      if (!selectedQuickAddCat && catRows.length > 0 && categoryId) {
+        setSelectedQuickAddCat(Number(categoryId));
+      } else if (!selectedQuickAddCat && catRows.length > 0) {
+        setSelectedQuickAddCat(catRows[0].id);
+      }
+      if (isNewType === '1' && !editBatchId) {
+        setShowQuickAddType(true);
       }
     }
     loadData();
-  }, [typeId, editBatchId]);
+  }, [typeId, editBatchId, isNewType]);
 
   const handleSave = async () => {
     try {
@@ -184,13 +318,13 @@ export default function AddInventoryScreen() {
       if (isFreezerMode) {
         if (editBatchId) {
           await db.runAsync(
-            'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = NULL, expiry_year = NULL, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ? WHERE id = ?',
-            [q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, Number(editBatchId)]
+            'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = NULL, expiry_year = NULL, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ? WHERE id = ?',
+            [q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null, Number(editBatchId)]
           );
         } else {
           await db.runAsync(
-            `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
-            [Number(typeId), q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null]
+            `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
+            [Number(typeId), q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null]
           );
         }
         
@@ -207,7 +341,7 @@ export default function AddInventoryScreen() {
       const expYVal = validExpiry ? exY : null;
 
       const existingSearchQuery = `
-        SELECT id, batch_intel, expiry_month, expiry_year FROM Inventory 
+        SELECT id, batch_intel, expiry_month, expiry_year, supplier, product_range FROM Inventory 
         WHERE item_type_id = ? AND size = ? AND cabinet_id = ?
           AND ( (expiry_month IS NULL AND ? IS NULL) OR (expiry_month = ?) )
           AND ( (expiry_year IS NULL AND ? IS NULL) OR (expiry_year = ?) )
@@ -215,22 +349,47 @@ export default function AddInventoryScreen() {
       `;
       const potentialMatches = await db.getAllAsync<any>(
         existingSearchQuery, 
-        [Number(typeId), finalSize, selectedCabinetId, expMVal, expMVal, expYVal, expYVal, editBatchId ? Number(editBatchId) : -1]
+        [
+          Number(typeId), finalSize, selectedCabinetId, 
+          expMVal, expMVal, expYVal, expYVal, 
+          editBatchId ? Number(editBatchId) : -1
+        ]
       );
 
       const cleanNewIntel = batchIntel?.trim() || null;
+      const cleanNewSupplier = supplier?.trim() || null;
+      const cleanNewRange = productRange?.trim() || null;
 
       if (potentialMatches.length > 0) {
-        const exactMatch = potentialMatches.find(m => (m.batch_intel?.trim() || null) === cleanNewIntel);
+        // 1. SILENT MERGE: All metadata (Supplier, Range, Intel) must match exactly
+        const exactMatch = potentialMatches.find(m => 
+          (m.batch_intel?.trim() || null) === cleanNewIntel &&
+          (m.supplier || null) === cleanNewSupplier &&
+          (m.product_range || null) === cleanNewRange
+        );
+
         if (exactMatch) {
           await finalizeCommit(exactMatch.id, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel });
         } else {
-          setMergeCandidate(potentialMatches[0]);
-          setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel });
-          setShowMergeModal(true);
+          // 2. MODAL MERGE: If not exact, offer a merge if Supplier/Range are NULL-compatible 
+          // (i.e. we allow NULL to match a value, but don't merge mismatched non-NULL values)
+          const mergeCandidate = potentialMatches.find(m => {
+            const sMatch = !cleanNewSupplier || !m.supplier || cleanNewSupplier === m.supplier;
+            const rMatch = !cleanNewRange || !m.product_range || cleanNewRange === m.product_range;
+            return sMatch && rMatch;
+          });
+
+          if (mergeCandidate) {
+            setMergeCandidate(mergeCandidate);
+            setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel });
+            setShowMergeModal(true);
+          } else {
+            // 3. NO MATCH: Structural metadata differs (e.g. different brands), so create new
+            await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel, supplier, productRange });
+          }
         }
       } else {
-        await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel });
+        await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel, supplier, productRange });
       }
     } catch (err: any) {
       console.error('Save failed:', err);
@@ -250,15 +409,19 @@ export default function AddInventoryScreen() {
         }
       } else if (editBatchId) {
         await db.runAsync(
-          'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ? WHERE id = ?',
-          [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, Number(editBatchId)]
+          'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ? WHERE id = ?',
+          [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, Number(editBatchId)]
         );
       } else {
         await db.runAsync(
-          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null]
+          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null]
         );
+      }
+
+      if (data.selectedCabinetId) {
+        await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['last_used_cabinet_id', data.selectedCabinetId.toString()]);
       }
 
       await markModified(db);
@@ -276,6 +439,61 @@ export default function AddInventoryScreen() {
     
     const targetId = choice === 'MERGE' ? mergeCandidate.id : null;
     await finalizeCommit(targetId, deferredSave);
+  };
+
+  const handleQuickAddType = async () => {
+    if (!quickAddName.trim() || !selectedQuickAddCat) return;
+    try {
+      const res = await db.runAsync(
+        'INSERT INTO ItemTypes (name, category_id, unit_type, min_stock_level, max_stock_level, default_size, freeze_months, default_supplier, default_product_range, default_cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          quickAddName.trim(), 
+          selectedQuickAddCat, 
+          quickAddUnit, 
+          quickAddMinStock ? parseInt(quickAddMinStock) : null,
+          quickAddMaxStock ? parseInt(quickAddMaxStock) : null,
+          quickAddDefaultSize || null,
+          quickAddFreezeMonths ? parseInt(quickAddFreezeMonths) : null,
+          quickAddSupplier || null,
+          quickAddRange || null,
+          quickAddDefaultCabinet
+        ]
+      );
+      const newTypeId = res.lastInsertRowId;
+      setShowQuickAddType(false);
+      setQuickAddName('');
+      // Update the URL params and trigger a reload
+      router.setParams({ typeId: newTypeId.toString(), isNewType: undefined });
+    } catch (e) {
+      Alert.alert('Error', 'Could not create new item type.');
+    }
+  };
+
+  const handleCreateCabinet = async () => {
+    if (!newCabName.trim()) return;
+    try {
+      const res = await db.runAsync(
+        'INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)',
+        [newCabName.trim(), newCabLoc.trim(), newCabType]
+      );
+      const newCabId = res.lastInsertRowId;
+      
+      const updatedCabs = await db.getAllAsync<any>('SELECT * FROM Cabinets');
+      setCabinets(updatedCabs);
+      
+      if (showQuickAddType) {
+        setQuickAddDefaultCabinet(Number(newCabId));
+      } else {
+        setSelectedCabinetId(Number(newCabId));
+      }
+      
+      setShowAddCabinet(false);
+      setNewCabName('');
+      setNewCabLoc('');
+      setNewCabType('standard');
+    } catch (e) {
+      Alert.alert('Error', 'Could not create cabinet.');
+    }
   };
 
   const increment = () => setQuantity(prev => (parseInt(prev || '0') + 1).toString());
@@ -304,9 +522,9 @@ export default function AddInventoryScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 60 }}>
       <View style={styles.headerRow}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.title}>{editBatchId ? 'Update Batch' : 'Add Batch'}</Text>
-          <Text style={styles.subTitle}>{typeName}</Text>
+            <Text style={styles.subTitle}>{typeName}</Text>
         </View>
         <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} testID="cancel-btn">
           <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
@@ -370,21 +588,103 @@ export default function AddInventoryScreen() {
 
       <View style={styles.formGroup}>
         <Text style={styles.label}>Storage Cabinet</Text>
-        <TouchableOpacity 
-          style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]} 
-          onPress={() => setShowCabinetPicker(true)}
-          testID="cabinet-selector"
-        >
-          <View>
-            <Text style={{ color: '#f8fafc', fontSize: 16 }}>
-              {cabinets.find(c => c.id === selectedCabinetId)?.name || 'Select Cabinet'}
-            </Text>
-            <Text style={{ color: '#64748b', fontSize: 12 }}>
-              {cabinets.find(c => c.id === selectedCabinetId)?.location || 'No Location'}
-            </Text>
-          </View>
-          <MaterialCommunityIcons name="chevron-down" size={24} color="#64748b" />
-        </TouchableOpacity>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8}}>
+          {cabinets.map(cab => (
+            <TouchableOpacity 
+              key={cab.id} 
+              style={[styles.chip, selectedCabinetId === cab.id && styles.chipActive]} 
+              onPress={() => setSelectedCabinetId(cab.id)}
+            >
+              <Text style={[styles.chipText, selectedCabinetId === cab.id && styles.chipTextActive]}>
+                {cab.cabinet_type === 'freezer' ? '❄ ' : ''}{cab.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity 
+            style={[styles.chip, {borderColor: '#3b82f6', backgroundColor: '#0f172a'}]} 
+            onPress={() => setShowAddCabinet(true)}
+          >
+            <Text style={[styles.chipText, {color: '#3b82f6'}]}>+ NEW CABINET</Text>
+          </TouchableOpacity>
+        </View>
+        {cabinets.some(c => c.cabinet_type === 'freezer') && (
+            <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginTop: -2, marginBottom: 8 }}>❄ Designated Freezer Cabinet</Text>
+        )}
+      </View>
+
+      <View style={styles.formGroup}>
+        <Text style={styles.label}>Supplier (Optional)</Text>
+        <TextInput 
+          style={styles.input} 
+          value={supplier} 
+          onChangeText={(val) => {
+            setSupplier(val);
+            updateSupplierSuggestions(val, 'main');
+          }} 
+          placeholder="e.g. M&S, Waitrose, Tesco..."
+          placeholderTextColor="#64748b"
+          testID="supplier-input"
+        />
+        <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
+          {suggestedTypeAheadSuppliers.length > 0 && supplier.length > 0 && (
+            <View style={{flexDirection: 'row', gap: 4}}>
+              {suggestedTypeAheadSuppliers.map(s => {
+                const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                return (
+                  <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                    <TouchableOpacity onPress={() => { setSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
+                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
+                    </TouchableOpacity>
+                    {!isCore && (
+                      <TouchableOpacity 
+                        onPress={() => handlePurgeVocabulary(s, 'supplier')}
+                        hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                        style={{padding: 2}}
+                      >
+                        <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      </View>
+
+      <View style={styles.formGroup}>
+        <Text style={styles.label}>Product Range (Optional)</Text>
+        <TextInput 
+          style={styles.input} 
+          value={productRange} 
+          onChangeText={(val) => {
+            setProductRange(val);
+            updateRangeSuggestions(val);
+          }} 
+          placeholder="e.g. Gastropub, Essential, Finest..."
+          placeholderTextColor="#64748b"
+          testID="product-range-input"
+        />
+        <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
+          {suggestedTypeAheadRanges.length > 0 && productRange.length > 0 && (
+            <View style={{flexDirection: 'row', gap: 4}}>
+              {suggestedTypeAheadRanges.map(r => (
+                <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                  <TouchableOpacity onPress={() => { setProductRange(r); setSuggestedTypeAheadRanges([]); }}>
+                    <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    onPress={() => handlePurgeVocabulary(r, 'range')}
+                    hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                    style={{padding: 2}}
+                  >
+                    <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Expiry Date (standard) / Date Frozen (freezer) */}
@@ -546,7 +846,7 @@ export default function AddInventoryScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>CONSOLIDATE BATCH?</Text>
             <Text style={{color: '#64748b', textAlign: 'center', fontSize: 13, marginBottom: 16}}>
-              A batch with matching specifications already exists, but its Intel differs.
+              A batch with matching specifications already exists.
             </Text>
 
             {mergeCandidate && (
@@ -557,12 +857,12 @@ export default function AddInventoryScreen() {
                     {cabinets.find(c => c.id === selectedCabinetId)?.name.toUpperCase()}
                   </Text>
                 </View>
-                {mergeCandidate.batch_intel && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                    <MaterialCommunityIcons name="information" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
-                    <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                      {mergeCandidate.batch_intel.toUpperCase()}
-                    </Text>
+                {(mergeCandidate.batch_intel || mergeCandidate.supplier || mergeCandidate.product_range) && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
+                    <MaterialCommunityIcons name="information" size={14} color="#3b82f6" />
+                    {mergeCandidate.supplier && <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>{mergeCandidate.supplier.toUpperCase()}</Text>}
+                    {mergeCandidate.product_range && <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>[{mergeCandidate.product_range.toUpperCase()}]</Text>}
+                    {mergeCandidate.batch_intel && <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic' }}>{mergeCandidate.batch_intel}</Text>}
                   </View>
                 )}
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
@@ -598,6 +898,209 @@ export default function AddInventoryScreen() {
 
             <TouchableOpacity style={styles.cancelLink} onPress={() => { setShowMergeModal(false); setDeferredSave(null); }}>
               <Text style={{color: '#64748b', fontWeight: 'bold'}}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* QUICK ADD ITEM TYPE MODAL */}
+      <Modal visible={showQuickAddType} animationType="slide">
+        <View style={{flex: 1, backgroundColor: '#0f172a'}}>
+          <ScrollView contentContainerStyle={{flexGrow: 1, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40}}>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24}}>
+                <Text style={styles.title}>DEPLOY NEW ITEM</Text>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowQuickAddType(false); if (isNewType) router.back(); }}>
+                    <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
+                </TouchableOpacity>
+            </View>
+
+            <View style={styles.formSection}>
+              <Text style={styles.miniLabel}>NAME <Text style={{color: '#f43f5e'}}>*</Text></Text>
+              <TextInput style={styles.inputSmall} value={quickAddName} onChangeText={setQuickAddName} placeholder="Item Name" placeholderTextColor="#64748b" autoFocus />
+            </View>
+
+            <View style={styles.formSection}>
+               <Text style={styles.miniLabel}>UNIT <Text style={{color: '#f43f5e'}}>*</Text></Text>
+               <View style={styles.unitChipRowMini}>
+                 <TouchableOpacity style={[styles.unitChip, quickAddUnit === 'weight' && styles.unitChipActive]} onPress={() => setQuickAddUnit('weight')}><Text style={[styles.unitChipText, quickAddUnit === 'weight' && styles.unitChipTextActive]}>Weight</Text></TouchableOpacity>
+                 <TouchableOpacity style={[styles.unitChip, quickAddUnit === 'volume' && styles.unitChipActive]} onPress={() => setQuickAddUnit('volume')}><Text style={[styles.unitChipText, quickAddUnit === 'volume' && styles.unitChipTextActive]}>Volume</Text></TouchableOpacity>
+                 <TouchableOpacity style={[styles.unitChip, quickAddUnit === 'count' && styles.unitChipActive]} onPress={() => setQuickAddUnit('count')}><Text style={[styles.unitChipText, quickAddUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
+               </View>
+            </View>
+
+            <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
+                <MaterialCommunityIcons name="target" size={16} color="#fb923c" />
+                <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
+                  <Text style={{fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal'}}>QUARTERMASTER: </Text>
+                  Set optional thresholds for stock alerts and restocking reports. Leave blank if you don't track stock levels for this item.
+                </Text>
+              </View>
+
+              <View style={{flexDirection: 'row', gap: 10, width: '100%'}}>
+                  <View style={{flex: 1}}>
+                      <Text style={styles.miniLabel}>MIN STOCK</Text>
+                      <TextInput style={styles.inputSmall} value={quickAddMinStock} onChangeText={setQuickAddMinStock} placeholder="Min" placeholderTextColor="#64748b" keyboardType="numeric" />
+                  </View>
+                  <View style={{flex: 1}}>
+                      <Text style={styles.miniLabel}>MAX STOCK</Text>
+                      <TextInput style={styles.inputSmall} value={quickAddMaxStock} onChangeText={setQuickAddMaxStock} placeholder="Max" placeholderTextColor="#64748b" keyboardType="numeric" />
+                  </View>
+              </View>
+            </View>
+
+            <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
+                  <MaterialCommunityIcons name="information-outline" size={16} color="#60a5fa" />
+                  <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
+                    <Text style={{fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal'}}>PRO TIP: </Text>
+                    Setting defaults below is optional, but pre-fills your forms to ensure frictionless batch entry in the heat of the moment.
+                  </Text>
+                </View>
+
+                <View style={{flexDirection: 'row', gap: 10, width: '100%', marginBottom: 12}}>
+                    <View style={{flex: 1}}>
+                        <Text style={styles.miniLabel}>DEFAULT SIZE ({quickAddUnit === 'volume' ? 'ml' : quickAddUnit === 'weight' ? 'g' : 'Units'})</Text>
+                        <TextInput style={styles.inputSmall} value={quickAddDefaultSize} onChangeText={setQuickAddDefaultSize} placeholder="Size / Qty" placeholderTextColor="#64748b" keyboardType="numeric" />
+                    </View>
+                    <View style={{flex: 1}}>
+                        <Text style={[styles.miniLabel, {color: '#60a5fa'}]}>❄ FREEZE (M)</Text>
+                        <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={quickAddFreezeMonths} onChangeText={setQuickAddFreezeMonths} placeholder="e.g. 6" placeholderTextColor="#475569" keyboardType="numeric" />
+                    </View>
+                </View>
+
+                <View style={{ width: '100%', marginBottom: 8 }}>
+                    <Text style={styles.miniLabel}>DEFAULT SUPPLIER</Text>
+                    <TextInput 
+                      style={styles.inputSmall} 
+                      value={quickAddSupplier} 
+                      onChangeText={(val) => {
+                        setQuickAddSupplier(val);
+                        updateSupplierSuggestions(val, 'quick');
+                      }} 
+                      placeholder="e.g. M&S" 
+                      placeholderTextColor="#64748b" 
+                    />
+                    <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
+                      {suggestedTypeAheadSuppliers.length > 0 && quickAddSupplier.length > 0 && (
+                        <View style={{ flexDirection: 'row', gap: 4 }}>
+                          {suggestedTypeAheadSuppliers.slice(0, 3).map(s => {
+                            const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                            return (
+                              <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                                <TouchableOpacity onPress={() => { setQuickAddSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
+                                  <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
+                                </TouchableOpacity>
+                                {!isCore && (
+                                  <TouchableOpacity 
+                                    onPress={() => handlePurgeVocabulary(s, 'supplier')}
+                                    hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                                    style={{padding: 2}}
+                                  >
+                                    <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                </View>
+
+                <View style={{ width: '100%', marginBottom: 8 }}>
+                    <Text style={styles.miniLabel}>DEFAULT RANGE</Text>
+                    <TextInput 
+                      style={styles.inputSmall} 
+                      value={quickAddRange} 
+                      onChangeText={(val) => {
+                        setQuickAddRange(val);
+                        updateRangeSuggestions(val);
+                      }} 
+                      placeholder="e.g. Finest" 
+                      placeholderTextColor="#64748b" 
+                    />
+                    <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
+                      {suggestedTypeAheadRanges && suggestedTypeAheadRanges.length > 0 && quickAddRange.length > 0 && (
+                        <View style={{ flexDirection: 'row', gap: 4 }}>
+                          {suggestedTypeAheadRanges.slice(0, 3).map(r => (
+                            <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                              <TouchableOpacity onPress={() => { setQuickAddRange(r); setSuggestedTypeAheadRanges([]); }}>
+                                <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity 
+                                onPress={() => handlePurgeVocabulary(r, 'range')}
+                                hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                                style={{padding: 2}}
+                              >
+                                <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                </View>
+
+                <View style={styles.formSection}>
+                    <Text style={styles.miniLabel}>DEFAULT CABINET</Text>
+                    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8}}>
+                        <TouchableOpacity style={[styles.chip, !quickAddDefaultCabinet && styles.chipActive]} onPress={() => setQuickAddDefaultCabinet(null)}>
+                            <Text style={[styles.chipText, !quickAddDefaultCabinet && styles.chipTextActive]}>No Default</Text>
+                        </TouchableOpacity>
+                        {cabinets.map(cab => (
+                            <TouchableOpacity key={cab.id} style={[styles.chip, quickAddDefaultCabinet === cab.id && styles.chipActive]} onPress={() => setQuickAddDefaultCabinet(cab.id)}>
+                                <Text style={[styles.chipText, quickAddDefaultCabinet === cab.id && styles.chipTextActive]}>{cab.cabinet_type === 'freezer' ? '❄ ' : ''}{cab.name}</Text>
+                            </TouchableOpacity>
+                        ))}
+                        <TouchableOpacity style={[styles.chip, {borderColor: '#3b82f6', borderWidth: 1, backgroundColor: '#0f172a'}]} onPress={() => setShowAddCabinet(true)}>
+                            <Text style={[styles.chipText, {color: '#3b82f6'}]}>+ NEW CABINET</Text>
+                        </TouchableOpacity>
+                    </View>
+                    {cabinets.some(c => c.cabinet_type === 'freezer') && (
+                        <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginTop: -2, marginBottom: 4 }}>❄ Designated Freezer Cabinet</Text>
+                    )}
+                </View>
+            </View>
+
+
+            <TouchableOpacity style={[styles.saveButton, { marginTop: 10 }]} onPress={handleQuickAddType}>
+              <Text style={styles.saveText}>CREATE SPECIFICATION</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ADD CABINET MODAL */}
+      <Modal visible={showAddCabinet} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>NEW STORAGE CABINET</Text>
+            
+            <View style={{ marginBottom: 16, width: '100%' }}>
+              <Text style={styles.miniLabel}>CABINET NAME</Text>
+              <TextInput style={styles.inputSmall} value={newCabName} onChangeText={setNewCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
+            </View>
+
+            <View style={{ marginBottom: 16, width: '100%' }}>
+              <Text style={styles.miniLabel}>LOCATION</Text>
+              <TextInput style={styles.inputSmall} value={newCabLoc} onChangeText={setNewCabLoc} placeholder="e.g. Garage" placeholderTextColor="#64748b" />
+            </View>
+
+            <View style={{ marginBottom: 24, width: '100%' }}>
+              <Text style={styles.miniLabel}>CABINET TYPE</Text>
+              <View style={styles.unitChipRowMini}>
+                <TouchableOpacity style={[styles.unitChip, newCabType === 'standard' && styles.unitChipActive]} onPress={() => setNewCabType('standard')}><Text style={[styles.unitChipText, newCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.unitChip, newCabType === 'freezer' && styles.unitChipActive]} onPress={() => setNewCabType('freezer')}><Text style={[styles.unitChipText, newCabType === 'freezer' && styles.unitChipTextActive]}>Freezer</Text></TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCabinet}>
+              <Text style={styles.saveText}>CREATE CABINET</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCabinet(false)}>
+              <Text style={styles.modalCloseText}>CANCEL</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -652,5 +1155,13 @@ const styles = StyleSheet.create({
   modalCloseText: { color: '#ef4444', fontWeight: 'bold', letterSpacing: 1 },
   confirmBtn: { padding: 16, borderRadius: 8, width: '100%', alignItems: 'center' },
   confirmBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-  cancelLink: { padding: 12, width: '100%', alignItems: 'center' }
+  cancelLink: { padding: 12, width: '100%', alignItems: 'center' },
+  unitChipRowMini: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  unitChip: { backgroundColor: '#334155', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, minWidth: 80, alignItems: 'center', borderWidth: 1, borderColor: '#475569' },
+  unitChipActive: { backgroundColor: '#1e3a8a', borderColor: '#3b82f6' },
+  unitChipText: { color: '#94a3b8', fontWeight: 'bold', fontSize: 12 },
+  unitChipTextActive: { color: 'white' },
+  miniLabel: { color: '#cbd5e1', fontSize: 12, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4, textTransform: 'uppercase' },
+  inputSmall: { backgroundColor: '#0f172a', color: '#f8fafc', borderRadius: 8, padding: 12, fontSize: 14, borderWidth: 1, borderColor: '#334155', width: '100%' },
+  formSection: { marginBottom: 16 }
 });

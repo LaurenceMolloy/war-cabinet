@@ -254,20 +254,40 @@ export default function LogisticsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <MaterialCommunityIcons name="arrow-left" size={24} color="#f8fafc" />
-        </TouchableOpacity>
-        <View style={{flex: 1, marginLeft: 16}}>
-          <Text style={styles.title}>The Quartermaster</Text>
-          <Text style={styles.subtitle}>Low stocks shopping list</Text>
+      <View style={styles.headerColumn}>
+        {/* ROW 1: COMMANDS */}
+        <View style={styles.headerTopRow}>
+          <View style={styles.headerSideCol}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+              <MaterialCommunityIcons name="arrow-left" size={20} color="#f8fafc" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.headerCenterCol}>
+            <View style={{ paddingLeft: 12 }}>
+              <Text style={styles.title}>Quartermaster</Text>
+            </View>
+          </View>
+
+          <View style={[styles.headerSideCol, { alignItems: 'flex-end', width: 60 }]}>
+            {data.length > 0 && (
+              <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
+                <Text style={styles.shareBtnText}>SHARE</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
-        {data.length > 0 && (
-          <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
-            <MaterialCommunityIcons name="export-variant" size={20} color="white" />
-            <Text style={styles.shareBtnText}>SHARE</Text>
-          </TouchableOpacity>
-        )}
+
+        {/* ROW 2: SCOPE */}
+        <View style={styles.headerSubRow}>
+          <View style={styles.headerSideCol} />
+          <View style={styles.headerCenterCol}>
+            <View style={{ paddingLeft: 12 }}>
+              <Text style={styles.subtitle}>Low stocks shopping list</Text>
+            </View>
+          </View>
+          <View style={[styles.headerSideCol, { width: 60 }]} />
+        </View>
       </View>
 
       {loading ? (
@@ -313,21 +333,30 @@ export default function LogisticsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
-  header: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
+  headerColumn: { 
     backgroundColor: '#1e293b', 
-    paddingHorizontal: 16, 
-    paddingBottom: 15, 
     paddingTop: Platform.OS === 'ios' ? 40 : 10, 
     borderBottomWidth: 1, 
     borderBottomColor: '#334155' 
   },
-  backBtn: { padding: 10, backgroundColor: '#334155', borderRadius: 24 },
+  headerTopRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 16,
+    marginBottom: 2
+  },
+  headerSubRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingBottom: 8
+  },
+  headerSideCol: { width: 32 },
+  headerCenterCol: { flex: 1 },
+  backBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#334155', borderRadius: 16 },
   title: { color: '#f8fafc', fontSize: 24, fontWeight: 'bold' },
-  subtitle: { color: '#94a3b8', fontSize: 13, marginTop: 2 },
-  shareBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#3b82f6', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, gap: 6 },
-  shareBtnText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
+  subtitle: { color: '#94a3b8', fontSize: 11, textAlign: 'left' },
+  shareBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#3b82f6', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20 },
+  shareBtnText: { color: 'white', fontWeight: 'bold', fontSize: 11 },
   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   catGroup: { marginBottom: 24 },
   catHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#334155', paddingBottom: 6 },

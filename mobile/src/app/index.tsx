@@ -177,6 +177,7 @@ export default function HomeScreen() {
              i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count,
              i.freeze_months as type_freeze_months,
              inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.batch_intel,
+             inv.supplier as inv_supplier, inv.product_range as inv_product_range,
              inv.cabinet_id as inv_cabinet_id, inv.item_type_id as inv_item_type_id,
              cab.name as cab_name, cab.location as cab_location, cab.cabinet_type as cab_type
       FROM Categories c
@@ -253,6 +254,7 @@ export default function HomeScreen() {
             cabinet_id: row.inv_cabinet_id, item_type_id: row.inv_item_type_id,
             cab_name: row.cab_name, cab_location: row.cab_location,
             cab_type: row.cab_type, batch_intel: row.batch_intel,
+            supplier: row.inv_supplier, product_range: row.inv_product_range,
           });
         }
       }
@@ -668,7 +670,15 @@ export default function HomeScreen() {
             <View style={[styles.statusDot, { backgroundColor: getStatusColor(cat.soonest_month, cat.soonest_year), marginRight: 12 }, isEmpty && { backgroundColor: '#334155' }]} />
             <Text style={[styles.categoryTitle, { flex: 1 }]} numberOfLines={1}>{cat.name}</Text>
             
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <TouchableOpacity 
+                style={styles.addTypeBtnDirect} 
+                onPress={() => router.push({ pathname: '/add', params: { categoryId: cat.id, isNewType: '1' } })}
+                testID={`add-new-item-to-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                <MaterialCommunityIcons name="plus" size={16} color="#3b82f6" />
+                <Text style={{color: '#3b82f6', fontSize: 11, fontWeight: 'bold', marginLeft: 4}}>ITEM</Text>
+              </TouchableOpacity>
               {isExpanded && cat.types.some((t: any) => t.items.length > 0) && (
                 <TouchableOpacity 
                   onPress={() => {
@@ -706,7 +716,7 @@ export default function HomeScreen() {
                 )}
               </View>
               {cat.total_qty > 0 && cat.soonest_month && cat.soonest_year && (
-                <View>{getUrgencyPhrasing(cat.soonest_month, cat.soonest_year, true, 10)}</View>
+                <View>{getUrgencyPhrasing(cat.soonest_month, cat.soonest_year, true, 12)}</View>
               )}
             </View>
           )}
@@ -755,7 +765,7 @@ export default function HomeScreen() {
                       <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{uniqueSites} {uniqueSites === 1 ? 'SITE' : 'SITES'}</Text>
                     </View>
                     {type.soonest_month && type.soonest_year && (
-                      <View>{getUrgencyPhrasing(type.soonest_month, type.soonest_year, false, 10)}</View>
+                      <View>{getUrgencyPhrasing(type.soonest_month, type.soonest_year, false, 12)}</View>
                     )}
                   </View>
                 )}
@@ -776,10 +786,25 @@ export default function HomeScreen() {
                       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
                          <Text style={{color: '#60a5fa', fontSize: 12, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
                       </View>
-                      {inv.batch_intel ? (
-                        <Text style={{color: '#94a3b8', fontSize: 11, fontStyle: 'italic', marginBottom: 6}} numberOfLines={1}>
-                          • {inv.batch_intel}
-                        </Text>
+                      {(inv.batch_intel || inv.supplier || inv.product_range) ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
+                          <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>•</Text>
+                          {inv.supplier && (
+                            <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>
+                              {inv.supplier.toUpperCase()}
+                            </Text>
+                          )}
+                          {inv.product_range && (
+                            <Text style={{ color: '#60a5fa', fontSize: 10, fontWeight: 'bold' }}>
+                              [{inv.product_range.toUpperCase()}]
+                            </Text>
+                          )}
+                          {inv.batch_intel && (
+                            <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic' }}>
+                              {inv.batch_intel}
+                            </Text>
+                          )}
+                        </View>
                       ) : null}
                       <View style={styles.rowMain}>
                         {inv.id === flashBatchId ? (
@@ -1353,6 +1378,17 @@ const styles = StyleSheet.create({
   typeTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '600', marginLeft: 4 },
   addButton: { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#3b82f6', borderRadius: 4 },
   addText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
+  addTypeBtnDirect: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  itemCountBadge: { backgroundColor: '#1e293b', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   emptyText: { color: '#64748b', fontStyle: 'italic', fontSize: 14, marginLeft: 16 },
   inventoryRow: { paddingTop: 8, paddingBottom: 12, paddingHorizontal: 12, backgroundColor: '#475569', borderRadius: 6, marginBottom: 8 },
   totalLabel: { fontSize: 13, color: '#3b82f6', fontWeight: 'bold' },
