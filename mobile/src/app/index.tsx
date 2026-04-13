@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, Image, Modal, Platform, TextInput, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, Image, Modal, Platform, TextInput, Animated, ScrollView, Switch } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Link, useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
@@ -11,7 +11,7 @@ import { useBilling } from '../context/BillingContext';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
-  const { checkEntitlement, isTrialActive, trialLabel, isSergeanOrAbove, requestPurchase, isPremium, isGeneralOrAbove: isGeneral, isCadet, isPrivate } = useBilling();
+  const { checkEntitlement, hasFullAccess, limits, isTrialActive, trialLabel, isSergeanOrAbove, requestPurchase, isPremium, isGeneralOrAbove: isGeneral, isCadet, isPrivate } = useBilling();
   
   // Tactical Bridge (E2E Only)
   useEffect(() => {
@@ -56,6 +56,14 @@ export default function HomeScreen() {
   const [moveDestCabId, setMoveDestCabId] = useState<number | null>(null);
   const [moveDestCabinets, setMoveDestCabinets] = useState<any[]>([]);
   const [showMoveCabinetPicker, setShowMoveCabinetPicker] = useState(false);
+
+  const [showInlineAddCabinet, setShowInlineAddCabinet] = useState(false);
+  const [showInlineAddCategory, setShowInlineAddCategory] = useState(false);
+  const [inlineCabName, setInlineCabName] = useState('');
+  const [inlineCabLoc, setInlineCabLoc] = useState('');
+  const [inlineCabType, setInlineCabType] = useState<'standard' | 'freezer'>('standard');
+  const [inlineCatName, setInlineCatName] = useState('');
+  const [inlineCatIsMessHall, setInlineCatIsMessHall] = useState(true);
 
 
   const params = useLocalSearchParams();
@@ -446,8 +454,43 @@ export default function HomeScreen() {
     setMoveDestCabinets(validDests);
     setShowMoveCabinetPicker(false);
     setShowMoveModal(true);
+  };
 
+  const handleCreateCabinet = async () => {
+    if (!inlineCabName.trim()) return;
 
+    if (cabinets.length >= limits.cabinets && !hasFullAccess) {
+      checkEntitlement('CABINET_LIMIT');
+      return;
+    }
+
+    const freezerCabCount = cabinets.filter((c: any) => c.cabinet_type === 'freezer').length;
+    if (inlineCabType === 'freezer' && freezerCabCount >= limits.freezer_cabs && !hasFullAccess) {
+      checkEntitlement('FREEZER_CABINET_LIMIT');
+      return;
+    }
+
+    await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', [inlineCabName.trim(), inlineCabLoc.trim(), inlineCabType]);
+    
+    setShowInlineAddCabinet(false);
+    setInlineCabName('');
+    setInlineCabLoc('');
+    setInlineCabType('standard');
+    
+    load();
+  };
+
+  const handleCreateCategory = async () => {
+    if (!inlineCatName.trim()) return;
+    if (categories.length >= limits.categories && !hasFullAccess) {
+      checkEntitlement('CATEGORY_LIMIT');
+      return;
+    }
+    await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', [inlineCatName.trim(), 'box', inlineCatIsMessHall ? 1 : 0]);
+    setShowInlineAddCategory(false);
+    setInlineCatName('');
+    setInlineCatIsMessHall(true);
+    load();
   };
 
   const handleConfirmMove = async () => {
@@ -644,6 +687,17 @@ export default function HomeScreen() {
     );
   };
 
+  const getBatchStatusColor = (inv: any, type: any) => {
+    if (inv.cab_type === 'freezer') {
+      const now = new Date();
+      const ageMonths = (now.getFullYear() - inv.entry_year) * 12 + ((now.getMonth() + 1) - inv.entry_month);
+      const limit = type.freeze_months ?? 6;
+      const remaining = limit - ageMonths;
+      return remaining <= 0 ? '#f43f5e' : remaining < 4 ? '#f97316' : remaining < 7 ? '#fde047' : '#22c55e';
+    }
+    return getStatusColor(inv.expiry_month, inv.expiry_year);
+  };
+
   const formatSizeDisplay = (rawSize: string, unitType: string = 'weight') => {
     if (!rawSize) return 'N/A';
     const num = parseFloat(rawSize);
@@ -664,23 +718,21 @@ export default function HomeScreen() {
     return (
       <View style={styles.categoryCard}>
         <TouchableOpacity 
-          style={[styles.categoryHeader, (isEmpty && !isExpanded) && { opacity: 0.5 }, { flexDirection: 'column', alignItems: 'stretch' }]} 
+          style={[styles.categoryHeader, (isEmpty && !isExpanded) && { opacity: 0.5 }, { flexDirection: 'column', alignItems: 'stretch', borderLeftWidth: 8, borderLeftColor: (isExpanded || isEmpty) ? 'transparent' : getStatusColor(cat.soonest_month, cat.soonest_year) }]} 
           onPress={() => toggleCategory(cat.id)}
           testID={`category-header-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
         >
           {/* TIER 1: IDENTITY & CONTROLS */}
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={[styles.statusDot, { backgroundColor: getStatusColor(cat.soonest_month, cat.soonest_year), marginRight: 12 }, isEmpty && { backgroundColor: '#334155' }]} />
             <Text style={[styles.categoryTitle, { flex: 1 }]} numberOfLines={1}>{cat.name}</Text>
             
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <TouchableOpacity 
-                style={styles.addTypeBtnDirect} 
+                style={styles.actionPillBtn} 
                 onPress={() => router.push({ pathname: '/add', params: { categoryId: cat.id, isNewType: '1' } })}
                 testID={`add-new-item-to-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
               >
-                <MaterialCommunityIcons name="plus" size={16} color="#3b82f6" />
-                <Text style={{color: '#3b82f6', fontSize: 11, fontWeight: 'bold', marginLeft: 4}}>ITEM</Text>
+                <Text style={styles.actionPillText}>+ ITEM</Text>
               </TouchableOpacity>
               {isExpanded && cat.types.some((t: any) => t.items.length > 0) && (
                 <TouchableOpacity 
@@ -689,7 +741,7 @@ export default function HomeScreen() {
                     const allExpanded = itemsToToggle.every((t: any) => expandedTypeIds.has(t.id));
                     bulkToggleTypes(cat, !allExpanded);
                   }} 
-                  style={{padding: 8}}
+                  style={{paddingHorizontal: 8, paddingVertical: 0}}
                 >
                   <MaterialCommunityIcons 
                     name={cat.types.filter((t: any) => t.items.length > 0).every((t: any) => expandedTypeIds.has(t.id)) ? "unfold-less-horizontal" : "unfold-more-horizontal"} 
@@ -704,7 +756,7 @@ export default function HomeScreen() {
 
           {/* TIER 2: LOGISTICAL OVERVIEW (Shown only when collapsed) */}
           {!isExpanded && (
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2, paddingLeft: 2, paddingRight: 0, flexWrap: 'wrap', opacity: 0.8}}>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingLeft: 0, paddingRight: 0, flexWrap: 'wrap', opacity: 0.8}}>
               <View style={{flexDirection: 'row', alignItems: 'center'}}>
                 {cat.total_qty > 0 ? (
                   <>
@@ -735,31 +787,30 @@ export default function HomeScreen() {
           return (
             <View key={type.id} style={styles.typeBlock}>
               <TouchableOpacity 
-                style={[styles.typeHeader, { flexDirection: 'column', alignItems: 'stretch' }]} 
+                style={[styles.typeHeader, { flexDirection: 'column', alignItems: 'stretch', borderLeftWidth: 6, borderLeftColor: (isTypeExpanded || !hasItems) ? 'transparent' : getStatusColor(type.soonest_month, type.soonest_year) }]} 
                 activeOpacity={hasItems ? 0.7 : 1} 
                 onPress={() => hasItems && toggleType(type.id)}
                 testID={`type-header-${type.name.toLowerCase().replace(/\s+/g, '-')}`}
               >
                 {/* TIER 1: COMMAND ROW */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: (!isTypeExpanded && hasItems) ? 4 : 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: (!isTypeExpanded && hasItems) ? 8 : 0 }}>
                   <View style={[{flexDirection: 'row', alignItems: 'center', flex: 1}, !hasItems && {opacity: 0.5}]}>
                     <MaterialCommunityIcons name={isTypeExpanded ? "chevron-down" : "menu-right"} size={22} color="#3b82f6" style={{marginRight: 4, opacity: hasItems ? 1 : 0}} />
-                    <View style={[styles.statusDot, { width: 8, height: 8, borderRadius: 4, marginRight: 8 }, {backgroundColor: getStatusColor(type.soonest_month, type.soonest_year)}]} />
-                    <Text style={[styles.typeTitle, { flex: 1 }]} numberOfLines={1}>{type.name}</Text>
+                    <Text style={[styles.typeTitle, { flex: 1, marginLeft: 0 }]} numberOfLines={1}>{type.name}</Text>
                   </View>
                   {!isTypeExpanded && type.tactical_total ? (
                     <Text style={[styles.totalLabel, { marginRight: 12, fontSize: 13 }]}>{type.tactical_total}</Text>
                   ) : null}
                   <Link href={{ pathname: "/add", params: { typeId: type.id, categoryId: cat.id, inheritedCabinetId: filterCabinetId ?? undefined } }} asChild>
-                    <TouchableOpacity style={styles.addButton} testID={`add-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <Text style={styles.addText}>+ ADD</Text>
+                    <TouchableOpacity style={styles.actionPillBtn} testID={`add-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <Text style={styles.actionPillText}>+ BATCH</Text>
                     </TouchableOpacity>
                   </Link>
                 </View>
 
                 {/* TIER 2: LOGISTICAL BRIEFING (Shown only when collapsed) */}
                 {!isTypeExpanded && hasItems && (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 4, paddingRight: 0, flexWrap: 'wrap' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 26, paddingRight: 0, flexWrap: 'wrap' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{totalItems} {totalItems === 1 ? 'ITEM' : 'ITEMS'}</Text>
                       <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
@@ -782,7 +833,8 @@ export default function HomeScreen() {
                       ref={(r) => { batchRefs.current[inv.id] = r; }} 
                       style={[
                         styles.inventoryRow,
-                        inv.cab_type === 'freezer' && { backgroundColor: '#1d4f87', borderBottomColor: '#2b63a3' }
+                        inv.cab_type === 'freezer' && { backgroundColor: '#1d4f87', borderBottomColor: '#2b63a3' },
+                        { borderLeftWidth: 6, borderLeftColor: getBatchStatusColor(inv, type) }
                       ]}
                       testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}`}
                     >
@@ -960,9 +1012,16 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* ─── ACTIVE FILTER PILL ROW ─── */}
-      {(filterCabinetId !== null || filterExpiryMode !== 'ALL') && (
-        <View style={styles.filterPillRow}>
+      {/* ─── COMMAND BAR STRIP (Filters & + CABINET) ─── */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 16, marginBottom: 8 }}>
+        
+        {/* ACTIVE FILTERS (Left) - Using ScrollView to prevent horizontal cramming */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={{ flex: 1, marginRight: 8 }}
+          contentContainerStyle={{ alignItems: 'center', gap: 8, paddingVertical: 4 }}
+        >
           {filterCabinetId !== null && (
             <View style={[styles.filterPill, { backgroundColor: '#1e3a5f', borderColor: '#3b82f6' }]}>
               <MaterialCommunityIcons name="warehouse" size={13} color="#3b82f6" style={{ marginRight: 5 }} />
@@ -991,15 +1050,48 @@ export default function HomeScreen() {
               </View>
             );
           })()}
+        </ScrollView>
+
+        {/* QUICK COMMANDS (Right) */}
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <TouchableOpacity 
+            style={styles.actionPillBtn}
+            onPress={() => {
+              if (categories.length >= limits.categories && !hasFullAccess) {
+                checkEntitlement('CATEGORY_LIMIT');
+              } else {
+                setShowInlineAddCategory(true);
+              }
+            }}
+            testID="front-add-category-btn"
+          >
+            <MaterialCommunityIcons name="folder-plus" size={16} color="#3b82f6" />
+            <Text style={[styles.actionPillText, { marginLeft: 6, fontSize: 10 }]}>CATEGORY</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.actionPillBtn}
+            onPress={() => {
+              if (cabinets.length >= limits.cabinets && !hasFullAccess) {
+                checkEntitlement('CABINET_LIMIT');
+              } else {
+                setShowInlineAddCabinet(true);
+              }
+            }}
+            testID="front-add-cabinet-btn"
+          >
+            <MaterialCommunityIcons name="warehouse" size={16} color="#3b82f6" />
+            <Text style={[styles.actionPillText, { marginLeft: 6, fontSize: 10 }]}>CABINET</Text>
+          </TouchableOpacity>
         </View>
-      )}
+      </View>
 
       <FlatList
         ref={flatRef}
         data={categories}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderCategory}
-        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 0, paddingBottom: 100 }}
         onScroll={(e) => { currentScrollY.current = e.nativeEvent.contentOffset.y; }}
         scrollEventThrottle={16}
         onScrollToIndexFailed={() => {
@@ -1343,6 +1435,78 @@ export default function HomeScreen() {
           <Text style={styles.feedbackText}>{feedback}</Text>
         </Animated.View>
       )}
+
+      {/* INLINE ADD CABINET MODAL */}
+      <Modal visible={showInlineAddCabinet} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>NEW STORAGE CABINET</Text>
+            
+            <View style={{ marginBottom: 16, width: '100%' }}>
+              <Text style={styles.miniLabel}>CABINET NAME</Text>
+              <TextInput style={styles.inputSmall} value={inlineCabName} onChangeText={setInlineCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
+            </View>
+
+            <View style={{ marginBottom: 16, width: '100%' }}>
+              <Text style={styles.miniLabel}>LOCATION</Text>
+              <TextInput style={styles.inputSmall} value={inlineCabLoc} onChangeText={setInlineCabLoc} placeholder="e.g. Garage" placeholderTextColor="#64748b" />
+            </View>
+
+            <View style={{ marginBottom: 24, width: '100%' }}>
+              <Text style={styles.miniLabel}>CABINET TYPE</Text>
+              <View style={styles.unitChipRowMini}>
+                <TouchableOpacity style={[styles.unitChip, inlineCabType === 'standard' && styles.unitChipActive]} onPress={() => setInlineCabType('standard')}><Text style={[styles.unitChipText, inlineCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.unitChip, inlineCabType === 'freezer' && styles.unitChipActive]} onPress={() => { if (inlineCabType === 'freezer') setInlineCabType('standard'); else if (checkEntitlement('FREEZER')) setInlineCabType('freezer'); }}><Text style={[styles.unitChipText, inlineCabType === 'freezer' && styles.unitChipTextActive]}>Freezer</Text></TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCabinet}>
+              <Text style={styles.saveText}>CREATE CABINET</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowInlineAddCabinet(false)}>
+              <Text style={styles.modalCloseText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* INLINE ADD CATEGORY MODAL */}
+      <Modal visible={showInlineAddCategory} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>NEW CATEGORY</Text>
+            
+            <View style={{ marginBottom: 24, width: '100%' }}>
+              <Text style={styles.miniLabel}>CATEGORY NAME</Text>
+              <TextInput style={styles.inputSmall} value={inlineCatName} onChangeText={setInlineCatName} placeholder="e.g. Spices, Tinned Goods" placeholderTextColor="#64748b" autoFocus />
+            </View>
+
+            <View style={{ marginBottom: 24, width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}>
+              <View style={{flex: 1}}>
+                <Text style={[styles.miniLabel, {marginBottom: 2}]}>MESS HALL COMPATIBLE</Text>
+                <Text style={{color: '#64748b', fontSize: 10}}>Exclude this from recipe generation if it's for prepared meals.</Text>
+              </View>
+              <Switch 
+                value={inlineCatIsMessHall} 
+                onValueChange={setInlineCatIsMessHall}
+                trackColor={{ false: "#334155", true: "#3b82f6" }}
+                thumbColor={inlineCatIsMessHall ? "#ffffff" : "#94a3b8"}
+              />
+            </View>
+
+            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCategory}>
+              <Text style={styles.saveText}>CREATE CATEGORY</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowInlineAddCategory(false)}>
+              <Text style={styles.modalCloseText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+
     </View>
   );
 }
@@ -1373,14 +1537,16 @@ const styles = StyleSheet.create({
   briefingBtn: { position: 'absolute', right: 56, bottom: 20 },
   logisticsBtn: { position: 'absolute', left: 16, bottom: 20 },
   categoryCard: { backgroundColor: '#1e293b', borderRadius: 8, marginBottom: 12, overflow: 'hidden' },
-  categoryHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#334155' },
+  categoryHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#334155' },
   categoryTitle: { fontSize: 20, color: '#f8fafc', fontWeight: 'bold' },
   statusDot: { width: 12, height: 12, borderRadius: 6 },
-  typeBlock: { padding: 12, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  typeBlock: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   typeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   typeTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '600', marginLeft: 4 },
   addButton: { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#3b82f6', borderRadius: 4 },
   addText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
+  actionPillBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#334155', justifyContent: 'center' },
+  actionPillText: { color: '#3b82f6', fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
   addTypeBtnDirect: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1409,7 +1575,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', 
     marginHorizontal: 16, 
     marginTop: 16,
-    marginBottom: 10, 
+    marginBottom: 8, 
     backgroundColor: '#0f172a', 
     borderRadius: 8, 
     borderWidth: 1, 
@@ -1445,4 +1611,13 @@ const styles = StyleSheet.create({
   trialBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1c1200', borderBottomWidth: 1, borderBottomColor: '#92400e', paddingHorizontal: 16, paddingVertical: 8 },
   trialBannerText: { flex: 1, color: '#fbbf24', fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
   trialBannerCta: { color: '#fbbf24', fontSize: 11, fontWeight: 'bold', opacity: 0.75 },
+  miniLabel: { color: '#cbd5e1', fontSize: 12, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4, textTransform: 'uppercase' },
+  inputSmall: { flex: 1, backgroundColor: '#0f172a', color: '#f8fafc', borderRadius: 6, padding: 8, fontSize: 14, borderWidth: 1, borderColor: '#334155' },
+  unitChipRowMini: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
+  unitChip: { flex: 1, paddingVertical: 6, marginHorizontal: 2, alignItems: 'center', borderRadius: 6, backgroundColor: '#1e293b' },
+  unitChipActive: { backgroundColor: '#3b82f6' },
+  unitChipText: { color: '#64748b', fontSize: 12, fontWeight: 'bold' },
+  unitChipTextActive: { color: 'white' },
+  saveButton: { backgroundColor: '#22c55e', padding: 18, borderRadius: 8, alignItems: 'center', marginTop: 20 },
+  saveText: { color: 'white', fontWeight: 'bold', fontSize: 18 }
 });

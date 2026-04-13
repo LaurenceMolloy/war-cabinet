@@ -32,6 +32,8 @@ export default function AddInventoryScreen() {
   const [suggestedTypeAheadRanges, setSuggestedTypeAheadRanges] = useState<string[]>([]);
   const [supplierVocabulary, setSupplierVocabulary] = useState<string[]>([]);
   const [rangeVocabulary, setRangeVocabulary] = useState<string[]>([]);
+  const [supplierCounts, setSupplierCounts] = useState<Record<string, number>>({});
+  const [rangeCounts, setRangeCounts] = useState<Record<string, number>>({});
   const [showQuickAddType, setShowQuickAddType] = useState(false);
   const [quickAddName, setQuickAddName] = useState('');
   const [quickAddUnit, setQuickAddUnit] = useState('weight');
@@ -63,10 +65,17 @@ export default function AddInventoryScreen() {
       const matches = supplierVocabulary
         .filter(s => s.toLowerCase().includes(val.toLowerCase()))
         .sort((a, b) => {
-          const aStart = a.toLowerCase().startsWith(val.toLowerCase());
-          const bStart = b.toLowerCase().startsWith(val.toLowerCase());
+          const aLower = a.toLowerCase();
+          const bLower = b.toLowerCase();
+          const aStart = aLower.startsWith(val.toLowerCase());
+          const bStart = bLower.startsWith(val.toLowerCase());
           if (aStart && !bStart) return -1;
           if (!aStart && bStart) return 1;
+          
+          const aCount = supplierCounts[aLower] || 0;
+          const bCount = supplierCounts[bLower] || 0;
+          if (aCount !== bCount) return bCount - aCount;
+
           return a.localeCompare(b);
         })
         .slice(0, 3);
@@ -81,10 +90,17 @@ export default function AddInventoryScreen() {
       const matches = rangeVocabulary
         .filter(r => r.toLowerCase().includes(val.toLowerCase()))
         .sort((a, b) => {
-          const aStart = a.toLowerCase().startsWith(val.toLowerCase());
-          const bStart = b.toLowerCase().startsWith(val.toLowerCase());
+          const aLower = a.toLowerCase();
+          const bLower = b.toLowerCase();
+          const aStart = aLower.startsWith(val.toLowerCase());
+          const bStart = bLower.startsWith(val.toLowerCase());
           if (aStart && !bStart) return -1;
           if (!aStart && bStart) return 1;
+
+          const aCount = rangeCounts[aLower] || 0;
+          const bCount = rangeCounts[bLower] || 0;
+          if (aCount !== bCount) return bCount - aCount;
+
           return a.localeCompare(b);
         })
         .slice(0, 3);
@@ -154,21 +170,62 @@ export default function AddInventoryScreen() {
       // Load Vocab
       const dbSuppliers = await db.getAllAsync<{default_supplier: string}>("SELECT DISTINCT default_supplier FROM ItemTypes WHERE default_supplier IS NOT NULL AND default_supplier != ''");
       const invSuppliers = await db.getAllAsync<{supplier: string}>("SELECT DISTINCT supplier FROM Inventory WHERE supplier IS NOT NULL AND supplier != ''");
-      const combinedS = new Set([
+      const rawVocabulary = [
         ...Object.keys(SUPPLIERS_DATA),
         ...Object.keys(BRANDS_DATA),
         ...dbSuppliers.map(s => s.default_supplier),
         ...invSuppliers.map(s => s.supplier)
-      ]);
-      setSupplierVocabulary(Array.from(combinedS).sort());
+      ];
+      
+      const normalized = new Map<string, string>();
+      rawVocabulary.forEach(v => {
+        if (!v) return;
+        const key = v.trim().toLowerCase();
+        if (!normalized.has(key)) {
+          normalized.set(key, v.trim());
+        }
+      });
+
+      setSupplierVocabulary(Array.from(normalized.values()).sort());
+
+      // Fetch Supplier Usage Counts
+      const sStats = await db.getAllAsync<{val: string, total: number}>(`
+        SELECT val, SUM(count) as total FROM (
+          SELECT supplier as val, COUNT(*) as count FROM Inventory WHERE supplier IS NOT NULL AND supplier != '' GROUP BY supplier
+          UNION ALL
+          SELECT default_supplier as val, COUNT(*) as count FROM ItemTypes WHERE default_supplier IS NOT NULL AND default_supplier != '' GROUP BY default_supplier
+        ) GROUP BY val
+      `);
+      const sMap: Record<string, number> = {};
+      sStats.forEach(s => { sMap[s.val.toLowerCase()] = s.total; });
+      setSupplierCounts(sMap);
 
       const dbRanges = await db.getAllAsync<{default_product_range: string}>("SELECT DISTINCT default_product_range FROM ItemTypes WHERE default_product_range IS NOT NULL AND default_product_range != ''");
       const invRanges = await db.getAllAsync<{product_range: string}>("SELECT DISTINCT product_range FROM Inventory WHERE product_range IS NOT NULL AND product_range != ''");
-      const combinedR = new Set([
+      
+      const rawR = [
         ...dbRanges.map(r => r.default_product_range),
         ...invRanges.map(r => r.product_range)
-      ]);
-      setRangeVocabulary(Array.from(combinedR).sort());
+      ];
+      const normalizedR = new Map<string, string>();
+      rawR.forEach(v => {
+        if (!v) return;
+        const key = v.trim().toLowerCase();
+        if (!normalizedR.has(key)) normalizedR.set(key, v.trim());
+      });
+      setRangeVocabulary(Array.from(normalizedR.values()).sort());
+
+      // Fetch Range Usage Counts
+      const rStats = await db.getAllAsync<{val: string, total: number}>(`
+        SELECT val, SUM(count) as total FROM (
+          SELECT product_range as val, COUNT(*) as count FROM Inventory WHERE product_range IS NOT NULL AND product_range != '' GROUP BY product_range
+          UNION ALL
+          SELECT default_product_range as val, COUNT(*) as count FROM ItemTypes WHERE default_product_range IS NOT NULL AND default_product_range != '' GROUP BY default_product_range
+        ) GROUP BY val
+      `);
+      const rMap: Record<string, number> = {};
+      rStats.forEach(r => { rMap[r.val.toLowerCase()] = r.total; });
+      setRangeCounts(rMap);
       
       // --- INTELLIGENCE HIERARCHY FOR CABINET SELECTION ---
       if (editBatchId) {
@@ -631,7 +688,8 @@ export default function AddInventoryScreen() {
           {suggestedTypeAheadSuppliers.length > 0 && supplier.length > 0 && (
             <View style={{flexDirection: 'row', gap: 4}}>
               {suggestedTypeAheadSuppliers.map(s => {
-                const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
+                               Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
                 return (
                   <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
                     <TouchableOpacity onPress={() => { setSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
@@ -987,7 +1045,8 @@ export default function AddInventoryScreen() {
                       {suggestedTypeAheadSuppliers.length > 0 && quickAddSupplier.length > 0 && (
                         <View style={{ flexDirection: 'row', gap: 4 }}>
                           {suggestedTypeAheadSuppliers.slice(0, 3).map(s => {
-                            const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                           const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
+                                          Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
                             return (
                               <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
                                 <TouchableOpacity onPress={() => { setQuickAddSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>

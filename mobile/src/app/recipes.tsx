@@ -200,7 +200,9 @@ export default function RecipesScreen() {
                i.freeze_months
         FROM Inventory inv
         JOIN ItemTypes i ON i.id = inv.item_type_id
+        JOIN Categories c ON c.id = i.category_id
         JOIN Cabinets cab ON cab.id = inv.cabinet_id
+        WHERE c.is_mess_hall = 1
       `);
 
       const expSet = new Set<string>();
@@ -476,7 +478,9 @@ export default function RecipesScreen() {
              inv.batch_intel, inv.supplier, inv.product_range
       FROM Inventory inv
       JOIN ItemTypes i ON i.id = inv.item_type_id
+      JOIN Categories c ON c.id = i.category_id
       JOIN Cabinets cab ON cab.id = inv.cabinet_id
+      WHERE c.is_mess_hall = 1
     `);
 
     const expItems: any[] = [];
@@ -931,7 +935,7 @@ export default function RecipesScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <Text style={[styles.sectionSubtitle, {marginTop: 8}]}>
+                <Text style={[styles.textMuted, {fontSize: 12, marginTop: 8}]}>
                   {recipeMode === 'experimental' ? "Pure AI improvisation focused on zero-waste utility." : 
                   recipeMode === 'inspired' ? "AI improvisation adopting the seasoning, style, and voice of your chosen chef." : 
                   "Robust archive search for real, published recipes verified by the AI."}
@@ -1072,7 +1076,7 @@ export default function RecipesScreen() {
 
               <View style={{marginBottom: 24}}>
                 <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>MISSION DIRECTIVES <Text style={styles.textMutedItalic}>(custom rules)</Text></Text>
-                <Text style={[styles.sectionSubtitle, {marginTop: -5, marginBottom: 10}]}>Additional constraints or requests (e.g. "under 30 mins", "spicy", "one pan").</Text>
+                <Text style={[styles.textMuted, {fontSize: 12, marginTop: -5, marginBottom: 10}]}>Additional constraints or requests.</Text>
                 <TextInput 
                   style={[styles.input, {minHeight: 45, height: 45, fontSize: 14}]} 
                   placeholder='e.g. "Under 30 minutes", "Kid friendly"'

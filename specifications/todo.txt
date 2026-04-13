@@ -36,3 +36,8 @@ AUDIT MODE
 
 We need to re-assess the backup and restore capability in light of
 the new fields just added (Supplier/Range/BatchIntel).
+
+we need to EXCLUDE cooked food from the recipe generator.
+
+I wonder if Front Line should be learned from usage in addition to
+(or maybe instead of) configuration.

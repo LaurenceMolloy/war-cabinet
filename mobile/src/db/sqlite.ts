@@ -8,7 +8,8 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     CREATE TABLE IF NOT EXISTS Categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
-      icon TEXT
+      icon TEXT,
+      is_mess_hall INTEGER DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS ItemTypes (
@@ -113,7 +114,13 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN default_product_range TEXT');
     }
 
-    // Freezer mode: cabinet type ('standard' | 'freezer')
+    // Migration: add is_mess_hall to Categories if it does not exist
+    const catColsRes = await db.getAllAsync<any>('PRAGMA table_info(Categories)');
+    const hasMessHall = catColsRes.some(col => col.name === 'is_mess_hall');
+    if (!hasMessHall) {
+      await db.execAsync('ALTER TABLE Categories ADD COLUMN is_mess_hall INTEGER DEFAULT 1');
+    }
+
     const cabColsRes = await db.getAllAsync<any>('PRAGMA table_info(Cabinets)');
     const hasCabinetType = cabColsRes.some(col => col.name === 'cabinet_type');
     if (!hasCabinetType) {
@@ -226,11 +233,12 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       { name: 'Canned Goods', icon: 'box' },
       { name: 'Chinese', icon: 'bowl' },
       { name: 'Indian', icon: 'flame' },
-      { name: 'Coffee/Tea', icon: 'coffee' }
+      { name: 'Coffee/Tea', icon: 'coffee' },
+      { name: 'Tactical Rations', icon: 'shield-star', is_mess_hall: 0 }
     ];
 
     for (const cat of seedCategories) {
-      const res = await db.runAsync('INSERT INTO Categories (name, icon) VALUES (?, ?)', cat.name, cat.icon);
+      const res = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', cat.name, cat.icon || 'box', (cat as any).is_mess_hall !== undefined ? (cat as any).is_mess_hall : 1);
       const catId = res.lastInsertRowId;
       
       let items: {name: string, unit: string}[] = [];

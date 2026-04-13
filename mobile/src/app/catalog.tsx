@@ -21,6 +21,7 @@ export default function CatalogScreen() {
   const [selectedCat, setSelectedCat] = useState<number | null>(null);
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
   const [editingCatName, setEditingCatName] = useState('');
+  const [editingCatIsMessHall, setEditingCatIsMessHall] = useState(true);
   const [editingTypeId, setEditingTypeId] = useState<number | null>(null);
   const [editingTypeName, setEditingTypeName] = useState('');
   const [editingTypeDefaultSize, setEditingTypeDefaultSize] = useState('');
@@ -39,6 +40,8 @@ export default function CatalogScreen() {
   
   const [supplierVocabulary, setSupplierVocabulary] = useState<string[]>([]);
   const [rangeVocabulary, setRangeVocabulary] = useState<string[]>([]);
+  const [supplierCounts, setSupplierCounts] = useState<Record<string, number>>({});
+  const [rangeCounts, setRangeCounts] = useState<Record<string, number>>({});
   const [suggestedTypeAheadSuppliers, setSuggestedTypeAheadSuppliers] = useState<string[]>([]);
   const [suggestedTypeAheadRanges, setSuggestedTypeAheadRanges] = useState<string[]>([]);
 
@@ -82,7 +85,7 @@ export default function CatalogScreen() {
 
   const load = async () => {
     const rows = await db.getAllAsync(`
-      SELECT c.id as cat_id, c.name as cat_name, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size,
+      SELECT c.id as cat_id, c.name as cat_name, c.is_mess_hall as cat_is_mess_hall, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size,
              i.min_stock_level, i.max_stock_level, i.freeze_months, i.default_cabinet_id, i.default_supplier, i.default_product_range,
              (SELECT COUNT(*) FROM Inventory v WHERE v.item_type_id = i.id) as type_stock_count,
              EXISTS(SELECT 1 FROM Inventory v JOIN Cabinets cab ON v.cabinet_id = cab.id WHERE v.item_type_id = i.id AND cab.cabinet_type = 'freezer') as in_freezer
@@ -94,7 +97,7 @@ export default function CatalogScreen() {
     const grouped = rows.reduce((acc: any, row: any) => {
       let cat = acc.find((c: any) => c.id === row.cat_id);
       if (!cat) {
-        cat = { id: row.cat_id, name: row.cat_name, types: [] };
+        cat = { id: row.cat_id, name: row.cat_name, is_mess_hall: row.cat_is_mess_hall === 1, types: [] };
         acc.push(cat);
       }
       if (row.type_id) {
@@ -160,21 +163,61 @@ export default function CatalogScreen() {
       const dbSuppliers = await db.getAllAsync<{default_supplier: string}>("SELECT DISTINCT default_supplier FROM ItemTypes WHERE default_supplier IS NOT NULL AND default_supplier != ''");
       const invSuppliers = await db.getAllAsync<{supplier: string}>("SELECT DISTINCT supplier FROM Inventory WHERE supplier IS NOT NULL AND supplier != ''");
       
-      const combinedS = new Set([
+      const rawVocabulary = [
         ...Object.keys(SUPPLIERS_DATA),
         ...Object.keys(BRANDS_DATA),
         ...dbSuppliers.map(s => s.default_supplier),
         ...invSuppliers.map(s => s.supplier)
-      ]);
-      setSupplierVocabulary(Array.from(combinedS).sort());
+      ];
+
+      const normalized = new Map<string, string>();
+      rawVocabulary.forEach(v => {
+        if (!v) return;
+        const key = v.trim().toLowerCase();
+        if (!normalized.has(key)) {
+          normalized.set(key, v.trim());
+        }
+      });
+      setSupplierVocabulary(Array.from(normalized.values()).sort());
+
+      // Fetch Supplier Usage Counts
+      const sStats = await db.getAllAsync<{val: string, total: number}>(`
+        SELECT val, SUM(count) as total FROM (
+          SELECT supplier as val, COUNT(*) as count FROM Inventory WHERE supplier IS NOT NULL AND supplier != '' GROUP BY supplier
+          UNION ALL
+          SELECT default_supplier as val, COUNT(*) as count FROM ItemTypes WHERE default_supplier IS NOT NULL AND default_supplier != '' GROUP BY default_supplier
+        ) GROUP BY val
+      `);
+      const sMap: Record<string, number> = {};
+      sStats.forEach(s => { sMap[s.val.toLowerCase()] = s.total; });
+      setSupplierCounts(sMap);
 
       const dbRanges = await db.getAllAsync<{default_product_range: string}>("SELECT DISTINCT default_product_range FROM ItemTypes WHERE default_product_range IS NOT NULL AND default_product_range != ''");
       const invRanges = await db.getAllAsync<{product_range: string}>("SELECT DISTINCT product_range FROM Inventory WHERE product_range IS NOT NULL AND product_range != ''");
-      const combinedR = new Set([
+      
+      const rawR = [
         ...dbRanges.map(r => r.default_product_range),
         ...invRanges.map(r => r.product_range)
-      ]);
-      setRangeVocabulary(Array.from(combinedR).sort());
+      ];
+      const normalizedR = new Map<string, string>();
+      rawR.forEach(v => {
+        if (!v) return;
+        const key = v.trim().toLowerCase();
+        if (!normalizedR.has(key)) normalizedR.set(key, v.trim());
+      });
+      setRangeVocabulary(Array.from(normalizedR.values()).sort());
+
+      // Fetch Range Usage Counts
+      const rStats = await db.getAllAsync<{val: string, total: number}>(`
+        SELECT val, SUM(count) as total FROM (
+          SELECT product_range as val, COUNT(*) as count FROM Inventory WHERE product_range IS NOT NULL AND product_range != '' GROUP BY product_range
+          UNION ALL
+          SELECT default_product_range as val, COUNT(*) as count FROM ItemTypes WHERE default_product_range IS NOT NULL AND default_product_range != '' GROUP BY default_product_range
+        ) GROUP BY val
+      `);
+      const rMap: Record<string, number> = {};
+      rStats.forEach(r => { rMap[r.val.toLowerCase()] = r.total; });
+      setRangeCounts(rMap);
     } catch (e) {
       console.error("Failed to load vocabulary", e);
     }
@@ -192,10 +235,17 @@ export default function CatalogScreen() {
       const matches = supplierVocabulary
         .filter(s => s.toLowerCase().includes(val.toLowerCase()))
         .sort((a, b) => {
-          const aStart = a.toLowerCase().startsWith(val.toLowerCase());
-          const bStart = b.toLowerCase().startsWith(val.toLowerCase());
+          const aLower = a.toLowerCase();
+          const bLower = b.toLowerCase();
+          const aStart = aLower.startsWith(val.toLowerCase());
+          const bStart = bLower.startsWith(val.toLowerCase());
           if (aStart && !bStart) return -1;
           if (!aStart && bStart) return 1;
+
+          const aCount = supplierCounts[aLower] || 0;
+          const bCount = supplierCounts[bLower] || 0;
+          if (aCount !== bCount) return bCount - aCount;
+
           return a.localeCompare(b);
         })
         .slice(0, 3);
@@ -210,11 +260,18 @@ export default function CatalogScreen() {
       const matches = rangeVocabulary
         .filter(r => r.toLowerCase().includes(val.toLowerCase()))
         .sort((a, b) => {
-          const aStart = a.toLowerCase().startsWith(val.toLowerCase());
-          const bStart = b.toLowerCase().startsWith(val.toLowerCase());
+          const aLower = a.toLowerCase();
+          const bLower = b.toLowerCase();
+          const aStart = aLower.startsWith(val.toLowerCase());
+          const bStart = bLower.startsWith(val.toLowerCase());
           if (aStart && !bStart) return -1;
           if (!aStart && bStart) return 1;
-          return a.localeCompare(b);
+
+          const aCount = rangeCounts[aLower] || 0;
+          const bCount = rangeCounts[bLower] || 0;
+          if (aCount !== bCount) return bCount - aCount;
+
+          return r.localeCompare(b);
         })
         .slice(0, 3);
       setSuggestedTypeAheadRanges(matches);
@@ -222,6 +279,8 @@ export default function CatalogScreen() {
       setSuggestedTypeAheadRanges([]);
     }
   };
+
+
 
   const handlePurgeVocabulary = async (val: string, type: 'supplier' | 'range') => {
     // Instant UI feedback: surgically remove from all active states
@@ -257,7 +316,7 @@ export default function CatalogScreen() {
       return;
     }
 
-    await db.runAsync('INSERT INTO Categories (name, icon) VALUES (?, ?)', [newCatName, 'box']);
+    await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', [newCatName, 'box', 1]);
     setNewCatName('');
     load();
   };
@@ -323,7 +382,7 @@ export default function CatalogScreen() {
       setEditingCatId(null);
       return;
     }
-    await db.runAsync('UPDATE Categories SET name = ? WHERE id = ?', [editingCatName, catId]);
+    await db.runAsync('UPDATE Categories SET name = ?, is_mess_hall = ? WHERE id = ?', [editingCatName, editingCatIsMessHall ? 1 : 0, catId]);
     setEditingCatId(null);
     load();
   };
@@ -546,6 +605,12 @@ export default function CatalogScreen() {
     load();
   };
 
+  const toggleMessHall = async (cat: any) => {
+    const newVal = !cat.is_mess_hall;
+    await db.runAsync('UPDATE Categories SET is_mess_hall = ? WHERE id = ?', [newVal ? 1 : 0, cat.id]);
+    load();
+  };
+
   const toggleFavorite = async (typeId: number, current: number) => {
     await db.runAsync('UPDATE ItemTypes SET is_favorite = ? WHERE id = ?', current === 1 ? 0 : 1, typeId);
     load();
@@ -564,7 +629,6 @@ export default function CatalogScreen() {
   const renderCategory = ({ item: cat }: any) => {
     const isExpanded = expandedCatId === cat.id;
     const favoriteCount = cat.types.filter((t: any) => t.is_favorite).length;
-
     const targetsSet = cat.types.filter((t: any) => t.min_stock !== null || t.max_stock !== null).length;
 
     return (
@@ -575,17 +639,18 @@ export default function CatalogScreen() {
           activeOpacity={0.7}
           testID={`category-header-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
         >
+          {/* TOP ROW: TITLE AND ACTIONS */}
           <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
             <View style={{flex: 1, marginRight: 10}}>
               {editingCatId === cat.id ? (
-                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                <View style={{flexDirection: 'row', alignItems: 'center', height: 40}}>
                   <TextInput 
-                    style={[styles.inputSmall, {flex: 1, height: 36}]} 
+                    style={[styles.catTitleInput, {flex: 1}]} 
                     value={editingCatName} 
                     onChangeText={setEditingCatName} 
                     autoFocus
                   />
-                  <TouchableOpacity onPress={() => handleUpdateCategory(cat.id)} style={[styles.saveActionBtn, {marginLeft: 8}]}>
+                  <TouchableOpacity onPress={() => handleUpdateCategory(cat.id)} style={styles.saveActionBtn}>
                     <MaterialCommunityIcons name="check" size={20} color="white" />
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => setEditingCatId(null)} style={{marginLeft: 8}}>
@@ -593,41 +658,65 @@ export default function CatalogScreen() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                <Text style={styles.catTitle}>{cat.name}</Text>
+                <View style={{height: 40, justifyContent: 'center'}}>
+                  <Text style={styles.catTitle} numberOfLines={1}>{cat.name}</Text>
+                </View>
               )}
             </View>
+
             <View style={styles.catActions}>
-              <TouchableOpacity onPress={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); }} style={{marginRight: 12}}>
-                <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
-              </TouchableOpacity>
-              <TouchableOpacity disabled={cat.types.length > 0} onPress={() => handleDeleteCategory(cat.id, cat.types.length > 0)} style={{marginRight: 12}}>
-                <MaterialCommunityIcons name="delete" size={20} color={cat.types.length > 0 ? "#334155" : "#ef4444"} />
-              </TouchableOpacity>
+              {editingCatId !== cat.id && (
+                <>
+                  <TouchableOpacity onPress={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); setEditingCatIsMessHall(cat.is_mess_hall); }} style={{marginRight: 12}}>
+                    <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
+                  </TouchableOpacity>
+                  <TouchableOpacity disabled={cat.types.length > 0} onPress={() => handleDeleteCategory(cat.id, cat.types.length > 0)} style={{marginRight: 12}}>
+                    <MaterialCommunityIcons name="delete" size={20} color={cat.types.length > 0 ? "#334155" : "#ef4444"} />
+                  </TouchableOpacity>
+                </>
+              )}
               <MaterialCommunityIcons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={24} color="#64748b" />
             </View>
           </View>
 
-          {!isExpanded && (
-            <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4, flexWrap: 'wrap'}}>
+          {/* BOTTOM ROW: METRICS & MESS HALL TOGGLE (ALWAYS VISIBLE) */}
+          <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8}}>
+            <View style={{flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', flex: 1}}>
               <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.types.length} {cat.types.length === 1 ? 'ITEM' : 'ITEMS'}</Text>
               {favoriteCount > 0 && (
                 <>
                   <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
                   <MaterialCommunityIcons name="star" size={10} color="#eab308" />
                   <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginLeft: 2}}>
-                    {favoriteCount} {favoriteCount === 1 ? 'FAVOURITE' : 'FAVOURITES'}
+                    {favoriteCount}
                   </Text>
                 </>
               )}
               {targetsSet > 0 && (
                 <>
                   <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                  <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{targetsSet} MIN/MAX SET</Text>
+                  <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{targetsSet} TARGETS</Text>
                 </>
               )}
             </View>
-          )}
+
+            <TouchableOpacity 
+              activeOpacity={1} 
+              onPress={(e) => { e.stopPropagation(); }} // Prevent expansion toggle when playing with the switch
+              style={{flexDirection: 'row', alignItems: 'center'}}
+            >
+              <Switch 
+                value={cat.is_mess_hall} 
+                onValueChange={() => toggleMessHall(cat)}
+                trackColor={{ false: "#334155", true: "#3b82f6" }}
+                thumbColor={cat.is_mess_hall ? "#ffffff" : "#94a3b8"}
+                style={Platform.OS === 'ios' ? { transform: [{ scaleX: .6 }, { scaleY: .6 }] } : { transform: [{ scaleX: .8 }, { scaleY: .8 }] }}
+              />
+              <Text style={{color: cat.is_mess_hall ? '#3b82f6' : '#475569', fontSize: 9, fontWeight: 'bold', marginLeft: 2}}>MESS HALL</Text>
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
+
 
         {isExpanded && (
           <View style={{marginTop: 10}}>
@@ -706,7 +795,8 @@ export default function CatalogScreen() {
                         {suggestedTypeAheadSuppliers.length > 0 && editingTypeSupplier.length > 0 && (
                           <View style={{ flexDirection: 'row', gap: 4 }}>
                             {suggestedTypeAheadSuppliers.slice(0, 3).map(s => {
-                              const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                              const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
+                                             Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
                               return (
                                 <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
                                   <TouchableOpacity onPress={() => { setEditingTypeSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
@@ -913,7 +1003,8 @@ export default function CatalogScreen() {
                     {suggestedTypeAheadSuppliers.length > 0 && newItemSupplier.length > 0 && (
                       <View style={{ flexDirection: 'row', gap: 4 }}>
                         {suggestedTypeAheadSuppliers.slice(0, 3).map(s => {
-                          const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                          const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
+                                         Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
                           return (
                             <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
                               <TouchableOpacity onPress={() => { setNewItemSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
@@ -1405,10 +1496,22 @@ const styles = StyleSheet.create({
   addSaveBtn: { backgroundColor: '#22c55e', padding: 10, borderRadius: 6 },
   addSaveText: { color: 'white', fontWeight: '600', fontSize: 12 },
   catCard: { marginHorizontal: 16, backgroundColor: '#1e293b', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, marginBottom: 12 },
-  catTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: 'bold', flex: 1 },
+  catTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: 'bold', lineHeight: 24 },
+  catTitleInput: { 
+    backgroundColor: '#0f172a', 
+    color: '#f8fafc', 
+    borderRadius: 6, 
+    paddingHorizontal: 10, 
+    paddingVertical: 0,
+    fontSize: 16, 
+    fontWeight: 'bold',
+    borderWidth: 1, 
+    borderColor: '#3b82f6',
+    height: 36
+  },
   catHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  catActions: { flexDirection: 'row' },
-  saveActionBtn: { backgroundColor: '#22c55e', padding: 8, borderRadius: 6, marginLeft: 8 },
+  catActions: { flexDirection: 'row', alignItems: 'center' },
+  saveActionBtn: { backgroundColor: '#22c55e', padding: 8, borderRadius: 6, marginLeft: 8, height: 36, width: 36, alignItems: 'center', justifyContent: 'center' },
   typeRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#334155' },
   typeText: { color: '#cbd5e1', fontSize: 15, flex: 1 },
   addNewBtn: { marginTop: 12 },

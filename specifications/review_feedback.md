@@ -1,5 +1,73 @@
 This document tracks items that were strictly specified in the `requirements.md` but were initially overlooked during the first iteration of development.
 
+## Iteration 81: Rapid Deployment (Quick-Create Categories)
+1.  **Dashboard Command Expansion**: Added a `+ CATEGORY` button to the primary Inventory command bar, allowing users to build their organizational hierarchy without leaving the dashboard flow.
+2.  **Modular Creation Engine**: Implemented a standalone "Inline Category" creation modal (matching the Cabinet creation logic). This includes full support for the "Mess Hall Compatible" functional role toggle during initialization.
+3.  **Horizontal Scroll Protection**: To resolve potential overcrowding on narrow mobile screens (especially when multiple filters are active), the Filter Pill row has been upgraded to a **Horizontal ScrollView**. This ensures that the `+ CATEGORY` and `+ CABINET` action buttons are always pinned to the right and never pushed off-screen.
+4.  **Logical Ordering**: Positioned `+ CATEGORY` to the left of `+ CABINET`, following the app's internal hierarchy: Logical Grouping (Category) established before Physical Location (Cabinet).
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 81)
+**[TC-81.1] VERIFICATION: Quick-Create Category & Scroll Stability**
+*   **Conditions**: One long Cabinet filter active (e.g. "GARAGE FREEZER TIER 2").
+*   **Actions**: 
+    1. Observe the Command Bar on a portrait mobile device.
+    2. Tap **+ CATEGORY**.
+    3. Enter "Dry Spices" and tap **CREATE CATEGORY**.
+*   **Assertions**: 
+    1. SPACE MANAGEMENT: The filter pill should resize or allow scrolling so that the action buttons remain visible and clickable.
+    2. DATA INTEGRITY: The new category should appear instantly on the dashboard and in the "Add Stock" category selector.
+
+## Iteration 80: UI Stability & Interaction Hardening
+1.  **Jitter Neutralization**: Resolved the vertical "jumping" issue during Category title editing by implementing fixed-height (40px) header containers. Both the static text and the `TextInput` now share identical vertical metrics.
+2.  **Consolidated Operations**: Integrated the "MESS HALL" toggle into a permanently visible sub-row alongside category metrics (item counts, favourites). This ensures the UI remains stable and doesn't shift when the user interacts with logistics settings.
+3.  **Symmetrical Command Strips**: Finalized vertical alignment for the `+ CABINET` and `+ CATEGORY` command strips. Removed ad-hoc minimum heights in favor of flex-centering and 8px symmetrical margins, ensuring a perfectly balanced layout across all inventory views.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 80)
+**[TC-80.1] VERIFICATION: Title Edit Stability**
+*   **Conditions**: Category exists with multiple items.
+*   **Actions**: 
+    1. Tap the **PENCIL** icon on a Category header.
+    2. Observe the surrounding cards and the header card itself.
+*   **Assertions**: 
+    1. ZERO SHIFT: The height of the Category card must not change when the title swaps from Text to Input.
+    2. CONSTANT HORIZON: The "Check/Close" icons must align perfectly with the input field center.
+
+## Iteration 79: Logistics Compatibility & Mess Hall Filtering
+1.  **Functional Role Toggle**: Introduced the `is_mess_hall` attribute (INTEGER 1/0) to the Categories table. This allows users to classify inventory by functional role (e.g., Raw Ingredients vs. Prepared Meals).
+2.  **Silo-Scan Exclusion**: Re-engineered the Mess Hall recipe engine's "Silo Scan". The logic now performs a mandatory join on the Categories table and automatically filters out any item whose parent category is marked as non-compatible.
+3.  **Tactical Rations Seeding**: Added a default "Tactical Rations" category to the system seeds, pre-configured as excluded from the Mess Hall. This provides a clear structural pattern for new users to follow when managing pre-cooked stocks.
+4.  **UI Governance**: Removed the compatibility toggle from the New Category form to minimize friction. Users now create categories in a "Compatible" state by default and can flip the permanent switch on the category card for sophisticated filtering.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 79)
+**[TC-79.1] VERIFICATION: Mess Hall Silo Exclusion**
+*   **Conditions**: Item "Bigham's Lasagna" exists in a category marked as "MESS HALL COMPATIBLE = OFF".
+*   **Actions**:
+    1. Navigate to the **Mess Hall**.
+    2. Perform an "Inventory Scan" or view the "Pantry/Freezer" list.
+*   **Assertions**:
+    1. STEALTH: The Lasagna must be completely absent from the recipe engine's lists.
+    2. VISIBILITY: The Lasagna must still appear on the main Dashboard and in the Catalog as a tracked asset.
+
+## Iteration 78: Tactical Ledger UI & Status Propagation
+1.  **Left-Border Status Tabs**: Replaced the circular "Status Dots" with high-visibility left-border tabs. This "Ledger Style" design increases the touch-target perception and aligns with tactical administrative aesthetics.
+    *   **Hierarchy**: Categories (8px), Type Groups (6px), Individual Batches (6px).
+2.  **Dynamic Visibility Protocol**: Implemented a "Closed Container" logic. Status tabs only appear when a section (Category or Type) is **collapsed**. Expanding a section hides the parent's tab to reduce visual noise, while revealing the status indicators of its direct children.
+3.  **Deep Status Propagation**: Upgraded the batch-level status logic. The system now performs a specific "Freezer Integrity" check for freezer-stored items (Entry Date + Freeze Months) while using standard Expiry logic for others, ensuring the status tab color is accurate for every individual inventory record.
+
+---
+#### 📡 STRATEGIC VERIFICATION (ITERATION 78)
+**[TC-78.1] VERIFICATION: Dynamic Tab Visibility & Tab Weights**
+*   **Conditions**: Category "Pantry" is expanded; Type "Rice" within it is collapsed.
+*   **Actions**:
+    1. Toggle the "Pantry" expansion.
+    2. Observe the left-border tabs.
+*   **Assertions**:
+    1. VISIBILITY RULES: When "Pantry" is collapsed, it MUST have a colored tab. When expanded, its tab MUST be transparent, and the nested "Rice" row MUST show its tab.
+    2. BORDER WEIGHT: Category border must be visibly thicker (8px) than Type/Batch borders (6px).
+
 ## Iteration 77: Allied Service & Developer Post-Script
 1. **Sister Service Integration (Reestit)**: Established a non-intrusive "Allied Operations" card in the Rank tab, promoting the developer's sister service (Reestit.com) as a personal recommendation rather than a commercial ad.
 2. **Onboarding Sign-off (Human Touch)**: Expanded the 3-page welcome sequence to 4 pages. Added a final "A Word from the Dev" slide that explicitly thanks the user for downloading and mentions the Allied Intel network.
