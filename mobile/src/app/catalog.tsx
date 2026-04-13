@@ -7,6 +7,7 @@ import { BackupService, BackupMetadata } from '../services/BackupService';
 import { markModified } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
 import SUPPLIERS_DATA from '../data/suppliers.json';
+import BRANDS_DATA from '../data/brands.json';
 
 export default function CatalogScreen() {
   const router = useRouter();
@@ -161,6 +162,7 @@ export default function CatalogScreen() {
       
       const combinedS = new Set([
         ...Object.keys(SUPPLIERS_DATA),
+        ...Object.keys(BRANDS_DATA),
         ...dbSuppliers.map(s => s.default_supplier),
         ...invSuppliers.map(s => s.supplier)
       ]);
@@ -689,7 +691,7 @@ export default function CatalogScreen() {
                     </View>
 
                     <View style={{ marginBottom: 8 }}>
-                      <Text style={styles.miniLabel}>DEFAULT SUPPLIER</Text>
+                      <Text style={styles.miniLabel}>DEFAULT BRAND / SUPPLIER</Text>
                       <TextInput 
                         style={styles.inputSmall} 
                         value={editingTypeSupplier} 
@@ -697,7 +699,7 @@ export default function CatalogScreen() {
                           setEditingTypeSupplier(val);
                           updateSupplierSuggestions(val);
                         }} 
-                        placeholder="e.g. M&S" 
+                        placeholder="Heinz, Nestle, Tesco, Walmart..." 
                         placeholderTextColor="#64748b" 
                       />
                       <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
@@ -896,7 +898,7 @@ export default function CatalogScreen() {
                 </View>
 
                 <View style={{ marginBottom: 8 }}>
-                  <Text style={styles.miniLabel}>DEFAULT SUPPLIER</Text>
+                  <Text style={styles.miniLabel}>DEFAULT BRAND / SUPPLIER</Text>
                   <TextInput 
                     style={styles.inputSmall} 
                     value={newItemSupplier} 
@@ -904,7 +906,7 @@ export default function CatalogScreen() {
                       setNewItemSupplier(val);
                       updateSupplierSuggestions(val);
                     }} 
-                    placeholder="e.g. M&S" 
+                    placeholder="Heinz, Nestle, Tesco, Walmart..." 
                     placeholderTextColor="#64748b" 
                   />
                   <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>

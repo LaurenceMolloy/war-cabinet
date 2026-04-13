@@ -196,7 +196,10 @@ export default function HomeScreen() {
         const isInName = row.type_name?.toLowerCase().includes(query);
         const isInCat = row.cat_name?.toLowerCase().includes(query);
         const isInSite = row.cab_name?.toLowerCase().includes(query);
-        if (!isInName && !isInCat && !isInSite) return;
+        const isInIntel = row.batch_intel?.toLowerCase().includes(query);
+        const isInSupplier = row.inv_supplier?.toLowerCase().includes(query);
+        const isInRange = row.inv_product_range?.toLowerCase().includes(query);
+        if (!isInName && !isInCat && !isInSite && !isInIntel && !isInSupplier && !isInRange) return;
       }
 
       // 2. Expiry Mode Filter (Strict Removal)

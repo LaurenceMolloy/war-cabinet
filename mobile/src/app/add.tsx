@@ -6,6 +6,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { markModified } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
 import SUPPLIERS_DATA from '../data/suppliers.json';
+import BRANDS_DATA from '../data/brands.json';
 
 export default function AddInventoryScreen() {
   const { typeId, editBatchId, inheritedCabinetId, categoryId, isNewType } = useLocalSearchParams();
@@ -155,6 +156,7 @@ export default function AddInventoryScreen() {
       const invSuppliers = await db.getAllAsync<{supplier: string}>("SELECT DISTINCT supplier FROM Inventory WHERE supplier IS NOT NULL AND supplier != ''");
       const combinedS = new Set([
         ...Object.keys(SUPPLIERS_DATA),
+        ...Object.keys(BRANDS_DATA),
         ...dbSuppliers.map(s => s.default_supplier),
         ...invSuppliers.map(s => s.supplier)
       ]);
@@ -613,7 +615,7 @@ export default function AddInventoryScreen() {
       </View>
 
       <View style={styles.formGroup}>
-        <Text style={styles.label}>Supplier (Optional)</Text>
+        <Text style={styles.label}>Brand / Supplier (Optional)</Text>
         <TextInput 
           style={styles.input} 
           value={supplier} 
@@ -621,7 +623,7 @@ export default function AddInventoryScreen() {
             setSupplier(val);
             updateSupplierSuggestions(val, 'main');
           }} 
-          placeholder="e.g. M&S, Waitrose, Tesco..."
+          placeholder="Heinz, Nestle, Tesco, Walmart..."
           placeholderTextColor="#64748b"
           testID="supplier-input"
         />
@@ -808,7 +810,7 @@ export default function AddInventoryScreen() {
           style={styles.input} 
           value={batchIntel} 
           onChangeText={setBatchIntel} 
-          placeholder="Brand, store, style/type, or specific details..."
+          placeholder="Flavor, condition, reserve status, or tactical details..."
           placeholderTextColor="#64748b"
           testID="batch-intel-input"
         />
@@ -970,7 +972,7 @@ export default function AddInventoryScreen() {
                 </View>
 
                 <View style={{ width: '100%', marginBottom: 8 }}>
-                    <Text style={styles.miniLabel}>DEFAULT SUPPLIER</Text>
+                    <Text style={styles.miniLabel}>DEFAULT BRAND / SUPPLIER</Text>
                     <TextInput 
                       style={styles.inputSmall} 
                       value={quickAddSupplier} 
@@ -978,7 +980,7 @@ export default function AddInventoryScreen() {
                         setQuickAddSupplier(val);
                         updateSupplierSuggestions(val, 'quick');
                       }} 
-                      placeholder="e.g. M&S" 
+                      placeholder="Heinz, Nestle, Tesco, Walmart..." 
                       placeholderTextColor="#64748b" 
                     />
                     <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>

@@ -58,7 +58,8 @@ export const BackupService = {
       // 2. SPREADSHEET GENERATION (CSV)
       let csvContent = "";
       const flatRows = await db.getAllAsync<any>(`
-        SELECT c.name as Category, it.name as Item, i.size as Size, i.quantity as Qty, i.batch_intel as BatchIntel,
+        SELECT c.name as Category, it.name as Item, i.size as Size, i.quantity as Qty, 
+               i.supplier as Supplier, i.product_range as Range, i.batch_intel as BatchIntel,
                it.min_stock_level as MinThreshold, it.max_stock_level as MaxThreshold,
                cab.name as Cabinet, cab.cabinet_type as CabType, cab.location as Location,
                i.entry_month || '/' || i.entry_year as EntryDate,
@@ -286,11 +287,13 @@ export const BackupService = {
         const itemTypes = tables.ItemTypes || [];
         for (const it of itemTypes) {
           await db.runAsync(
-            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months, default_supplier, default_product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
             it.id, it.category_id, it.name, it.unit_type || 'weight', it.default_size || null, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0,
             it.min_stock_level !== undefined ? it.min_stock_level : null,
             it.max_stock_level !== undefined ? it.max_stock_level : null,
-            it.freeze_months !== undefined ? it.freeze_months : null
+            it.freeze_months !== undefined ? it.freeze_months : null,
+            it.default_supplier || null,
+            it.default_product_range || null
           );
         }
 
@@ -302,14 +305,16 @@ export const BackupService = {
         const invs = tables.Inventory || [];
         for (const inv of invs) {
           await db.runAsync(
-            "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
             inv.id, inv.item_type_id, inv.quantity, inv.size || '', 
             inv.expiry_month !== undefined ? inv.expiry_month : null, 
             inv.expiry_year !== undefined ? inv.expiry_year : null, 
             inv.entry_month !== undefined ? inv.entry_month : null, 
             inv.entry_year !== undefined ? inv.entry_year : null, 
             inv.cabinet_id !== undefined ? inv.cabinet_id : null,
-            inv.batch_intel !== undefined ? inv.batch_intel : null
+            inv.batch_intel !== undefined ? inv.batch_intel : null,
+            inv.supplier || null,
+            inv.product_range || null
           );
         }
 

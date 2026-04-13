@@ -33,3 +33,6 @@ We need to specify tests for Supplier & Range entry and suggestions
 We need to check the test spec for default suggested locations logic
 
 AUDIT MODE
+
+We need to re-assess the backup and restore capability in light of
+the new fields just added (Supplier/Range/BatchIntel).

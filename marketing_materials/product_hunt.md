@@ -4,9 +4,9 @@
 **Product Name:** War Cabinet  
 **Tagline:** The Swiss Army Knife of Tactical Inventory & Stock Intelligence.
 **Categories:** Food & Drink, AI, Productivity, Smart Home.
-
+/
 **Short Description:**  
-Stop digging through your pantry and start commanding it. War Cabinet is a local-first, AI-powered "Swiss Army Knife" for home logistics. Built for modern households, preppers, and culinary enthusiasts to audit audits, automate freezer rotation, and turn rations into missions.
+Stop digging through your pantry and start commanding it. War Cabinet is a local-first, AI-powered "Swiss Army Knife" for home logistics. Built for modern households, preppers, and culinary enthusiasts to audit stock, automate stockroom and freezer rotation, and turn rations into culinary masterstrokes.
 
 ---
 
@@ -25,14 +25,14 @@ It hit me: the average household wastes 30% of their food because they *lose tra
 So, I built **War Cabinet**—the Swiss Army Knife of home logistics.
 
 **What makes it distinct?**
-We’ve obsessed over **Zero-Friction Intelligence**. Forget the burden of barcode scanners and manual mapping. War Cabinet uses a "Headquarters Logic" that remembers your habits, suggests your vocabulary, and intelligently merges batches so you can log a full grocery haul in seconds, not minutes.
+We’ve obsessed over **Zero-Friction Intelligence**. Forget the burden of barcode scanners and manual mapping. War Cabinet uses a "Headquarters Logic" that records your preferences and remembers both your habits and vocabulary, and intelligently merges batches so you can log a full grocery haul in seconds, not minutes.
 
 ### 🪖 The Tactical Kit (Key Features):
 
-*   **Quartermaster’s Inspection (The Auditor):** Our flagship premium tool. Deep-storage "inventory drift" is real. Audit mode puts you in command of a specific cabinet, calling out oldest batches for rapid-fire "Affirmative" or "M.I.A." verification.
+*   **Quartermaster’s Inspection (The Auditor):** Our flagship premium tool. Deep-storage "inventory drift" is real. Audit mode puts you in command of a specific cabinet, calling out oldest batches for rapid-fire "Affirmative" or "M.I.A." verification. Think Tinder, but for freezer items.
 *   **The Mess Hall (AI Intelligence):** Don't just list ingredients—deploy them. Our AI engine scans your current stock to suggest waste-conscious recipes based specifically on what *must* be used before it expires.
 *   **Freezer Mode:** Standard apps use expiry dates. War Cabinet's Freezer Mode tracks **Age & Batch Rotation**, ensuring your deep storage stays fresh and strategically rotated.
-*   **Intelligence over Barcodes:** Our "Smart Chip" and "Vocabulary Memory" systems mean you never type "Chicken" more than once. The app learns your brands and ranges, making data entry feel like a one-handed tactical operation.
+*   **Intelligence over Barcodes:** Our "Smart Chip" and "Vocabulary Memory" systems mean you never type "Chicken" more than once. The app learns your brands and ranges, making data entry feel like a one-fingered tactical operation.
 
 ### 🎖️ The Rank System:
 

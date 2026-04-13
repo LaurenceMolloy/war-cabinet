@@ -472,7 +472,8 @@ export default function RecipesScreen() {
       SELECT i.name, cab.cabinet_type,
              inv.expiry_month, inv.expiry_year, 
              inv.entry_month, inv.entry_year,
-             i.freeze_months, i.unit_type, i.default_size
+             i.freeze_months, i.unit_type, i.default_size,
+             inv.batch_intel, inv.supplier, inv.product_range
       FROM Inventory inv
       JOIN ItemTypes i ON i.id = inv.item_type_id
       JOIN Cabinets cab ON cab.id = inv.cabinet_id
@@ -540,7 +541,12 @@ export default function RecipesScreen() {
              sizePart = ` (${item.default_size})`;
            }
         }
-        return `- ${item.name}${sizePart}`;
+        let intelPart = "";
+        if (item.supplier || item.product_range || item.batch_intel) {
+          const parts = [item.supplier, item.product_range, item.batch_intel].filter(Boolean);
+          intelPart = ` [${parts.join(', ')}]`;
+        }
+        return `- ${item.name}${sizePart}${intelPart}`;
       }).join('\n');
     };
 
