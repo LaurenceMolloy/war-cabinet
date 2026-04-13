@@ -1,22 +1,22 @@
 This document tracks items that were strictly specified in the `requirements.md` but were initially overlooked during the first iteration of development.
 
-## Iteration 81: Rapid Deployment (Quick-Create Categories)
-1.  **Dashboard Command Expansion**: Added a `+ CATEGORY` button to the primary Inventory command bar, allowing users to build their organizational hierarchy without leaving the dashboard flow.
-2.  **Modular Creation Engine**: Implemented a standalone "Inline Category" creation modal (matching the Cabinet creation logic). This includes full support for the "Mess Hall Compatible" functional role toggle during initialization.
-3.  **Horizontal Scroll Protection**: To resolve potential overcrowding on narrow mobile screens (especially when multiple filters are active), the Filter Pill row has been upgraded to a **Horizontal ScrollView**. This ensures that the `+ CATEGORY` and `+ CABINET` action buttons are always pinned to the right and never pushed off-screen.
-4.  **Logical Ordering**: Positioned `+ CATEGORY` to the left of `+ CABINET`, following the app's internal hierarchy: Logical Grouping (Category) established before Physical Location (Cabinet).
+## Iteration 81: Just-in-Time Infrastructure (In-Form Creation)
+1.  **Dashboard De-Cluttering**: Removed the standalone expansion buttons from the Inventory dashboard to prioritize tactical legibility and prevent layout crowding on mobile devices.
+2.  **Contextual "Add Item" Flow**: Integrated the Category selection and creation logic directly into the "Deploy New Item" specifications. This ensures that users only build infrastructure (Categories) at the exact moment they need it for a specific batch.
+3.  **Unified creation Hubs**: Added `+ NEW CATEGORY` and `+ NEW CABINET` chips inside their respective selectors in the `Add Stock` screen. Creation modals are fully integrated, including "Mess Hall Compatible" logic for fresh categories.
+4.  **Automatic Provisioning**: Newly created infrastructure is auto-selected upon modal dismissal, allowing for a seamless "Create and Continue" user experience during initial data entry.
 
 ---
 #### 📡 STRATEGIC VERIFICATION (ITERATION 81)
-**[TC-81.1] VERIFICATION: Quick-Create Category & Scroll Stability**
-*   **Conditions**: One long Cabinet filter active (e.g. "GARAGE FREEZER TIER 2").
+**[TC-81.1] VERIFICATION: Just-in-Time Category Creation**
+*   **Conditions**: User is adding a new item type (e.g. "Freeze Dried Strawberries") that belongs to a non-existent category ("Dried Fruit").
 *   **Actions**: 
-    1. Observe the Command Bar on a portrait mobile device.
-    2. Tap **+ CATEGORY**.
-    3. Enter "Dry Spices" and tap **CREATE CATEGORY**.
+    1. Tap **+** in the inventory list for a "Ghost" search result or non-existent item.
+    2. Inside the "Deploy New Item" modal, tap **+ NEW CATEGORY**.
+    3. Enter "Dried Fruit" and tap **CREATE CATEGORY**.
 *   **Assertions**: 
-    1. SPACE MANAGEMENT: The filter pill should resize or allow scrolling so that the action buttons remain visible and clickable.
-    2. DATA INTEGRITY: The new category should appear instantly on the dashboard and in the "Add Stock" category selector.
+    1. AUTO-SELECT: The newly created "Dried Fruit" category should be immediately selected in the parent modal.
+    2. PERSISTENCE: After saving the batch, the new category and item should be visible in the catalog and inventory dashboard.
 
 ## Iteration 80: UI Stability & Interaction Hardening
 1.  **Jitter Neutralization**: Resolved the vertical "jumping" issue during Category title editing by implementing fixed-height (40px) header containers. Both the static text and the `TextInput` now share identical vertical metrics.

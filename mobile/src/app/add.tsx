@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Modal, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Modal, Platform, Switch } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -50,6 +50,9 @@ export default function AddInventoryScreen() {
   const [newCabName, setNewCabName] = useState('');
   const [newCabLoc, setNewCabLoc] = useState('');
   const [newCabType, setNewCabType] = useState<'standard' | 'freezer'>('standard');
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatIsMessHall, setNewCatIsMessHall] = useState(true);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [mergeCandidate, setMergeCandidate] = useState<any>(null);
   const [deferredSave, setDeferredSave] = useState<any>(null);
@@ -555,6 +558,27 @@ export default function AddInventoryScreen() {
     }
   };
 
+  const handleCreateCategory = async () => {
+    if (!newCatName.trim()) return;
+    try {
+      const res = await db.runAsync(
+        'INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)',
+        [newCatName.trim(), 'box', newCatIsMessHall ? 1 : 0]
+      );
+      const newCatId = res.lastInsertRowId;
+      
+      const updatedCats = await db.getAllAsync<any>('SELECT * FROM Categories ORDER BY name');
+      setCategories(updatedCats);
+      setSelectedQuickAddCat(Number(newCatId));
+      
+      setShowAddCategory(false);
+      setNewCatName('');
+      setNewCatIsMessHall(true);
+    } catch (e) {
+      Alert.alert('Error', 'Could not create category.');
+    }
+  };
+
   const increment = () => setQuantity(prev => (parseInt(prev || '0') + 1).toString());
   const decrement = () => setQuantity(prev => Math.max(1, parseInt(prev || '1') - 1).toString());
 
@@ -578,17 +602,207 @@ export default function AddInventoryScreen() {
     return true;
   });
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 60 }}>
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>{editBatchId ? 'Update Batch' : 'Add Batch'}</Text>
-            <Text style={styles.subTitle}>{typeName}</Text>
-        </View>
-        <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} testID="cancel-btn">
-          <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
-        </TouchableOpacity>
+  // ─── PHASE 1: ITEM TYPE SPECIFICATION ───
+  if (isNewType === '1' && !typeId) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0f172a' }}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+            <Text style={styles.title}>DEPLOY ITEM TYPE</Text>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} testID="cancel-btn">
+              <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.formSection}>
+            <Text style={styles.miniLabel}>NAME <Text style={{ color: '#f43f5e' }}>*</Text></Text>
+            <TextInput style={styles.inputSmall} value={quickAddName} onChangeText={setQuickAddName} placeholder="Item Name" placeholderTextColor="#64748b" autoFocus />
+          </View>
+
+          <View style={styles.formSection}>
+            <Text style={styles.miniLabel}>UNIT <Text style={{ color: '#f43f5e' }}>*</Text></Text>
+            <View style={styles.unitChipRowMini}>
+              <TouchableOpacity style={[styles.unitChip, quickAddUnit === 'weight' && styles.unitChipActive]} onPress={() => setQuickAddUnit('weight')}><Text style={[styles.unitChipText, quickAddUnit === 'weight' && styles.unitChipTextActive]}>Weight</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.unitChip, quickAddUnit === 'volume' && styles.unitChipActive]} onPress={() => setQuickAddUnit('volume')}><Text style={[styles.unitChipText, quickAddUnit === 'volume' && styles.unitChipTextActive]}>Volume</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.unitChip, quickAddUnit === 'count' && styles.unitChipActive]} onPress={() => setQuickAddUnit('count')}><Text style={[styles.unitChipText, quickAddUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.formSection}>
+            <Text style={styles.miniLabel}>CATEGORY <Text style={{ color: '#f43f5e' }}>*</Text></Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+              {categories.map(cat => (
+                <TouchableOpacity 
+                  key={cat.id} 
+                  style={[styles.chip, selectedQuickAddCat === cat.id && styles.chipActive]} 
+                  onPress={() => setSelectedQuickAddCat(cat.id)}
+                >
+                  <Text style={[styles.chipText, selectedQuickAddCat === cat.id && styles.chipTextActive]}>{cat.name}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity 
+                style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: 'rgba(59, 130, 246, 0.1)' }]} 
+                onPress={() => setShowAddCategory(true)}
+              >
+                <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CATEGORY</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
+              <MaterialCommunityIcons name="target" size={16} color="#fb923c" />
+              <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
+                <Text style={{ fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal' }}>QUARTERMASTER: </Text>
+                Set optional thresholds for stock alerts and restocking reports. Leave blank if you don't track stock levels for this item.
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.miniLabel}>MIN STOCK</Text>
+                <TextInput style={styles.inputSmall} value={quickAddMinStock} onChangeText={setQuickAddMinStock} placeholder="Min" placeholderTextColor="#64748b" keyboardType="numeric" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.miniLabel}>MAX STOCK</Text>
+                <TextInput style={styles.inputSmall} value={quickAddMaxStock} onChangeText={setQuickAddMaxStock} placeholder="Max" placeholderTextColor="#64748b" keyboardType="numeric" />
+              </View>
+            </View>
+          </View>
+
+          <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
+              <MaterialCommunityIcons name="information-outline" size={16} color="#60a5fa" />
+              <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
+                <Text style={{ fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal' }}>PRO TIP: </Text>
+                Setting defaults below is optional, but pre-fills your forms to ensure frictionless batch entry.
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginBottom: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.miniLabel}>DEFAULT SIZE ({quickAddUnit === 'volume' ? 'ml' : quickAddUnit === 'weight' ? 'g' : 'Units'})</Text>
+                <TextInput style={styles.inputSmall} value={quickAddDefaultSize} onChangeText={setQuickAddDefaultSize} placeholder="Size" placeholderTextColor="#64748b" keyboardType="numeric" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.miniLabel, { color: '#60a5fa' }]}>❄ FREEZE (M)</Text>
+                <TextInput style={[styles.inputSmall, { borderColor: '#1e3a5f' }]} value={quickAddFreezeMonths} onChangeText={setQuickAddFreezeMonths} placeholder="e.g. 6" placeholderTextColor="#475569" keyboardType="numeric" />
+              </View>
+            </View>
+            <View style={{ width: '100%', marginBottom: 4 }}>
+              <Text style={styles.miniLabel}>DEFAULT BRAND / SUPPLIER</Text>
+              <TextInput style={styles.inputSmall} value={quickAddSupplier} onChangeText={(val) => { setQuickAddSupplier(val); updateSupplierSuggestions(val, 'quick'); }} placeholder="Heinz, Nestle, Tesco..." placeholderTextColor="#64748b" />
+            </View>
+            <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginBottom: 8, flexDirection: 'row' }}>
+              {suggestedTypeAheadSuppliers.length > 0 && quickAddSupplier.length > 0 && (
+                <View style={{flexDirection: 'row', gap: 4}}>
+                  {suggestedTypeAheadSuppliers.map(s => {
+                    const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
+                                   Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                    return (
+                      <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                        <TouchableOpacity onPress={() => { setQuickAddSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
+                          <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
+                        </TouchableOpacity>
+                        {!isCore && (
+                          <TouchableOpacity onPress={() => handlePurgeVocabulary(s, 'supplier')} hitSlop={{top: 20, bottom: 20, left: 20, right: 20}} style={{padding: 2}}>
+                            <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+
+            <View style={{ width: '100%', marginBottom: 4 }}>
+              <Text style={styles.miniLabel}>DEFAULT PRODUCT RANGE</Text>
+              <TextInput style={styles.inputSmall} value={quickAddRange} onChangeText={(val) => { setQuickAddRange(val); updateRangeSuggestions(val); }} placeholder="Gastropub, Finest..." placeholderTextColor="#64748b" />
+            </View>
+            <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginBottom: 8, flexDirection: 'row' }}>
+              {suggestedTypeAheadRanges.length > 0 && quickAddRange.length > 0 && (
+                <View style={{flexDirection: 'row', gap: 4}}>
+                  {suggestedTypeAheadRanges.map(r => (
+                    <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                      <TouchableOpacity onPress={() => { setQuickAddRange(r); setSuggestedTypeAheadRanges([]); }}>
+                        <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handlePurgeVocabulary(r, 'range')} hitSlop={{top: 20, bottom: 20, left: 20, right: 20}} style={{padding: 2}}>
+                        <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+            <View style={styles.formSection}>
+              <Text style={styles.miniLabel}>DEFAULT CABINET</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                <TouchableOpacity style={[styles.chip, !quickAddDefaultCabinet && styles.chipActive]} onPress={() => setQuickAddDefaultCabinet(null)}>
+                  <Text style={[styles.chipText, !quickAddDefaultCabinet && styles.chipTextActive]}>No Default</Text>
+                </TouchableOpacity>
+                {cabinets.map(cab => (
+                  <TouchableOpacity key={cab.id} style={[styles.chip, quickAddDefaultCabinet === cab.id && styles.chipActive]} onPress={() => setQuickAddDefaultCabinet(cab.id)}>
+                    <Text style={[styles.chipText, quickAddDefaultCabinet === cab.id && styles.chipTextActive]}>{cab.cabinet_type === 'freezer' ? '❄ ' : ''}{cab.name}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity 
+                  style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: 'rgba(59, 130, 246, 0.1)' }]} 
+                  onPress={() => setShowAddCabinet(true)}
+                >
+                  <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CABINET</Text>
+                </TouchableOpacity>
+              </View>
+              {cabinets.some(c => c.cabinet_type === 'freezer') && (
+                <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginTop: -2, marginBottom: 8 }}>❄ Designated Freezer Cabinet</Text>
+              )}
+            </View>
+          </View>
+
+          <TouchableOpacity style={[styles.saveButton, { marginTop: 10, backgroundColor: '#3b82f6' }]} onPress={handleQuickAddType}>
+            <Text style={styles.saveText}>DEPLOY SPECIFICATION</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* RE-RENDER MODALS IN THIS BRANCH TO ENSURE THEY WORK HERE TOO */}
+        <Modal visible={showAddCabinet} transparent animationType="slide">
+          <View style={styles.modalOverlay}><View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>DEPLOY CABINET</Text>
+            <View style={{ marginBottom: 16 }}>
+              <Text style={styles.miniLabel}>CABINET NAME</Text>
+              <TextInput style={styles.inputSmall} value={newCabName} onChangeText={setNewCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
+            </View>
+            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCabinet}><Text style={styles.saveText}>CREATE CABINET</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCabinet(false)}><Text style={styles.modalCloseText}>CANCEL</Text></TouchableOpacity>
+          </View></View>
+        </Modal>
+        <Modal visible={showAddCategory} transparent animationType="slide">
+          <View style={styles.modalOverlay}><View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>DEPLOY CATEGORY</Text>
+            <View style={{ marginBottom: 16 }}>
+               <Text style={styles.miniLabel}>CATEGORY NAME</Text>
+               <TextInput style={styles.inputSmall} value={newCatName} onChangeText={setNewCatName} placeholder="e.g. Spices" placeholderTextColor="#64748b" autoFocus />
+            </View>
+            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCategory}><Text style={styles.saveText}>CREATE CATEGORY</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCategory(false)}><Text style={styles.modalCloseText}>CANCEL</Text></TouchableOpacity>
+          </View></View>
+        </Modal>
       </View>
+    );
+  }
+
+  // ─── PHASE 2: BATCH LOGISTICS ───
+  return (
+    <View style={{ flex: 1, backgroundColor: '#0f172a' }}>
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 60 }}>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+             <Text style={styles.title}>{editBatchId ? 'UPDATE BATCH' : 'DEPLOY BATCH'}</Text>
+             <Text style={styles.subTitle}>{typeName}</Text>
+          </View>
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} testID="cancel-btn">
+            <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
+          </TouchableOpacity>
+        </View>
 
       <View style={styles.formGroup}>
         <Text style={styles.label}>Quantity</Text>
@@ -660,10 +874,10 @@ export default function AddInventoryScreen() {
             </TouchableOpacity>
           ))}
           <TouchableOpacity 
-            style={[styles.chip, {borderColor: '#3b82f6', backgroundColor: '#0f172a'}]} 
+            style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: 'rgba(59, 130, 246, 0.1)' }]} 
             onPress={() => setShowAddCabinet(true)}
           >
-            <Text style={[styles.chipText, {color: '#3b82f6'}]}>+ NEW CABINET</Text>
+            <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CABINET</Text>
           </TouchableOpacity>
         </View>
         {cabinets.some(c => c.cabinet_type === 'freezer') && (
@@ -897,6 +1111,13 @@ export default function AddInventoryScreen() {
             <TouchableOpacity style={styles.modalClose} onPress={() => setShowCabinetPicker(false)}>
               <Text style={styles.modalCloseText}>CANCEL</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={{ marginTop: -10, padding: 15, alignItems: 'center', borderTopWidth: 1, borderTopColor: '#334155' }} 
+              onPress={() => { setShowCabinetPicker(false); setShowAddCabinet(true); }}
+            >
+              <Text style={{ color: '#3b82f6', fontWeight: 'bold' }}>+ DEPLOY NEW CABINET</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -963,174 +1184,7 @@ export default function AddInventoryScreen() {
         </View>
       </Modal>
 
-      {/* QUICK ADD ITEM TYPE MODAL */}
-      <Modal visible={showQuickAddType} animationType="slide">
-        <View style={{flex: 1, backgroundColor: '#0f172a'}}>
-          <ScrollView contentContainerStyle={{flexGrow: 1, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40}}>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24}}>
-                <Text style={styles.title}>DEPLOY NEW ITEM</Text>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowQuickAddType(false); if (isNewType) router.back(); }}>
-                    <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
-                </TouchableOpacity>
-            </View>
-
-            <View style={styles.formSection}>
-              <Text style={styles.miniLabel}>NAME <Text style={{color: '#f43f5e'}}>*</Text></Text>
-              <TextInput style={styles.inputSmall} value={quickAddName} onChangeText={setQuickAddName} placeholder="Item Name" placeholderTextColor="#64748b" autoFocus />
-            </View>
-
-            <View style={styles.formSection}>
-               <Text style={styles.miniLabel}>UNIT <Text style={{color: '#f43f5e'}}>*</Text></Text>
-               <View style={styles.unitChipRowMini}>
-                 <TouchableOpacity style={[styles.unitChip, quickAddUnit === 'weight' && styles.unitChipActive]} onPress={() => setQuickAddUnit('weight')}><Text style={[styles.unitChipText, quickAddUnit === 'weight' && styles.unitChipTextActive]}>Weight</Text></TouchableOpacity>
-                 <TouchableOpacity style={[styles.unitChip, quickAddUnit === 'volume' && styles.unitChipActive]} onPress={() => setQuickAddUnit('volume')}><Text style={[styles.unitChipText, quickAddUnit === 'volume' && styles.unitChipTextActive]}>Volume</Text></TouchableOpacity>
-                 <TouchableOpacity style={[styles.unitChip, quickAddUnit === 'count' && styles.unitChipActive]} onPress={() => setQuickAddUnit('count')}><Text style={[styles.unitChipText, quickAddUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
-               </View>
-            </View>
-
-            <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
-                <MaterialCommunityIcons name="target" size={16} color="#fb923c" />
-                <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
-                  <Text style={{fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal'}}>QUARTERMASTER: </Text>
-                  Set optional thresholds for stock alerts and restocking reports. Leave blank if you don't track stock levels for this item.
-                </Text>
-              </View>
-
-              <View style={{flexDirection: 'row', gap: 10, width: '100%'}}>
-                  <View style={{flex: 1}}>
-                      <Text style={styles.miniLabel}>MIN STOCK</Text>
-                      <TextInput style={styles.inputSmall} value={quickAddMinStock} onChangeText={setQuickAddMinStock} placeholder="Min" placeholderTextColor="#64748b" keyboardType="numeric" />
-                  </View>
-                  <View style={{flex: 1}}>
-                      <Text style={styles.miniLabel}>MAX STOCK</Text>
-                      <TextInput style={styles.inputSmall} value={quickAddMaxStock} onChangeText={setQuickAddMaxStock} placeholder="Max" placeholderTextColor="#64748b" keyboardType="numeric" />
-                  </View>
-              </View>
-            </View>
-
-            <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#0f172a' }}>
-                  <MaterialCommunityIcons name="information-outline" size={16} color="#60a5fa" />
-                  <Text style={{ flex: 1, color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 16 }}>
-                    <Text style={{fontWeight: 'bold', color: '#cbd5e1', fontStyle: 'normal'}}>PRO TIP: </Text>
-                    Setting defaults below is optional, but pre-fills your forms to ensure frictionless batch entry in the heat of the moment.
-                  </Text>
-                </View>
-
-                <View style={{flexDirection: 'row', gap: 10, width: '100%', marginBottom: 12}}>
-                    <View style={{flex: 1}}>
-                        <Text style={styles.miniLabel}>DEFAULT SIZE ({quickAddUnit === 'volume' ? 'ml' : quickAddUnit === 'weight' ? 'g' : 'Units'})</Text>
-                        <TextInput style={styles.inputSmall} value={quickAddDefaultSize} onChangeText={setQuickAddDefaultSize} placeholder="Size / Qty" placeholderTextColor="#64748b" keyboardType="numeric" />
-                    </View>
-                    <View style={{flex: 1}}>
-                        <Text style={[styles.miniLabel, {color: '#60a5fa'}]}>❄ FREEZE (M)</Text>
-                        <TextInput style={[styles.inputSmall, {borderColor: '#1e3a5f'}]} value={quickAddFreezeMonths} onChangeText={setQuickAddFreezeMonths} placeholder="e.g. 6" placeholderTextColor="#475569" keyboardType="numeric" />
-                    </View>
-                </View>
-
-                <View style={{ width: '100%', marginBottom: 8 }}>
-                    <Text style={styles.miniLabel}>DEFAULT BRAND / SUPPLIER</Text>
-                    <TextInput 
-                      style={styles.inputSmall} 
-                      value={quickAddSupplier} 
-                      onChangeText={(val) => {
-                        setQuickAddSupplier(val);
-                        updateSupplierSuggestions(val, 'quick');
-                      }} 
-                      placeholder="Heinz, Nestle, Tesco, Walmart..." 
-                      placeholderTextColor="#64748b" 
-                    />
-                    <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
-                      {suggestedTypeAheadSuppliers.length > 0 && quickAddSupplier.length > 0 && (
-                        <View style={{ flexDirection: 'row', gap: 4 }}>
-                          {suggestedTypeAheadSuppliers.slice(0, 3).map(s => {
-                           const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
-                                          Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
-                            return (
-                              <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
-                                <TouchableOpacity onPress={() => { setQuickAddSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
-                                  <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
-                                </TouchableOpacity>
-                                {!isCore && (
-                                  <TouchableOpacity 
-                                    onPress={() => handlePurgeVocabulary(s, 'supplier')}
-                                    hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
-                                    style={{padding: 2}}
-                                  >
-                                    <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
-                                  </TouchableOpacity>
-                                )}
-                              </View>
-                            );
-                          })}
-                        </View>
-                      )}
-                    </View>
-                </View>
-
-                <View style={{ width: '100%', marginBottom: 8 }}>
-                    <Text style={styles.miniLabel}>DEFAULT RANGE</Text>
-                    <TextInput 
-                      style={styles.inputSmall} 
-                      value={quickAddRange} 
-                      onChangeText={(val) => {
-                        setQuickAddRange(val);
-                        updateRangeSuggestions(val);
-                      }} 
-                      placeholder="e.g. Finest" 
-                      placeholderTextColor="#64748b" 
-                    />
-                    <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
-                      {suggestedTypeAheadRanges && suggestedTypeAheadRanges.length > 0 && quickAddRange.length > 0 && (
-                        <View style={{ flexDirection: 'row', gap: 4 }}>
-                          {suggestedTypeAheadRanges.slice(0, 3).map(r => (
-                            <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
-                              <TouchableOpacity onPress={() => { setQuickAddRange(r); setSuggestedTypeAheadRanges([]); }}>
-                                <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity 
-                                onPress={() => handlePurgeVocabulary(r, 'range')}
-                                hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
-                                style={{padding: 2}}
-                              >
-                                <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
-                              </TouchableOpacity>
-                            </View>
-                          ))}
-                        </View>
-                      )}
-                    </View>
-                </View>
-
-                <View style={styles.formSection}>
-                    <Text style={styles.miniLabel}>DEFAULT CABINET</Text>
-                    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8}}>
-                        <TouchableOpacity style={[styles.chip, !quickAddDefaultCabinet && styles.chipActive]} onPress={() => setQuickAddDefaultCabinet(null)}>
-                            <Text style={[styles.chipText, !quickAddDefaultCabinet && styles.chipTextActive]}>No Default</Text>
-                        </TouchableOpacity>
-                        {cabinets.map(cab => (
-                            <TouchableOpacity key={cab.id} style={[styles.chip, quickAddDefaultCabinet === cab.id && styles.chipActive]} onPress={() => setQuickAddDefaultCabinet(cab.id)}>
-                                <Text style={[styles.chipText, quickAddDefaultCabinet === cab.id && styles.chipTextActive]}>{cab.cabinet_type === 'freezer' ? '❄ ' : ''}{cab.name}</Text>
-                            </TouchableOpacity>
-                        ))}
-                        <TouchableOpacity style={[styles.chip, {borderColor: '#3b82f6', borderWidth: 1, backgroundColor: '#0f172a'}]} onPress={() => setShowAddCabinet(true)}>
-                            <Text style={[styles.chipText, {color: '#3b82f6'}]}>+ NEW CABINET</Text>
-                        </TouchableOpacity>
-                    </View>
-                    {cabinets.some(c => c.cabinet_type === 'freezer') && (
-                        <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginTop: -2, marginBottom: 4 }}>❄ Designated Freezer Cabinet</Text>
-                    )}
-                </View>
-            </View>
-
-
-            <TouchableOpacity style={[styles.saveButton, { marginTop: 10 }]} onPress={handleQuickAddType}>
-              <Text style={styles.saveText}>CREATE SPECIFICATION</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-      </Modal>
+      {/* MODALS REMOVED FROM HERE AS THEY ARE BRANCHED ABOVE */}
 
       {/* ADD CABINET MODAL */}
       <Modal visible={showAddCabinet} transparent animationType="slide">
@@ -1167,10 +1221,51 @@ export default function AddInventoryScreen() {
         </View>
       </Modal>
 
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave} testID="save-stock-btn">
-        <Text style={styles.saveText}>{editBatchId ? 'UPDATE BATCH' : 'SAVE TO BATCHES'}</Text>
-      </TouchableOpacity>
+      {/* ADD CATEGORY MODAL */}
+      <Modal visible={showAddCategory} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>NEW CATEGORY</Text>
+            
+            <View style={{ marginBottom: 16, width: '100%' }}>
+              <Text style={styles.miniLabel}>CATEGORY NAME</Text>
+              <TextInput style={styles.inputSmall} value={newCatName} onChangeText={setNewCatName} placeholder="e.g. Spices, Tinned Goods" placeholderTextColor="#64748b" autoFocus />
+            </View>
+
+            <View style={{ marginBottom: 24, width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}>
+              <View style={{flex: 1}}>
+                <Text style={[styles.miniLabel, {marginBottom: 2}]}>MESS HALL COMPATIBLE</Text>
+                <Text style={{color: '#64748b', fontSize: 10}}>Exclude this from recipe generation if it's for prepared meals.</Text>
+              </View>
+              <View style={{ transform: [{ scale: 0.8 }] }}>
+                <Switch 
+                  value={newCatIsMessHall} 
+                  onValueChange={setNewCatIsMessHall}
+                  trackColor={{ false: "#334155", true: "#3b82f6" }}
+                  thumbColor={newCatIsMessHall ? "#ffffff" : "#94a3b8"}
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCategory}>
+              <Text style={styles.saveText}>CREATE CATEGORY</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCategory(false)}>
+              <Text style={styles.modalCloseText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+
+      {(isNewType !== '1' || !showQuickAddType) && (
+        <TouchableOpacity style={styles.saveButton} onPress={handleSave} testID="save-stock-btn">
+          <Text style={styles.saveText}>{editBatchId ? 'UPDATE BATCH' : 'SAVE TO BATCHES'}</Text>
+        </TouchableOpacity>
+      )}
     </ScrollView>
+    </View>
   );
 }
 
