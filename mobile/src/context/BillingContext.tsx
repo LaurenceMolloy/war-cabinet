@@ -134,6 +134,16 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
 
   const refreshEntitlements = async () => {
+    // E2E TEST HOOK: If a test has injected __E2E_LICENCE__ via addInitScript,
+    // short-circuit the DB lookup and apply that tier directly.
+    // This follows the same pattern as __E2E_SKIP_SEEDS__ in sqlite.ts.
+    // Valid values: 'GENERAL' | 'SERGEANT' | 'TRIAL' | 'PRIVATE'
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && (window as any).__E2E_LICENCE__) {
+      const tier = (window as any).__E2E_LICENCE__ as TierType;
+      setCustomerInfo({ entitlements: { active: { isActive: true, type: tier, expirationDate: null } } });
+      return;
+    }
+
     // 1. Check for Hard Licences (most privileged first)
     const generalRes = await db.getFirstAsync<{ value: string }>('SELECT value FROM Settings WHERE key = ?', 'license_key_general');
     if (generalRes?.value) {
@@ -475,12 +485,12 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             {/* BACK / NEXT NAV */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 }}>
               {welcomePage > 0 ? (
-                <TouchableOpacity onPress={() => setWelcomePage(p => p - 1)}>
+                <TouchableOpacity testID="welcome-back-btn" onPress={() => setWelcomePage(p => p - 1)}>
                   <Text style={{ color: '#64748b', fontWeight: 'bold', fontSize: 13 }}>← BACK</Text>
                 </TouchableOpacity>
               ) : <View />}
               {welcomePage < 3 ? (
-                <TouchableOpacity onPress={() => setWelcomePage(p => p + 1)} style={{ marginLeft: 'auto' }}>
+                <TouchableOpacity testID="welcome-next-btn" onPress={() => setWelcomePage(p => p + 1)} style={{ marginLeft: 'auto' }}>
                   <Text style={{ color: '#22c55e', fontWeight: 'bold', fontSize: 13 }}>NEXT →</Text>
                 </TouchableOpacity>
               ) : <View />}
@@ -506,6 +516,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               </Text> rank —{lockTier === 'GENERAL' ? ' £1.49/mo or £9.99/yr' : ' a one-time £2.99 licence'}.
             </Text>
             <TouchableOpacity
+              testID="feature-lock-upgrade-btn"
               style={[styles.lockUpgradeBtn, lockTier === 'GENERAL' && styles.lockUpgradeBtnGeneral]}
               onPress={() => { setShowFeatureLock(false); setPaywallFocusTier(lockTier); setShowPaywall(true); }}
             >
@@ -609,7 +620,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     <Text style={styles.benefitSub}>The Quartermaster — low-stock reports & sharing</Text>
                   </View>
                 </View>
-                <TouchableOpacity style={styles.buyBtnSergeant} onPress={() => handleSimulatedPurchase('SERGEANT')}>
+                <TouchableOpacity testID="paywall-buy-sergeant-btn" style={styles.buyBtnSergeant} onPress={() => handleSimulatedPurchase('SERGEANT')}>
                   <Text style={styles.buyBtnText}>ENLIST AS SERGEANT — £2.99</Text>
                 </TouchableOpacity>
               </View>
@@ -638,12 +649,12 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   </View>
 
                 </View>
-                <TouchableOpacity style={styles.buyBtnGeneral} onPress={() => handleSimulatedPurchase('GENERAL')}>
+                <TouchableOpacity testID="paywall-buy-general-btn" style={styles.buyBtnGeneral} onPress={() => handleSimulatedPurchase('GENERAL')}>
                   <Text style={styles.buyBtnText}>COMMISSION AS GENERAL — £1.49/mo</Text>
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity style={styles.closeBtn} onPress={() => setShowPaywall(false)}>
+              <TouchableOpacity testID="paywall-close-btn" style={styles.closeBtn} onPress={() => setShowPaywall(false)}>
                 <Text style={styles.closeBtnText}>Return to base</Text>
               </TouchableOpacity>
             </ScrollView>

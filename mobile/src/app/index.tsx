@@ -188,7 +188,8 @@ export default function HomeScreen() {
              inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.batch_intel,
              inv.supplier as inv_supplier, inv.product_range as inv_product_range,
              inv.cabinet_id as inv_cabinet_id, inv.item_type_id as inv_item_type_id,
-             cab.name as cab_name, cab.location as cab_location, cab.cabinet_type as cab_type
+             cab.name as cab_name, cab.location as cab_location, cab.cabinet_type as cab_type,
+             c.is_mess_hall
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
       LEFT JOIN Inventory inv ON i.id = inv.item_type_id ${effectiveCabinetId ? ` AND inv.cabinet_id = ${effectiveCabinetId}` : ''}
@@ -252,7 +253,7 @@ export default function HomeScreen() {
 
       // 3. Populate accumulator
       if (!acc[row.cat_id]) {
-        acc[row.cat_id] = { id: row.cat_id, name: row.cat_name, icon: row.cat_icon, types: {}, soonest_month: null, soonest_year: null };
+        acc[row.cat_id] = { id: row.cat_id, name: row.cat_name, icon: row.cat_icon, is_mess_hall: row.is_mess_hall, types: {}, soonest_month: null, soonest_year: null };
       }
       if (row.type_id) {
         if (!acc[row.cat_id].types[row.type_id]) {
@@ -711,6 +712,13 @@ export default function HomeScreen() {
     return num + suffix;
   };
 
+  const toggleCategoryMessHall = async (catId: number, current: number) => {
+    const next = current === 1 ? 0 : 1;
+    await db.runAsync('UPDATE Categories SET is_mess_hall = ? WHERE id = ?', [next, catId]);
+    await load();
+    triggerFeedback(next === 1 ? 'MESS HALL COMPATIBILITY ENABLED' : 'MESS HALL COMPATIBILITY DISABLED');
+  };
+
   const renderCategory = ({ item: cat }: any) => {
     const isExpanded = expandedCatIds.has(cat.id);
     const isEmpty = !cat.types || cat.types.length === 0;
@@ -721,7 +729,7 @@ export default function HomeScreen() {
     const isAllExpanded = canToggleItems && itemsWithStock.every((t: any) => expandedTypeIds.has(t.id));
 
     return (
-      <View style={{ marginBottom: 16 }}>
+      <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
         <TouchableOpacity 
           activeOpacity={1} 
           style={[
@@ -772,17 +780,23 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* TIER 2: LOGISTICAL OVERVIEW (Shown only when collapsed) */}
-          {!isExpanded && (
+          {/* TIER 2: LOGISTICAL OVERVIEW (Permanently Visible Metrics) */}
             <View style={styles.categorySummaryRow}>
-              <View style={{flexDirection: 'row', alignItems: 'center'}}>
+              <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
+                <TouchableOpacity 
+                   style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: cat.is_mess_hall ? 'rgba(234, 179, 8, 0.1)' : '#0f172a', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: cat.is_mess_hall ? '#eab308' : '#334155', marginRight: 10 }}
+                   onPress={() => toggleCategoryMessHall(cat.id, cat.is_mess_hall)}
+                   testID={`mess-hall-toggle-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                   <MaterialCommunityIcons name={cat.is_mess_hall ? "chef-hat" : "silverware-variant"} size={12} color={cat.is_mess_hall ? "#eab308" : "#475569"} style={{marginRight: 4}} />
+                   <Text style={{ color: cat.is_mess_hall ? "#eab308" : "#475569", fontSize: 9, fontWeight: 'bold' }}>MESS HALL {cat.is_mess_hall ? 'ON' : 'OFF'}</Text>
+                </TouchableOpacity>
+
                 {cat.total_qty > 0 ? (
                   <>
                     <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.total_qty} {cat.total_qty === 1 ? 'ITEM' : 'ITEMS'}</Text>
                     <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
                     <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.batch_count} {cat.batch_count === 1 ? 'BATCH' : 'BATCHES'}</Text>
-                    <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                    <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.site_count} {cat.site_count === 1 ? 'SITE' : 'SITES'}</Text>
                   </>
                 ) : (
                   <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>NO STOCK STORED</Text>
@@ -792,7 +806,6 @@ export default function HomeScreen() {
                 <View>{getUrgencyPhrasing(cat.soonest_month, cat.soonest_year, true, 11)}</View>
               )}
             </View>
-          )}
         </TouchableOpacity>
 
 
@@ -1097,7 +1110,7 @@ export default function HomeScreen() {
         data={categories}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderCategory}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 0, paddingBottom: 100 }}
+        contentContainerStyle={{ paddingTop: 0, paddingBottom: 100 }}
         onScroll={(e) => { currentScrollY.current = e.nativeEvent.contentOffset.y; }}
         scrollEventThrottle={16}
         onScrollToIndexFailed={() => {
@@ -1491,6 +1504,7 @@ export default function HomeScreen() {
             </View>
 
             <TouchableOpacity 
+              testID="deploy-category-btn"
               style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#1e3a8a' }}
               onPress={() => { setShowDeploymentHub(false); setShowInlineAddCategory(true); }}
             >
@@ -1504,6 +1518,7 @@ export default function HomeScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity 
+              testID="deploy-cabinet-btn"
               style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#1e293b' }}
               onPress={() => { setShowDeploymentHub(false); setShowInlineAddCabinet(true); }}
             >
@@ -1547,7 +1562,7 @@ export default function HomeScreen() {
               />
             </View>
 
-            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCategory}>
+            <TouchableOpacity testID="create-category-btn" style={styles.saveButton} onPress={handleCreateCategory}>
               <Text style={styles.saveText}>CREATE CATEGORY</Text>
             </TouchableOpacity>
 
