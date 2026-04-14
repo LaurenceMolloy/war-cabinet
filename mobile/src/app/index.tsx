@@ -805,7 +805,15 @@ export default function HomeScreen() {
           return (
             <View key={type.id} style={styles.typeBlock}>
               <TouchableOpacity 
-                style={[styles.typeHeader, { borderLeftWidth: 6, borderLeftColor: (isTypeExpanded || !hasItems) ? 'transparent' : getStatusColor(type.soonest_month, type.soonest_year) }]} 
+                style={[
+                  styles.typeHeader, 
+                  { 
+                    borderLeftWidth: 6, 
+                    borderLeftColor: (isTypeExpanded || !hasItems) ? 'transparent' : getStatusColor(type.soonest_month, type.soonest_year),
+                    marginLeft: -6,
+                    paddingLeft: 6
+                  }
+                ]} 
                 activeOpacity={1} 
                 onPress={() => hasItems && toggleType(type.id)}
                 testID={`type-header-${type.name.toLowerCase().replace(/\s+/g, '-')}`}
@@ -1039,15 +1047,19 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* ─── COMMAND BAR STRIP (Filters & + CABINET) ─── */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 16, marginBottom: 8 }}>
-        
-        {/* ACTIVE FILTERS (Left) */}
+      {/* ─── RESERVED FILTER SLOT (Fixed Height to prevent jump) ─── */}
+      <View style={{ 
+        height: 38, 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        marginHorizontal: 16, 
+        marginBottom: 4 
+      }}>
         <ScrollView 
           horizontal 
           showsHorizontalScrollIndicator={false}
           style={{ flex: 1 }}
-          contentContainerStyle={{ alignItems: 'center', gap: 8, paddingVertical: 4 }}
+          contentContainerStyle={{ alignItems: 'center', gap: 6, height: 38 }}
         >
           {filterCabinetId !== null && (
             <View style={[styles.filterPill, { backgroundColor: '#1e3a5f', borderColor: '#3b82f6' }]}>
@@ -1616,8 +1628,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', 
     alignItems: 'center', 
     marginHorizontal: 16, 
-    marginTop: 16,
-    marginBottom: 8, 
+    marginTop: 8,
+    marginBottom: 4, 
     backgroundColor: '#0f172a', 
     borderRadius: 8, 
     borderWidth: 1, 
