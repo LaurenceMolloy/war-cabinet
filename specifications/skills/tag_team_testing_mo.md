@@ -82,3 +82,22 @@ await page.addInitScript(() => {
 - **Source Cross-Reference:** When converting a dummy-click into an assertion, verify the exact rendered string in the source before writing.
 - **Mint TestIDs Fearlessly:** Do not hesitate to add a missing `testID` prop to the application source code to facilitate a selector upgrade. `testID`s are harmless metadata and vital for tight tests.
 - **Fail Fast:** If the AI needs to substantially modify a flow and risks guessing wrong, request a new, focused Tag-Team recording of that specific segment instead of speculating.
+
+---
+
+## LESSONS LEARNED - MUST READ BEFORE STARTING
+
+Based on extensive debugging cycles, you MUST adhere to these rules to avoid catastrophic test looping.
+
+### 1. Things you MUST ALWAYS do when writing tests:
+- **Mirror the User's Recording Exactly:** The user's codegen recording captures the exact necessary clicks to reach a specific UI state. If the user clicks an accordion or tab to expand it before making an assertion, you MUST include that click in the final test. If you skip UI state interactions, DOM assertions will fail because elements remain hidden.
+- **Run the Test Before Reporting:** NEVER modify a test script and report back to the user that it is "fixed" without physically executing the test locally and confirming it passes.
+- **Target Active Router Screens:** In Expo Router, previous screens remain mounted in the DOM natively but are hidden (`display: none`). You MUST target the currently active screen layer.
+
+### 2. Things you MUST PARTICULARLY AVOID doing in future when writing tests:
+- **Avoid `.first()` Locators on Global Elements:** Because of Expo Router's hidden navigation stack, `getByTestId('back-btn').first()` or `getByText('SAVE').first()` will almost always target a broken, invisible button from a previous screen in the stack instead of the active one.
+- **Do not modify app code secretly:** Never patch `.tsx` app source files to bypass errors or modals without explicit user permission and transparency. Modifying app code to pass a test breaks trust and risks corrupting the application state.
+
+### 3. Things learned through this evening's experiences to bear in mind:
+- **The Codegen Trap:** Playwright's local Codegen often generates `.first()` or `.nth(0)` by default. These work initially but fail unpredictably during automated suites if the navigation stack grows. You must manually upgrade these to `.last()` or append `.filter({ state: 'visible' })` when writing the final spec file.
+- **"Recon-first" Debugging:** Trial-and-error click timings never work. If an assertion is failing because an element is hidden, dump the DOM state (`await fs.promises.writeFile('dump.html', await page.content())`) to physically see what the test is seeing. This reveals collapsed accordions and hidden routers instantly.

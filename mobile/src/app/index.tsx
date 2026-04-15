@@ -634,27 +634,26 @@ export default function HomeScreen() {
     if (!m || !y) return null;
     const now = new Date();
     const remaining = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
-    const rawColor = getStatusColor(m, y);
-    const color = rawColor;
+    const color = getStatusColor(m, y);
     
     const isExpired = remaining < 0;
-    const label = isExpired ? "expired " : "expires ";
     const abs = Math.abs(remaining);
+    const iconName = isExpired ? 'clock-remove-outline' : 'clock-outline';
     
     let timeText = "";
     if (isExpired) {
       timeText = `${abs} ${abs === 1 ? 'month' : 'months'} ago`;
     } else if (remaining === 0) {
-      timeText = 'THIS MONTH';
+      timeText = 'this month';
     } else {
       timeText = `${remaining} ${remaining === 1 ? 'month' : 'months'}`;
     }
     
     return (
-      <Text style={{color: '#e2e8f0', fontSize: customSize, fontWeight: 'bold'}}>
-        {label}
-        <Text style={{ color }}>{timeText}</Text>
-      </Text>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
+        <MaterialCommunityIcons name={iconName} size={18} color={color} />
+        <Text style={{color, fontSize: customSize, fontWeight: 'bold'}}>{timeText}</Text>
+      </View>
     );
   };
 
@@ -722,7 +721,20 @@ export default function HomeScreen() {
   const renderCategory = ({ item: cat }: any) => {
     const isExpanded = expandedCatIds.has(cat.id);
     const isEmpty = !cat.types || cat.types.length === 0;
-    
+    const hasStock = cat.total_qty > 0;
+    const hasExpiry = !!(cat.soonest_month && cat.soonest_year);
+
+    // Left border logic:
+    // - expanded / empty / no stock: matches card background (invisible seam)
+    // - has stock, no expiry dates: grey (batches with no expiry set)
+    // - has stock + expiry: colour-coded by urgency
+    const cardBg = cat.is_mess_hall ? '#1e3a8a' : '#1e293b';
+    const leftBorderColor = isExpanded || isEmpty || !hasStock
+      ? cardBg
+      : hasExpiry
+        ? getStatusColor(cat.soonest_month, cat.soonest_year)
+        : '#475569';
+
     // Pre-calculate Command Strip states to prevent render flicker
     const itemsWithStock = cat.types?.filter((t: any) => t.items.length > 0) || [];
     const canToggleItems = isExpanded && itemsWithStock.length > 0;
@@ -734,33 +746,46 @@ export default function HomeScreen() {
           activeOpacity={1} 
           style={[
             styles.categoryCard, 
-            isExpanded && styles.categoryCardExpanded,
             cat.is_mess_hall && styles.messHallCard,
             { 
               marginBottom: 0,
-              paddingBottom: isExpanded ? 20 : 16, // Extra stability for expanded state
-              borderLeftWidth: 8,
-              borderLeftColor: (isExpanded || isEmpty) ? 'transparent' : getStatusColor(cat.soonest_month, cat.soonest_year)
+              paddingBottom: 16,
+              borderBottomLeftRadius: isExpanded ? 0 : 12,
+              borderBottomRightRadius: isExpanded ? 0 : 12,
             }
           ]}
           onPress={() => toggleCategory(cat.id)}
           testID={`category-card-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
         >
+          {/* TACTICAL STATUS BAR (Internal 8px highlight to keep outer border continuous) */}
+          {(hasStock || hasExpiry) && (
+            <View style={{ 
+              position: 'absolute', 
+              left: 0, 
+              top: 0, 
+              bottom: 0, 
+              width: 8, 
+              backgroundColor: leftBorderColor,
+              opacity: !hasStock ? 0 : 1
+            }} />
+          )}
+
           {/* TIER 1: IDENTITY & CONTROLS */}
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: -8 }}>
             <MaterialCommunityIcons 
               name={isExpanded ? "chevron-down" : "menu-right"} 
               size={24} 
               color="#3b82f6" 
-              style={{ marginLeft: -10, marginRight: 2, opacity: isEmpty ? 0.3 : 1 }} 
+              style={{ marginRight: 2, opacity: isEmpty ? 0.3 : 1 }} 
             />
             <Text style={[styles.categoryTitle, { flex: 1 }]} numberOfLines={1}>{cat.name}</Text>
             
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              {canToggleItems && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {/* When expanded with stock: show expand-all/collapse-all. When collapsed: show mess hall toggle. */}
+              {canToggleItems ? (
                 <TouchableOpacity 
                    onPress={() => bulkToggleTypes(cat, !isAllExpanded)} 
-                   style={{paddingHorizontal: 4, paddingVertical: 0}}
+                   style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' }}
                    testID={`toggle-all-items-in-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
                 >
                    <MaterialCommunityIcons 
@@ -769,9 +794,21 @@ export default function HomeScreen() {
                      color="#3b82f6" 
                    />
                 </TouchableOpacity>
-              )}
+              ) : !isExpanded ? (
+                <TouchableOpacity 
+                  style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: cat.is_mess_hall ? 'rgba(234, 179, 8, 0.1)' : 'rgba(71, 85, 105, 0.2)', borderWidth: 1, borderColor: cat.is_mess_hall ? '#eab308' : '#334155' }}
+                  onPress={() => toggleCategoryMessHall(cat.id, cat.is_mess_hall)}
+                  testID={`mess-hall-toggle-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <MaterialCommunityIcons 
+                    name="chef-hat" 
+                    size={16} 
+                    color={cat.is_mess_hall ? "#eab308" : "#64748b"} 
+                  />
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity 
-                style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#3b82f6', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(59, 130, 246, 0.1)', marginRight: -4 }} 
+                style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#3b82f6', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(59, 130, 246, 0.1)' }} 
                 onPress={() => router.push({ pathname: '/add', params: { categoryId: cat.id, isNewType: '1' } })}
                 testID={`add-new-item-to-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
               >
@@ -780,32 +817,30 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* TIER 2: LOGISTICAL OVERVIEW (Permanently Visible Metrics) */}
-            <View style={styles.categorySummaryRow}>
-              <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
-                <TouchableOpacity 
-                   style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: cat.is_mess_hall ? 'rgba(234, 179, 8, 0.1)' : '#0f172a', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: cat.is_mess_hall ? '#eab308' : '#334155', marginRight: 10 }}
-                   onPress={() => toggleCategoryMessHall(cat.id, cat.is_mess_hall)}
-                   testID={`mess-hall-toggle-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
-                >
-                   <MaterialCommunityIcons name={cat.is_mess_hall ? "chef-hat" : "silverware-variant"} size={12} color={cat.is_mess_hall ? "#eab308" : "#475569"} style={{marginRight: 4}} />
-                   <Text style={{ color: cat.is_mess_hall ? "#eab308" : "#475569", fontSize: 9, fontWeight: 'bold' }}>MESS HALL {cat.is_mess_hall ? 'ON' : 'OFF'}</Text>
-                </TouchableOpacity>
-
-                {cat.total_qty > 0 ? (
+          {/* TIER 2: LOGISTICAL OVERVIEW — hidden when expanded */}
+          {!isExpanded && (
+            <View style={[styles.categorySummaryRow, { gap: 5 }]}>
+              <View style={{flexDirection: 'row', alignItems: 'center', flex: 1, gap: 5}}>
+                {isEmpty ? (
+                  <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>EMPTY CATEGORY</Text>
+                ) : hasStock ? (
                   <>
-                    <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.total_qty} {cat.total_qty === 1 ? 'ITEM' : 'ITEMS'}</Text>
-                    <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                    <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{cat.batch_count} {cat.batch_count === 1 ? 'BATCH' : 'BATCHES'}</Text>
+                    <MaterialCommunityIcons name="package-variant" size={18} color="#f8fafc" />
+                    <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{cat.total_qty}</Text>
+                    <MaterialCommunityIcons name="layers-triple" size={18} color="#f8fafc" />
+                    <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{cat.batch_count}</Text>
+                    <MaterialCommunityIcons name="warehouse" size={18} color="#f8fafc" />
+                    <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>{cat.site_count}</Text>
                   </>
                 ) : (
-                  <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>NO STOCK STORED</Text>
+                  <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>NO STOCK</Text>
                 )}
               </View>
-              {cat.total_qty > 0 && cat.soonest_month && cat.soonest_year && (
-                <View>{getUrgencyPhrasing(cat.soonest_month, cat.soonest_year, true, 11)}</View>
+              {hasStock && hasExpiry && (
+                <View>{getUrgencyPhrasing(cat.soonest_month, cat.soonest_year, true, 12)}</View>
               )}
             </View>
+          )}
         </TouchableOpacity>
 
 
@@ -821,19 +856,30 @@ export default function HomeScreen() {
                 style={[
                   styles.typeHeader, 
                   { 
-                    borderLeftWidth: 6, 
-                    borderLeftColor: (isTypeExpanded || !hasItems) ? 'transparent' : getStatusColor(type.soonest_month, type.soonest_year),
-                    marginLeft: -6,
-                    paddingLeft: 6
+                    marginLeft: -12,
+                    paddingLeft: 8
                   }
                 ]} 
                 activeOpacity={1} 
                 onPress={() => hasItems && toggleType(type.id)}
                 testID={`type-header-${type.name.toLowerCase().replace(/\s+/g, '-')}`}
               >
+                {/* SHAVED STATUS BAR (Fixed to edge) */}
+                {(hasItems && !isTypeExpanded) && (
+                  <View style={{ 
+                    position: 'absolute', 
+                    left: 0, 
+                    top: 4, 
+                    bottom: 4, 
+                    width: 8, 
+                    backgroundColor: getStatusColor(type.soonest_month, type.soonest_year),
+                    borderRadius: 1
+                  }} />
+                )}
+
                 <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 40 }}>
                    <View style={[{flexDirection: 'row', alignItems: 'center', flex: 1}, !hasItems && {opacity: 0.5}]}>
-                      <MaterialCommunityIcons name={isTypeExpanded ? "chevron-down" : "menu-right"} size={22} color="#3b82f6" style={{marginLeft: -4, marginRight: 2, opacity: hasItems ? 1 : 0}} />
+                      <MaterialCommunityIcons name={isTypeExpanded ? "chevron-down" : "menu-right"} size={24} color="#3b82f6" style={{ marginRight: 2, opacity: hasItems ? 1 : 0 }} />
                       <Text style={[styles.typeTitle, { flex: 1, marginLeft: 0 }]} numberOfLines={1}>{type.name}</Text>
                    </View>
                    
@@ -843,7 +889,7 @@ export default function HomeScreen() {
                     
                    <Link href={{ pathname: "/add", params: { typeId: type.id, categoryId: cat.id, inheritedCabinetId: filterCabinetId ?? undefined } }} asChild>
                       <TouchableOpacity 
-                        style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#3b82f6', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(59, 130, 246, 0.1)', marginRight: 0 }} 
+                        style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#3b82f6', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(59, 130, 246, 0.1)', marginRight: 4 }} 
                         testID={`add-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}
                       >
                         <MaterialCommunityIcons name="plus" size={16} color="#3b82f6" />
@@ -853,16 +899,17 @@ export default function HomeScreen() {
 
                 {/* TIER 2: LOGISTICAL BRIEFING (Shown only when collapsed) */}
                 {!isTypeExpanded && hasItems && (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 22, marginTop: 4 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{totalItems} {totalItems === 1 ? 'ITEM' : 'ITEMS'}</Text>
-                      <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                      <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{type.items.length} {type.items.length === 1 ? 'BATCH' : 'BATCHES'}</Text>
-                      <Text style={{color: '#334155', marginHorizontal: 4}}>•</Text>
-                      <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{uniqueSites} {uniqueSites === 1 ? 'SITE' : 'SITES'}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 8, marginRight: 4, marginTop: 4 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <MaterialCommunityIcons name="package-variant" size={18} color="#f8fafc" />
+                      <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{totalItems}</Text>
+                      <MaterialCommunityIcons name="layers-triple" size={18} color="#f8fafc" />
+                      <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{type.items.length}</Text>
+                      <MaterialCommunityIcons name="warehouse" size={18} color="#f8fafc" />
+                      <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>{uniqueSites}</Text>
                     </View>
                     {type.soonest_month && type.soonest_year && (
-                      <View>{getUrgencyPhrasing(type.soonest_month, type.soonest_year, false, 11)}</View>
+                      <View>{getUrgencyPhrasing(type.soonest_month, type.soonest_year, false, 12)}</View>
                     )}
                   </View>
                 )}
@@ -1602,15 +1649,15 @@ const styles = StyleSheet.create({
   settingsBtn: { position: 'absolute', right: 16, bottom: 20 },
   briefingBtn: { position: 'absolute', right: 56, bottom: 20 },
   logisticsBtn: { position: 'absolute', left: 16, bottom: 20 },
-  categoryCard: { backgroundColor: '#1e293b', borderRadius: 12, marginBottom: 16, overflow: 'hidden', padding: 16 },
+  categoryCard: { backgroundColor: '#1e293b', borderRadius: 12, marginBottom: 16, overflow: 'hidden', padding: 16, borderWidth: 1, borderColor: 'transparent' },
   categoryCardExpanded: { paddingBottom: 20 },
-  messHallCard: { backgroundColor: '#1e3a8a', borderColor: '#3b82f6', borderWidth: 1 },
+  messHallCard: { backgroundColor: '#1e3a8a', borderColor: '#3b82f6' },
   categoryHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 0, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#334155' },
   categorySummaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
   categoryTitle: { fontSize: 20, color: '#f8fafc', fontWeight: 'bold' },
   statusDot: { width: 12, height: 12, borderRadius: 6 },
-  typeBlock: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#1e293b' },
-  typeHeader: { flexDirection: 'column', alignItems: 'stretch', marginBottom: 8 },
+  typeBlock: { paddingHorizontal: 12, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  typeHeader: { flexDirection: 'column', alignItems: 'stretch', paddingTop: 6, paddingBottom: 12 },
   typeTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '600', marginLeft: 4 },
   addButton: { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#3b82f6', borderRadius: 4 },
   addText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
@@ -1628,7 +1675,7 @@ const styles = StyleSheet.create({
   },
   itemCountBadge: { backgroundColor: '#1e293b', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   emptyText: { color: '#64748b', fontStyle: 'italic', fontSize: 14, marginLeft: 16 },
-  inventoryRow: { paddingTop: 8, paddingBottom: 12, paddingHorizontal: 12, backgroundColor: '#475569', borderRadius: 6, marginBottom: 8 },
+  inventoryRow: { paddingTop: 8, paddingBottom: 12, paddingHorizontal: 12, backgroundColor: '#475569', borderRadius: 6, marginBottom: 8, marginHorizontal: -6 },
   totalLabel: { fontSize: 13, color: '#3b82f6', fontWeight: 'bold' },
   rowMain: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   qtyBadge: { backgroundColor: '#1e293b', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
