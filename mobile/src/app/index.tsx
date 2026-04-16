@@ -185,6 +185,7 @@ export default function HomeScreen() {
       SELECT c.id as cat_id, c.name as cat_name, c.icon as cat_icon, 
              i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count,
              i.freeze_months as type_freeze_months,
+             i.default_supplier as type_supplier, i.default_product_range as type_range,
              inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.batch_intel,
              inv.supplier as inv_supplier, inv.product_range as inv_product_range,
              inv.cabinet_id as inv_cabinet_id, inv.item_type_id as inv_item_type_id,
@@ -257,7 +258,17 @@ export default function HomeScreen() {
       }
       if (row.type_id) {
         if (!acc[row.cat_id].types[row.type_id]) {
-          acc[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, unit_type: row.type_unit, is_favorite: row.is_favorite, interaction_count: row.interaction_count, freeze_months: row.type_freeze_months ?? null, items: [] };
+          acc[row.cat_id].types[row.type_id] = { 
+            id: row.type_id, 
+            name: row.type_name, 
+            unit_type: row.type_unit, 
+            is_favorite: row.is_favorite, 
+            interaction_count: row.interaction_count, 
+            freeze_months: row.type_freeze_months ?? null,
+            default_supplier: row.type_supplier,
+            default_product_range: row.type_range,
+            items: [] 
+          };
         }
         if (row.inv_id) {
           acc[row.cat_id].types[row.type_id].items.push({
@@ -638,11 +649,15 @@ export default function HomeScreen() {
     
     const isExpired = remaining < 0;
     const abs = Math.abs(remaining);
-    const iconName = isExpired ? 'clock-remove-outline' : 'clock-outline';
+    const iconName = isExpired ? 'clock-off' : 'clock-outline';
     
     let timeText = "";
     if (isExpired) {
-      timeText = `${abs} ${abs === 1 ? 'month' : 'months'} ago`;
+      if (abs === 1) {
+        timeText = 'last month';
+      } else {
+        timeText = `${abs} months`;
+      }
     } else if (remaining === 0) {
       timeText = 'this month';
     } else {
@@ -651,7 +666,22 @@ export default function HomeScreen() {
     
     return (
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
-        <MaterialCommunityIcons name={iconName} size={18} color={color} />
+        {isExpired ? (
+          <View style={{ width: 18, height: 18, justifyContent: 'center', alignItems: 'center' }}>
+            <MaterialCommunityIcons name="clock-outline" size={18} color={color} />
+            {/* The "Fat Strikethrough" */}
+            <View style={{ 
+              position: 'absolute', 
+              width: 20, 
+              height: 2.5, 
+              backgroundColor: color, 
+              transform: [{ rotate: '-45deg' }],
+              borderRadius: 1.25
+            }} />
+          </View>
+        ) : (
+          <MaterialCommunityIcons name={iconName} size={18} color={color} />
+        )}
         <Text style={{color, fontSize: customSize, fontWeight: 'bold'}}>{timeText}</Text>
       </View>
     );
@@ -671,9 +701,13 @@ export default function HomeScreen() {
     
     let timeText = "";
     if (remaining < 0) {
-      timeText = `${abs} ${abs === 1 ? 'month' : 'months'} ago`;
+      if (abs === 1) {
+        timeText = 'last month';
+      } else {
+        timeText = `${abs} months`;
+      }
     } else if (remaining === 0) {
-      timeText = 'THIS MONTH';
+      timeText = 'this month';
     } else {
       timeText = `${remaining} ${remaining === 1 ? 'month' : 'months'}`;
     }
@@ -728,7 +762,7 @@ export default function HomeScreen() {
     // - expanded / empty / no stock: matches card background (invisible seam)
     // - has stock, no expiry dates: grey (batches with no expiry set)
     // - has stock + expiry: colour-coded by urgency
-    const cardBg = cat.is_mess_hall ? '#1e3a8a' : '#1e293b';
+    const cardBg = cat.is_mess_hall ? '#1e293b' : '#0f172a';
     const leftBorderColor = isExpanded || isEmpty || !hasStock
       ? cardBg
       : hasExpiry
@@ -851,7 +885,7 @@ export default function HomeScreen() {
           const totalItems = type.items.reduce((acc: number, it: any) => acc + (it.quantity || 0), 0);
           
           return (
-            <View key={type.id} style={styles.typeBlock}>
+            <View key={type.id} style={[styles.typeBlock, !hasItems && { backgroundColor: '#000000' }]}>
               <TouchableOpacity 
                 style={[
                   styles.typeHeader, 
@@ -1257,152 +1291,170 @@ export default function HomeScreen() {
 
       {/* ─── MOVE BATCH MODAL ─── */}
       <Modal visible={showMoveModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}><View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>TRANSFER STOCK</Text>
-          <Text style={{color: '#f8fafc', textAlign: 'center', fontSize: 16, fontWeight: 'bold', marginBottom: 4}}>{moveType?.name}</Text>
-          <Text style={{color: '#64748b', textAlign: 'center', fontSize: 11, marginBottom: 12}}>
-            {moveBatch?.cab_name?.toUpperCase()} → {(moveDestCabinets.find(c => c.id === moveDestCabId)?.name ?? 'DESTINATION').toUpperCase()}
-          </Text>
-
-
-          {/* Batch Detail Card */}
-          {moveBatch && (
-            <View style={{ backgroundColor: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16, width: '100%' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                <MaterialCommunityIcons name="warehouse" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
-                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                  {moveBatch.cab_name?.toUpperCase() || 'UNKNOWN'}
-                  {moveBatch.cab_location ? ` • ${moveBatch.cab_location.toUpperCase()}` : ''}
-                </Text>
-              </View>
-              {moveBatch.batch_intel ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                  <MaterialCommunityIcons name="information" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>{moveBatch.batch_intel.toUpperCase()}</Text>
-                </View>
-              ) : null}
-              {moveBatch.size ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                  <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                    {moveBatch.size}{moveType?.unit_type === 'weight' ? 'g' : moveType?.unit_type === 'volume' ? 'ml' : ' Units'}
-                  </Text>
-                </View>
-              ) : null}
-              {moveBatch.cab_type === 'freezer' && moveBatch.entry_month && moveBatch.entry_year ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="snowflake" size={14} color="#60a5fa" style={{ marginRight: 8 }} />
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                    FROZEN {String(moveBatch.entry_month).padStart(2, '0')}/{moveBatch.entry_year}
-                  </Text>
-                </View>
-              ) : moveBatch.expiry_month && moveBatch.expiry_year ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="calendar-clock" size={14} color="#64748b" style={{ marginRight: 8 }} />
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                    EXPIRES {String(moveBatch.expiry_month).padStart(2, '0')}/{moveBatch.expiry_year}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          )}
-
-          {/* Quantity Selector */}
-          {moveBatch && moveBatch.quantity > 1 && (
-            <View style={{width: '100%', marginBottom: 20}}>
-              <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginBottom: 10, textAlign: 'center'}}>QUANTITY TO MOVE</Text>
-              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20}}>
-                <TouchableOpacity
-                  onPress={() => setMoveQty(q => Math.max(1, q - 1))}
-                  style={{width: 40, height: 40, backgroundColor: '#334155', borderRadius: 8, alignItems: 'center', justifyContent: 'center'}}
-                >
-                  <MaterialCommunityIcons name="minus" size={20} color="white" />
-                </TouchableOpacity>
-                <View style={{alignItems: 'center'}}>
-                  <Text style={{color: '#f8fafc', fontSize: 28, fontWeight: 'bold', minWidth: 50, textAlign: 'center'}}>{moveQty}</Text>
-                  <Text style={{color: '#64748b', fontSize: 10}}>of {moveBatch?.quantity}</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setMoveQty(q => Math.min(moveBatch.quantity, q + 1))}
-                  style={{width: 40, height: 40, backgroundColor: '#334155', borderRadius: 8, alignItems: 'center', justifyContent: 'center'}}
-                >
-                  <MaterialCommunityIcons name="plus" size={20} color="white" />
-                </TouchableOpacity>
-              </View>
-              {moveQty < moveBatch?.quantity ? (
-                <Text style={{color: '#64748b', textAlign: 'center', fontSize: 10, marginTop: 8}}>
-                  {moveBatch.quantity - moveQty} {moveBatch.quantity - moveQty === 1 ? 'item' : 'items'} will remain in {moveBatch.cab_name} after the move
-                </Text>
-              ) : (
-                <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8, gap: 6}}>
-                  <MaterialCommunityIcons name="alert" size={13} color="#f59e0b" />
-                  <Text style={{color: '#f59e0b', textAlign: 'center', fontSize: 10, fontWeight: 'bold'}}>
-                    No stock will remain in {moveBatch.cab_name} after this transfer.
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%', padding: 0, overflow: 'hidden' }]}>
+            <ScrollView 
+              contentContainerStyle={{ padding: 24 }}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.modalTitle}>TRANSFER STOCK</Text>
+              
+              {moveType && (
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{ color: '#f8fafc', fontSize: 18, fontWeight: 'bold', textAlign: 'center' }}>{moveType.name}</Text>
+                  <Text style={{ color: '#64748b', fontSize: 11, textAlign: 'center', marginTop: 4, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    {moveBatch?.cab_name} → {moveDestCabinets.find(c => c.id === moveDestCabId)?.name ?? 'DESTINATION'}
                   </Text>
                 </View>
               )}
-            </View>
-          )}
 
-          {/* Static Quantity Display for single-unit batches */}
-          {moveBatch && moveBatch.quantity === 1 && (
-            <View style={{width: '100%', marginBottom: 24, alignItems: 'center'}}>
-              <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginBottom: 12, textAlign: 'center'}}>QUANTITY TO MOVE</Text>
-              <View style={{backgroundColor: '#1e293b', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 12}}>
-                <Text style={{color: '#f8fafc', fontSize: 24, fontWeight: 'bold'}}>1 UNIT</Text>
-              </View>
-              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: 'rgba(245, 158, 11, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6}}>
-                <MaterialCommunityIcons name="alert" size={14} color="#f59e0b" />
-                <Text style={{color: '#f59e0b', textAlign: 'center', fontSize: 11, fontWeight: 'bold'}}>
-                  FULL TRANSFER: No stock will remain in {moveBatch.cab_name}.
-                </Text>
-              </View>
-            </View>
-          )}
+              {/* Batch Detail Card */}
+              {moveBatch && (
+                <View style={{ backgroundColor: '#0f172a', borderRadius: 12, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: '#334155' }}>
+                  
+                  {/* Brand / Range Header (Batch specific with Type fallback) */}
+                  {(moveBatch.supplier || moveType?.default_supplier || moveBatch.product_range || moveType?.default_product_range) && (
+                    <View style={{ marginBottom: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#1e293b' }}>
+                      <Text style={{ color: '#f8fafc', fontSize: 16, fontWeight: 'bold' }}>
+                        {moveBatch.supplier || moveType?.default_supplier || ''}
+                        {(moveBatch.product_range || moveType?.default_product_range) ? ` • ${moveBatch.product_range || moveType.default_product_range}` : ''}
+                      </Text>
+                    </View>
+                  )}
 
-
-          {/* Cabinet Selector (Add-Batch Style) */}
-          <View style={{width: '100%', marginBottom: 20}}>
-            <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginBottom: 8, textAlign: 'center'}}>DESTINATION CABINET</Text>
-            <TouchableOpacity
-              onPress={() => setShowMoveCabinetPicker(true)}
-              style={{
-                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                backgroundColor: '#1e293b', borderRadius: 8, borderWidth: 1, borderColor: '#334155',
-                paddingHorizontal: 14, paddingVertical: 12,
-              }}
-            >
-              <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
-                {moveDestCabinets.find((c: any) => c.id === moveDestCabId)?.cabinet_type === 'freezer' && (
-                  <MaterialCommunityIcons name="snowflake" size={14} color="#60a5fa" style={{marginRight: 8}} />
-                )}
-                <View>
-                  <Text style={{color: '#f8fafc', fontSize: 14, fontWeight: 'bold'}}>
-                    {moveDestCabinets.find((c: any) => c.id === moveDestCabId)?.name ?? 'Select...'}
-                  </Text>
-                  {moveDestCabinets.find((c: any) => c.id === moveDestCabId)?.location ? (
-                    <Text style={{color: '#64748b', fontSize: 10}}>
-                      {moveDestCabinets.find((c: any) => c.id === moveDestCabId)?.location}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                    <MaterialCommunityIcons name="warehouse" size={16} color="#3b82f6" style={{ marginRight: 10 }} />
+                    <Text style={{ color: '#f8fafc', fontSize: 13, fontWeight: 'bold' }}>
+                      {moveBatch.cab_name?.toUpperCase()}
+                      {moveBatch.cab_location ? ` • ${moveBatch.cab_location.toUpperCase()}` : ''}
                     </Text>
-                  ) : null}
-                </View>
-              </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color="#64748b" />
-            </TouchableOpacity>
-          </View>
+                  </View>
+                  
+                  {moveBatch.batch_intel && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                      <MaterialCommunityIcons name="information" size={16} color="#3b82f6" style={{ marginRight: 10 }} />
+                      <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: 'bold', textTransform: 'uppercase' }}>
+                        {moveBatch.batch_intel}
+                      </Text>
+                    </View>
+                  )}
 
-          <TouchableOpacity
-            style={[styles.confirmBtn, {backgroundColor: '#d97706'}]}
-            onPress={handleConfirmMove}
-            testID="confirm-move-btn"
-          >
-            <MaterialCommunityIcons name="transfer" size={18} color="white" style={{marginRight: 8}} />
-            <Text style={{color: 'white', fontWeight: 'bold'}}>CONFIRM TRANSFER</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelLink} onPress={() => setShowMoveModal(false)}>
-            <Text style={{color: '#64748b'}}>CANCEL</Text>
-          </TouchableOpacity>
-        </View></View>
+                  {moveBatch.size && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                      <MaterialCommunityIcons name="weight" size={16} color="#64748b" style={{ marginRight: 10 }} />
+                      <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: 'bold' }}>
+                        {moveBatch.size}{moveType?.unit_type === 'weight' ? 'g' : moveType?.unit_type === 'volume' ? 'ml' : ' Units'}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="calendar-clock" size={16} color="#64748b" style={{ marginRight: 10 }} />
+                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: 'bold' }}>
+                      {moveBatch.cab_type === 'freezer' ? 'FROZEN' : 'EXPIRES'} {String(moveBatch.expiry_month || moveBatch.entry_month).padStart(2, '0')}/{moveBatch.expiry_year || moveBatch.entry_year}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Quantity Selector */}
+              {moveBatch && moveBatch.quantity > 1 && (
+                <View style={{ width: '100%', marginBottom: 24 }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginBottom: 12, textAlign: 'center', letterSpacing: 1 }}>QUANTITY TO MOVE</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
+                    <TouchableOpacity
+                      onPress={() => setMoveQty(q => Math.max(1, q - 1))}
+                      style={{ width: 48, height: 48, backgroundColor: '#334155', borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#475569' }}
+                    >
+                      <MaterialCommunityIcons name="minus" size={24} color="white" />
+                    </TouchableOpacity>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ color: '#f8fafc', fontSize: 32, fontWeight: 'bold', minWidth: 60, textAlign: 'center' }}>{moveQty}</Text>
+                      <Text style={{ color: '#64748b', fontSize: 12 }}>of {moveBatch.quantity}</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setMoveQty(q => Math.min(moveBatch.quantity, q + 1))}
+                      style={{ width: 48, height: 48, backgroundColor: '#334155', borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#475569' }}
+                    >
+                      <MaterialCommunityIcons name="plus" size={24} color="white" />
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={{ marginTop: 16, alignItems: 'center' }}>
+                    {moveQty < moveBatch.quantity ? (
+                      <Text style={{ color: '#64748b', fontSize: 12 }}>
+                        {moveBatch.quantity - moveQty} will remain in {moveBatch.cab_name}
+                      </Text>
+                    ) : (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(245, 158, 11, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}>
+                        <MaterialCommunityIcons name="alert" size={14} color="#f59e0b" />
+                        <Text style={{ color: '#f59e0b', fontSize: 11, fontWeight: 'bold' }}>No stock will remain in source</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* Single Unit Display */}
+              {moveBatch && moveBatch.quantity === 1 && (
+                <View style={{ width: '100%', marginBottom: 24 }}>
+                   <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginBottom: 12, textAlign: 'center', letterSpacing: 1 }}>QUANTITY TO MOVE</Text>
+                   <View style={{ backgroundColor: '#1e293b', paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#334155', alignItems: 'center' }}>
+                      <Text style={{ color: '#f8fafc', fontSize: 20, fontWeight: 'bold' }}>1 UNIT</Text>
+                   </View>
+                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12, gap: 6 }}>
+                      <MaterialCommunityIcons name="alert" size={14} color="#f59e0b" />
+                      <Text style={{ color: '#f59e0b', fontSize: 11, fontWeight: 'bold' }}>FULL TRANSFER</Text>
+                   </View>
+                </View>
+              )}
+
+              {/* Cabinet Selector */}
+              <View style={{ width: '100%', marginBottom: 32 }}>
+                <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginBottom: 8, textAlign: 'center', letterSpacing: 1 }}>DESTINATION CABINET</Text>
+                <TouchableOpacity
+                  onPress={() => setShowMoveCabinetPicker(true)}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                    backgroundColor: '#0f172a', borderRadius: 12, borderWidth: 1, borderColor: '#334155',
+                    paddingHorizontal: 16, paddingVertical: 14,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <MaterialCommunityIcons 
+                      name={moveDestCabinets.find(c => c.id === moveDestCabId)?.cabinet_type === 'freezer' ? "snowflake" : "warehouse"} 
+                      size={18} 
+                      color="#64748b" 
+                      style={{ marginRight: 12 }} 
+                    />
+                    <View>
+                      <Text style={{ color: '#f8fafc', fontSize: 15, fontWeight: 'bold' }}>
+                        {moveDestCabinets.find(c => c.id === moveDestCabId)?.name ?? 'Select Site...'}
+                      </Text>
+                      <Text style={{ color: '#64748b', fontSize: 11 }}>
+                        {moveDestCabinets.find(c => c.id === moveDestCabId)?.location || 'System Storage'}
+                      </Text>
+                    </View>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-down" size={20} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.confirmBtn, { backgroundColor: '#d97706', width: '100%', paddingVertical: 16 }]}
+                onPress={handleConfirmMove}
+                testID="confirm-move-btn"
+              >
+                <MaterialCommunityIcons name="transfer" size={20} color="white" style={{ marginRight: 10 }} />
+                <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>CONFIRM TRANSFER</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={[styles.cancelLink, { marginTop: 16 }]} onPress={() => setShowMoveModal(false)}>
+                <Text style={{ color: '#64748b', fontWeight: 'bold', letterSpacing: 1 }}>CANCEL</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
 
       {/* ─── SECONDARY CABINET PICKER MODAL (Add-Batch Style) ─── */}
@@ -1625,7 +1677,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
+  container: { flex: 1, backgroundColor: '#000000' },
   filterPillRow: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
   filterPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
   filterPillText: { fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
@@ -1649,14 +1701,14 @@ const styles = StyleSheet.create({
   settingsBtn: { position: 'absolute', right: 16, bottom: 20 },
   briefingBtn: { position: 'absolute', right: 56, bottom: 20 },
   logisticsBtn: { position: 'absolute', left: 16, bottom: 20 },
-  categoryCard: { backgroundColor: '#1e293b', borderRadius: 12, marginBottom: 16, overflow: 'hidden', padding: 16, borderWidth: 1, borderColor: 'transparent' },
+  categoryCard: { backgroundColor: '#0f172a', borderRadius: 12, marginBottom: 16, overflow: 'hidden', padding: 16, borderWidth: 1, borderColor: '#475569' },
   categoryCardExpanded: { paddingBottom: 20 },
-  messHallCard: { backgroundColor: '#1e3a8a', borderColor: '#3b82f6' },
+  messHallCard: { backgroundColor: '#1e293b', borderColor: '#475569' },
   categoryHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 0, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#334155' },
   categorySummaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
   categoryTitle: { fontSize: 20, color: '#f8fafc', fontWeight: 'bold' },
   statusDot: { width: 12, height: 12, borderRadius: 6 },
-  typeBlock: { paddingHorizontal: 12, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  typeBlock: { paddingHorizontal: 12, backgroundColor: '#334155', borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   typeHeader: { flexDirection: 'column', alignItems: 'stretch', paddingTop: 6, paddingBottom: 12 },
   typeTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '600', marginLeft: 4 },
   addButton: { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#3b82f6', borderRadius: 4 },
@@ -1675,7 +1727,7 @@ const styles = StyleSheet.create({
   },
   itemCountBadge: { backgroundColor: '#1e293b', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   emptyText: { color: '#64748b', fontStyle: 'italic', fontSize: 14, marginLeft: 16 },
-  inventoryRow: { paddingTop: 8, paddingBottom: 12, paddingHorizontal: 12, backgroundColor: '#475569', borderRadius: 6, marginBottom: 8, marginHorizontal: -6 },
+  inventoryRow: { paddingTop: 8, paddingBottom: 12, paddingHorizontal: 12, backgroundColor: '#475569', borderRadius: 6, marginBottom: 8, marginHorizontal: 2, borderWidth: 1, borderColor: '#5d6d85' },
   totalLabel: { fontSize: 13, color: '#3b82f6', fontWeight: 'bold' },
   rowMain: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   qtyBadge: { backgroundColor: '#1e293b', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 10 },

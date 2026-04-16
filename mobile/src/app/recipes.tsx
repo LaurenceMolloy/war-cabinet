@@ -14,6 +14,36 @@ import { RECIPE_PROMPT_TEMPLATE, AUTHENTIC_MODE_SUB_TEMPLATES, LOGISTICS_MODE_SU
 import CHEFS_DATA from '../data/chefs.json';
 import FRIDGE_INGREDIENTS from '../data/fridge_ingredients.json';
 
+function getLevenshteinDistance(a: string, b: string): number {
+  const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1].toLowerCase() === b[j - 1].toLowerCase() ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return matrix[a.length][b.length];
+}
+
+const NearMissIcon = () => (
+  <View style={{ width: 44, height: 44, justifyContent: 'center', alignItems: 'center' }}>
+    <MaterialCommunityIcons name="bullseye-arrow" size={38} color="#475569" />
+    <View style={{ position: 'absolute', bottom: 1, right: 1 }}>
+      <MaterialCommunityIcons name="help" size={26} color="#000000" style={{ position: 'absolute', top: -1, left: -1 }} />
+      <MaterialCommunityIcons name="help" size={26} color="#000000" style={{ position: 'absolute', top: -1, left: 1 }} />
+      <MaterialCommunityIcons name="help" size={26} color="#000000" style={{ position: 'absolute', top: 1, left: -1 }} />
+      <MaterialCommunityIcons name="help" size={26} color="#000000" style={{ position: 'absolute', top: 1, left: 1 }} />
+      <MaterialCommunityIcons name="help" size={26} color="#f59e0b" />
+    </View>
+  </View>
+);
+
 const DIETARY_CHOICES = ["Meat", "Pescetarian", "Vegetarian", "Vegan", "Don't Mind"];
 const ALLERGENS = [
   "Celery", "Cereals (Gluten)", "Crustaceans", "Eggs", "Fish", "Lupin", "Milk", 
@@ -53,6 +83,15 @@ export default function RecipesScreen() {
   const [sessionCustomExp, setSessionCustomExp] = useState<string[]>([]);
   const [historyExp, setHistoryExp] = useState<string[]>([]);
   const [fridgeSuggestions, setFridgeSuggestions] = useState<string[]>([]);
+
+  // --- LOGISTICAL REFS (to prevent onBlur race conditions with suggestions) ---
+  const customInputRef = useRef("");
+  const staplesInputRef = useRef("");
+  const customExpInputRef = useRef("");
+
+  useEffect(() => { customInputRef.current = customInput; }, [customInput]);
+  useEffect(() => { staplesInputRef.current = staplesInput; }, [staplesInput]);
+  useEffect(() => { customExpInputRef.current = customExpInput; }, [customExpInput]);
   const chefs = [
     "BBC Good Food", "Gordon Ramsay", "Ina Garten", "Jamie Oliver", "Nigella Lawson", "Ottolenghi", "Rachael Ray"
   ];
@@ -82,6 +121,19 @@ export default function RecipesScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [missionStatus, setMissionStatus] = useState<string | null>(null);
   const [usageStats, setUsageStats] = useState<Record<string, number>>({});
+  
+  // --- FUZZY MODAL STATE ---
+  const [showIngredientFuzzyModal, setShowIngredientFuzzyModal] = useState(false);
+  const [fuzzyIngredientMatches, setFuzzyIngredientMatches] = useState<string[]>([]);
+  const [pendingIngredientVal, setPendingIngredientVal] = useState("");
+  const [pendingIngredientSegment, setPendingIngredientSegment] = useState<'staple' | 'addon'>('staple');
+  const [ignoredFuzzyIngredients, setIgnoredFuzzyIngredients] = useState<Set<string>>(new Set());
+
+  const [showChefFuzzyModal, setShowChefFuzzyModal] = useState(false);
+  const [fuzzyChefMatches, setFuzzyChefMatches] = useState<string[]>([]);
+  const [pendingChefVal, setPendingChefVal] = useState("");
+  const [ignoredFuzzyChefs, setIgnoredFuzzyChefs] = useState<Set<string>>(new Set());
+
   const statusAnim = React.useRef(new Animated.Value(0)).current;
 
   type AccordionSection = "mode" | "core" | "optional" | "protocols" | "deploy" | null;
@@ -356,6 +408,9 @@ export default function RecipesScreen() {
     const cleaned = val.trim();
     if (!cleaned) return;
     
+    // FUZZY CHECK BEFORE COMMIT
+    if (handleIngredientFuzzyCheck(cleaned, segment === 'selectedStaples' ? 'staple' : 'addon')) return;
+
     // Auto-select and commit immediately (Rule 2 & 6)
     if (segment === 'selectedStaples') {
         setSelectedStaples(prev => {
@@ -412,6 +467,91 @@ export default function RecipesScreen() {
 
   const handleStaplesBlur = () => {
     setStapleSuggestions([]);
+  };
+
+  const handleFridgeBlur = () => {
+    setFridgeSuggestions([]);
+  };
+
+  const handleChefBlur = () => {
+    setSuggestedChefs([]);
+  };
+
+  const handleIngredientFuzzyCheck = (val: string, segment: 'staple' | 'addon'): boolean => {
+    const v = val.trim();
+    if (!v || v.length < 2 || ignoredFuzzyIngredients.has(v.toLowerCase())) return false;
+
+    // Build current vocabulary
+    const coreNormalized = new Map(FRIDGE_INGREDIENTS.map((n: string) => [n.toLowerCase(), n]));
+    const combined = [...FRIDGE_INGREDIENTS];
+    for (const s of persistentStaples) {
+      if (!coreNormalized.has(s.toLowerCase())) combined.push(s);
+    }
+
+    // Exact match?
+    if (combined.some(i => i.toLowerCase() === v.toLowerCase())) return false;
+
+    const matches = combined
+      .map(i => {
+        const lowerI = i.toLowerCase();
+        return {
+          name: i,
+          dist: getLevenshteinDistance(v.toLowerCase(), lowerI),
+          startsWith: lowerI.startsWith(v.toLowerCase()[0])
+        };
+      })
+      .filter(m => m.dist >= 1 && m.dist <= 2)
+      .sort((a, b) => {
+        if (a.startsWith && !b.startsWith) return -1;
+        if (!a.startsWith && b.startsWith) return 1;
+        if (a.dist !== b.dist) return a.dist - b.dist;
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, 3)
+      .map(m => m.name);
+
+    if (matches.length > 0) {
+      setPendingIngredientVal(v);
+      setPendingIngredientSegment(segment);
+      setFuzzyIngredientMatches(matches);
+      setShowIngredientFuzzyModal(true);
+      return true;
+    }
+    return false;
+  };
+
+  const handleChefFuzzyCheck = (val: string) => {
+    const v = val.trim();
+    if (!v || v.length < 2 || ignoredFuzzyChefs.has(v.toLowerCase())) return;
+
+    const allChefNames = Object.keys(CHEFS_DATA);
+    // Exact match?
+    if (allChefNames.some(c => c.toLowerCase() === v.toLowerCase())) return;
+
+    const matches = allChefNames
+      .map(c => {
+        const lowerC = c.toLowerCase();
+        return {
+          name: c,
+          dist: getLevenshteinDistance(v.toLowerCase(), lowerC),
+          startsWith: lowerC.startsWith(v.toLowerCase()[0])
+        };
+      })
+      .filter(m => m.dist >= 1 && m.dist <= 2)
+      .sort((a, b) => {
+        if (a.startsWith && !b.startsWith) return -1;
+        if (!a.startsWith && b.startsWith) return 1;
+        if (a.dist !== b.dist) return a.dist - b.dist;
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, 3)
+      .map(m => m.name);
+
+    if (matches.length > 0) {
+      setPendingChefVal(v);
+      setFuzzyChefMatches(matches);
+      setShowChefFuzzyModal(true);
+    }
   };
 
   const massActionPantry = (include: boolean) => {
@@ -1033,21 +1173,43 @@ export default function RecipesScreen() {
                         savePref('recipe_chef', val);
                         
                         if (val.trim().length > 1) {
-                          const matches = Object.keys(CHEFS_DATA)
-                            .filter(name => {
-                              const isMatch = name.toLowerCase().startsWith(val.toLowerCase());
-                              if (recipeMode === 'authentic') {
-                                return isMatch && (CHEFS_DATA[name as keyof typeof CHEFS_DATA] as any).authentic === true;
+                          const query = val.toLowerCase();
+                          const allChefNames = Object.keys(CHEFS_DATA);
+                          const scored = allChefNames.map(name => {
+                            const lowerN = name.toLowerCase();
+                            let score = 3;
+                            if (lowerN === query) score = 0;
+                            else if (lowerN.startsWith(query)) score = 0.5;
+                            else if (lowerN.includes(query)) score = 0.8;
+                            else {
+                              const prefixToScan = lowerN.substring(0, query.length + 1);
+                              const prefixDist = getLevenshteinDistance(query, prefixToScan);
+                              if (prefixDist <= 1) score = 0.9;
+                              else {
+                                const fullDist = getLevenshteinDistance(query, lowerN);
+                                if (fullDist <= 2) score = 1.0 + (fullDist * 0.2);
                               }
-                              return isMatch;
+                            }
+                            return { name, score };
+                          });
+
+                          let matches = scored
+                            .filter(item => {
+                              if (recipeMode === 'authentic') {
+                                return item.score <= 2 && (CHEFS_DATA[item.name as keyof typeof CHEFS_DATA] as any).authentic === true;
+                              }
+                              return item.score <= 2;
                             })
-                            .sort((a, b) => a.length - b.length || a.localeCompare(b))
-                            .slice(0, 3);
+                            .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name))
+                            .slice(0, 3)
+                            .map(item => item.name);
+
                           setSuggestedChefs(matches);
                         } else {
                           setSuggestedChefs([]);
                         }
                       }}
+                      onSubmitEditing={() => handleChefFuzzyCheck(customInput)}
                       autoCorrect={false}
                       spellCheck={false}
                       testID="custom-chef-input"
@@ -1210,28 +1372,40 @@ export default function RecipesScreen() {
                               for (const s of persistentStaples) {
                                 if (!coreNormalized.has(s.toLowerCase())) combined.push(s);
                               }
-                              const matches = combined
-                                .filter(name => name.toLowerCase().includes(query))
+
+                              const scored = combined.map(name => {
+                                const lowerN = name.toLowerCase();
+                                let score = 3;
+                                if (lowerN === query) score = 0;
+                                else if (lowerN.startsWith(query)) score = 0.5;
+                                else if (lowerN.includes(query)) score = 0.8;
+                                else {
+                                  const prefixToScan = lowerN.substring(0, query.length + 1);
+                                  const prefixDist = getLevenshteinDistance(query, prefixToScan);
+                                  if (prefixDist <= 1) score = 0.9;
+                                  else {
+                                    const fullDist = getLevenshteinDistance(query, lowerN);
+                                    if (fullDist <= 2) score = 1.0 + (fullDist * 0.2);
+                                  }
+                                }
+                                return { name, score, usage: usageStats[name] || 0 };
+                              });
+
+                              const matches = scored
+                                .filter(item => item.score <= 2)
                                 .sort((a, b) => {
-                                    const aUsage = usageStats[a] || 0;
-                                    const bUsage = usageStats[b] || 0;
-                                    if (aUsage !== bUsage) return bUsage - aUsage;
-                                    const aStarts = a.toLowerCase().startsWith(query);
-                                    const bStarts = b.toLowerCase().startsWith(query);
-                                    if (aStarts && !bStarts) return -1;
-                                    if (!aStarts && bStarts) return 1;
-                                    const aCustom = persistentStaples.includes(a) && !FRIDGE_INGREDIENTS.includes(a);
-                                    const bCustom = persistentStaples.includes(b) && !FRIDGE_INGREDIENTS.includes(b);
-                                    if (aCustom && !bCustom) return -1;
-                                    if (!aCustom && bCustom) return 1;
-                                    return a.length - b.length || a.localeCompare(b);
+                                    if (a.score !== b.score) return a.score - b.score;
+                                    if (a.usage !== b.usage) return b.usage - a.usage;
+                                    return a.name.localeCompare(b.name);
                                 })
-                                .slice(0, 4);
+                                .slice(0, 3)
+                                .map(item => item.name);
                               setFridgeSuggestions(matches);
                           } else {
                               setFridgeSuggestions([]);
                           }
                         }}
+                        onBlur={handleFridgeBlur}
                         onSubmitEditing={() => handleAddStaple(customExpInput, 'selectedAddons')}
                       />
                       <TouchableOpacity 
@@ -1349,30 +1523,42 @@ export default function RecipesScreen() {
                             const coreNormalized = new Map(FRIDGE_INGREDIENTS.map((n: string) => [n.toLowerCase(), n]));
                             const combined = [...FRIDGE_INGREDIENTS];
                             for (const s of persistentStaples) {
-                              if (!coreNormalized.has(s.toLowerCase())) combined.push(s);
+                                if (!coreNormalized.has(s.toLowerCase())) combined.push(s);
                             }
-                            const matches = combined
-                              .filter(name => name.toLowerCase().includes(query))
-                              .sort((a, b) => {
-                                  const aUsage = usageStats[a] || 0;
-                                  const bUsage = usageStats[b] || 0;
-                                  if (aUsage !== bUsage) return bUsage - aUsage;
-                                  const aStarts = a.toLowerCase().startsWith(query);
-                                  const bStarts = b.toLowerCase().startsWith(query);
-                                  if (aStarts && !bStarts) return -1;
-                                  if (!aStarts && bStarts) return 1;
-                                  const aCustom = persistentStaples.includes(a) && !FRIDGE_INGREDIENTS.includes(a);
-                                  const bCustom = persistentStaples.includes(b) && !FRIDGE_INGREDIENTS.includes(b);
-                                  if (aCustom && !bCustom) return -1;
-                                  if (!aCustom && bCustom) return 1;
-                                  return a.length - b.length || a.localeCompare(b);
-                              })
-                              .slice(0, 4);
+
+                            const scored = combined.map(name => {
+                                const lowerN = name.toLowerCase();
+                                let score = 3;
+                                if (lowerN === query) score = 0;
+                                else if (lowerN.startsWith(query)) score = 0.5;
+                                else if (lowerN.includes(query)) score = 0.8;
+                                else {
+                                    const prefixToScan = lowerN.substring(0, query.length + 1);
+                                    const prefixDist = getLevenshteinDistance(query, prefixToScan);
+                                    if (prefixDist <= 1) score = 0.9;
+                                    else {
+                                        const fullDist = getLevenshteinDistance(query, lowerN);
+                                        if (fullDist <= 2) score = 1.0 + (fullDist * 0.2);
+                                    }
+                                }
+                                return { name, score, usage: usageStats[name] || 0 };
+                            });
+
+                            const matches = scored
+                                .filter(item => item.score <= 2)
+                                .sort((a, b) => {
+                                    if (a.score !== b.score) return a.score - b.score;
+                                    if (a.usage !== b.usage) return b.usage - a.usage;
+                                    return a.name.localeCompare(b.name);
+                                })
+                                .slice(0, 3)
+                                .map(item => item.name);
                             setStapleSuggestions(matches);
                         } else {
                             setStapleSuggestions([]);
                         }
                       }}
+                      onBlur={handleStaplesBlur}
                       onSubmitEditing={() => handleAddStaple(staplesInput, 'selectedStaples')}
                     />
                     <TouchableOpacity 
@@ -1578,6 +1764,106 @@ export default function RecipesScreen() {
           <View style={{height: 100}} /> 
         </View>
       </KeyboardAwareScrollView>
+
+      {/* --- INGREDIENT HARMONIZER MODAL --- */}
+      {showIngredientFuzzyModal && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderColor: '#f59e0b', borderWidth: 2, width: '90%', maxWidth: 400 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <NearMissIcon />
+              <Text style={styles.modalTitle}>NEAR MISS DETECTED</Text>
+            </View>
+            <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+              <Text style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: 15 }}>{pendingIngredientVal}</Text> appears to be a possible near miss. Align this <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>ingredient</Text> entry with the established vocabulary for this field?
+            </Text>
+            <View style={{ marginBottom: 10, gap: 8 }}>
+              {fuzzyIngredientMatches.map(match => (
+                <TouchableOpacity 
+                  key={match}
+                  style={{ backgroundColor: '#1e293b', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                  onPress={() => {
+                    handleAddStaple(match, pendingIngredientSegment === 'staple' ? 'selectedStaples' : 'selectedAddons');
+                    setShowIngredientFuzzyModal(false);
+                  }}
+                >
+                  <MaterialCommunityIcons name="check-circle-outline" size={20} color="#3b82f6" />
+                  <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{match.toUpperCase()}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#334155', padding: 12, borderRadius: 8, alignItems: 'center' }}
+                onPress={() => {
+                  setIgnoredFuzzyIngredients(prev => new Set(prev).add(pendingIngredientVal.toLowerCase()));
+                  handleAddStaple(pendingIngredientVal, pendingIngredientSegment === 'staple' ? 'selectedStaples' : 'selectedAddons');
+                  setShowIngredientFuzzyModal(false);
+                }}
+              >
+                <Text style={{ color: '#cbd5e1', fontWeight: 'bold' }}>IGNORE</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#1e293b', padding: 12, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#475569' }}
+                onPress={() => setShowIngredientFuzzyModal(false)}
+              >
+                <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>EDIT</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* --- CHEF HARMONIZER MODAL --- */}
+      {showChefFuzzyModal && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderColor: '#f59e0b', borderWidth: 2, width: '90%', maxWidth: 400 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <NearMissIcon />
+              <Text style={styles.modalTitle}>NEAR MISS DETECTED</Text>
+            </View>
+            <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+              <Text style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: 15 }}>{pendingChefVal}</Text> appears to be a possible near miss. Align this <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>chef</Text> entry with the established vocabulary for this field?
+            </Text>
+            <View style={{ marginBottom: 10, gap: 8 }}>
+              {fuzzyChefMatches.map(match => (
+                <TouchableOpacity 
+                  key={match}
+                  style={{ backgroundColor: '#1e293b', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                  onPress={() => {
+                    setSelectedChef(match);
+                    setCustomInput(match);
+                    savePref('recipe_chef', match);
+                    setShowChefFuzzyModal(false);
+                  }}
+                >
+                  <MaterialCommunityIcons name="check-circle-outline" size={20} color="#3b82f6" />
+                  <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{match.toUpperCase()}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#334155', padding: 12, borderRadius: 8, alignItems: 'center' }}
+                onPress={() => {
+                  setIgnoredFuzzyChefs(prev => new Set(prev).add(pendingChefVal.toLowerCase()));
+                  setSelectedChef(pendingChefVal);
+                  setCustomInput(pendingChefVal);
+                  savePref('recipe_chef', pendingChefVal);
+                  setShowChefFuzzyModal(false);
+                }}
+              >
+                <Text style={{ color: '#cbd5e1', fontWeight: 'bold' }}>IGNORE</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#1e293b', padding: 12, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#475569' }}
+                onPress={() => setShowChefFuzzyModal(false)}
+              >
+                <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>EDIT</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
 
       {renderStatus()}
     </View>

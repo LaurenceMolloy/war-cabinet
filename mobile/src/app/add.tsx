@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Modal, Platform, Switch } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -7,6 +7,38 @@ import { markModified } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
 import SUPPLIERS_DATA from '../data/suppliers.json';
 import BRANDS_DATA from '../data/brands.json';
+
+function getLevenshteinDistance(a: string, b: string): number {
+  const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1].toLowerCase() === b[j - 1].toLowerCase() ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return matrix[a.length][b.length];
+}
+
+const NearMissIcon = () => (
+  <View style={{ width: 44, height: 44, justifyContent: 'center', alignItems: 'center' }}>
+    <MaterialCommunityIcons name="bullseye-arrow" size={38} color="#475569" />
+    <View style={{ position: 'absolute', bottom: 1, right: 1 }}>
+      {/* 4-way offset for Black Border on Glyph */}
+      <MaterialCommunityIcons name="help" size={26} color="#000000" style={{ position: 'absolute', top: -1, left: -1 }} />
+      <MaterialCommunityIcons name="help" size={26} color="#000000" style={{ position: 'absolute', top: -1, left: 1 }} />
+      <MaterialCommunityIcons name="help" size={26} color="#000000" style={{ position: 'absolute', top: 1, left: -1 }} />
+      <MaterialCommunityIcons name="help" size={26} color="#000000" style={{ position: 'absolute', top: 1, left: 1 }} />
+      {/* Main Orange Question Mark Glyph */}
+      <MaterialCommunityIcons name="help" size={26} color="#f59e0b" />
+    </View>
+  </View>
+);
 
 export default function AddInventoryScreen() {
   const { typeId, editBatchId, inheritedCabinetId, categoryId, isNewType } = useLocalSearchParams();
@@ -34,6 +66,10 @@ export default function AddInventoryScreen() {
   const [rangeVocabulary, setRangeVocabulary] = useState<string[]>([]);
   const [supplierCounts, setSupplierCounts] = useState<Record<string, number>>({});
   const [rangeCounts, setRangeCounts] = useState<Record<string, number>>({});
+  const [defaultBrandSuggestion, setDefaultBrandSuggestion] = useState<string | null>(null);
+  const [defaultRangeSuggestion, setDefaultRangeSuggestion] = useState<string | null>(null);
+  const [mostFreqBrandSuggestion, setMostFreqBrandSuggestion] = useState<string | null>(null);
+  const [mostFreqRangeSuggestion, setMostFreqRangeSuggestion] = useState<string | null>(null);
   const [showQuickAddType, setShowQuickAddType] = useState(false);
   const [quickAddName, setQuickAddName] = useState('');
   const [quickAddUnit, setQuickAddUnit] = useState('weight');
@@ -46,6 +82,7 @@ export default function AddInventoryScreen() {
   const [quickAddSupplier, setQuickAddSupplier] = useState('');
   const [quickAddRange, setQuickAddRange] = useState('');
   const [quickAddDefaultCabinet, setQuickAddDefaultCabinet] = useState<number | null>(null);
+
   const [showAddCabinet, setShowAddCabinet] = useState(false);
   const [newCabName, setNewCabName] = useState('');
   const [newCabLoc, setNewCabLoc] = useState('');
@@ -63,50 +100,169 @@ export default function AddInventoryScreen() {
     return '';
   };
 
-  const updateSupplierSuggestions = (val: string, segment: 'main' | 'quick') => {
-    if (val.trim().length > 0) {
-      const matches = supplierVocabulary
-        .filter(s => s.toLowerCase().includes(val.toLowerCase()))
-        .sort((a, b) => {
-          const aLower = a.toLowerCase();
-          const bLower = b.toLowerCase();
-          const aStart = aLower.startsWith(val.toLowerCase());
-          const bStart = bLower.startsWith(val.toLowerCase());
-          if (aStart && !bStart) return -1;
-          if (!aStart && bStart) return 1;
-          
-          const aCount = supplierCounts[aLower] || 0;
-          const bCount = supplierCounts[bLower] || 0;
-          if (aCount !== bCount) return bCount - aCount;
+  const isAutoSavePipeline = useRef(false);
+  const handleSaveRef = useRef<(() => Promise<void>) | null>(null);
 
-          return a.localeCompare(b);
+  const resumePipeline = () => {
+    if (isAutoSavePipeline.current) {
+      setTimeout(() => {
+        handleSaveRef.current?.();
+      }, 100);
+    }
+  };
+
+  const updateSupplierSuggestions = (val: string, segment: 'main' | 'quick') => {
+    const searchVal = val.trim().toLowerCase();
+    if (searchVal.length > 0) {
+      const scored = supplierVocabulary.map(s => {
+        const lowerS = s.toLowerCase();
+        let score = 3; // Default outside threshold
+
+        if (lowerS === searchVal) score = 0;
+        else if (lowerS.startsWith(searchVal)) score = 0.5;
+        else if (lowerS.includes(searchVal)) score = 0.8;
+        else {
+          // --- ELASTIC PREFIX CHECK ---
+          // Check if input is a near-miss of the word's BEGINNING (n+1)
+          const prefixToScan = lowerS.substring(0, searchVal.length + 1);
+          const prefixDist = getLevenshteinDistance(searchVal, prefixToScan);
+          
+          if (prefixDist <= 1) score = 0.9; 
+          else {
+            // Full-word fallback
+            const fullDist = getLevenshteinDistance(searchVal, lowerS);
+            if (fullDist <= 2) score = 1.0 + (fullDist * 0.2);
+          }
+        }
+
+        return { name: s, score, count: supplierCounts[lowerS] || 0 };
+      });
+
+      const matches = scored
+        .filter(item => item.score <= 2)
+        .sort((a, b) => {
+          if (a.score !== b.score) return a.score - b.score;
+          if (a.count !== b.count) return b.count - a.count;
+          return a.name.localeCompare(b.name);
         })
-        .slice(0, 3);
+        .slice(0, 3)
+        .map(item => item.name);
+
       setSuggestedTypeAheadSuppliers(matches);
     } else {
       setSuggestedTypeAheadSuppliers([]);
     }
   };
 
+  const handleSupplierFuzzyCheck = (valToCheck?: string): boolean => {
+    const valStr = typeof valToCheck === 'string' ? valToCheck : (showQuickAddType ? quickAddSupplier : supplier);
+    const val = valStr.trim().toLowerCase();
+    if (!val || (ignoredFuzzyBrands && ignoredFuzzyBrands.has(val))) return false;
+    
+    // Exact match exists? (Suppresses modal if we just picked a suggestion)
+    if (supplierVocabulary.some(s => s.toLowerCase() === val)) return false;
+
+    const threshold = val.length < 4 ? 1 : 2;
+
+    let matches = supplierVocabulary
+      .map(s => {
+        const lowerS = s.toLowerCase();
+        return {
+          name: s,
+          dist: getLevenshteinDistance(val, lowerS),
+          startsWith: lowerS.startsWith(val[0])
+        };
+      })
+      .filter(m => m.dist >= 1 && m.dist <= 2)
+      .sort((a, b) => {
+        if (a.startsWith && !b.startsWith) return -1;
+        if (!a.startsWith && b.startsWith) return 1;
+        if (a.dist !== b.dist) return a.dist - b.dist;
+        return a.name.localeCompare(b.name);
+      });
+
+    const finalMatches = matches
+      .slice(0, 3)
+      .map(m => m.name);
+
+    if (finalMatches.length > 0) {
+      setFuzzyBrandMatches(finalMatches);
+      setShowBrandFuzzyModal(true);
+      return true;
+    }
+    return false;
+  };
+
+  const handleRangeFuzzyCheck = (valToCheck?: string): boolean => {
+    const valStr = typeof valToCheck === 'string' ? valToCheck : (showQuickAddType ? quickAddRange : productRange);
+    const val = valStr.trim().toLowerCase();
+    if (!val || (ignoredFuzzyRanges && ignoredFuzzyRanges.has(val))) return false;
+    
+    // Exact match exists?
+    if (rangeVocabulary.some(r => r.toLowerCase() === val)) return false;
+
+    let matches = rangeVocabulary
+      .map(r => {
+        const lowerR = r.toLowerCase();
+        return {
+          name: r,
+          dist: getLevenshteinDistance(val, lowerR),
+          startsWith: lowerR.startsWith(val[0])
+        };
+      })
+      .filter(m => m.dist >= 1 && m.dist <= 2)
+      .sort((a, b) => {
+        if (a.startsWith && !b.startsWith) return -1;
+        if (!a.startsWith && b.startsWith) return 1;
+        if (a.dist !== b.dist) return a.dist - b.dist;
+        return a.name.localeCompare(b.name);
+      });
+
+    const finalMatches = matches
+      .slice(0, 3)
+      .map(m => m.name);
+
+    if (finalMatches.length > 0) {
+      setFuzzyRangeMatches(finalMatches);
+      setShowRangeFuzzyModal(true);
+      return true;
+    }
+    return false;
+  };
+
+
   const updateRangeSuggestions = (val: string) => {
-    if (val.trim().length > 0) {
-      const matches = rangeVocabulary
-        .filter(r => r.toLowerCase().includes(val.toLowerCase()))
+    const searchVal = val.trim().toLowerCase();
+    if (searchVal.length > 0) {
+      const scored = rangeVocabulary.map(r => {
+        const lowerR = r.toLowerCase();
+        let score = 3;
+
+        if (lowerR === searchVal) score = 0;
+        else if (lowerR.startsWith(searchVal)) score = 0.5;
+        else if (lowerR.includes(searchVal)) score = 0.8;
+        else {
+          const prefixToScan = lowerR.substring(0, searchVal.length + 1);
+          const prefixDist = getLevenshteinDistance(searchVal, prefixToScan);
+          if (prefixDist <= 1) score = 0.9;
+          else {
+            const fullDist = getLevenshteinDistance(searchVal, lowerR);
+            if (fullDist <= 2) score = 1.0 + (fullDist * 0.2);
+          }
+        }
+        return { name: r, score, count: rangeCounts[lowerR] || 0 };
+      });
+
+      const matches = scored
+        .filter(item => item.score <= 2)
         .sort((a, b) => {
-          const aLower = a.toLowerCase();
-          const bLower = b.toLowerCase();
-          const aStart = aLower.startsWith(val.toLowerCase());
-          const bStart = bLower.startsWith(val.toLowerCase());
-          if (aStart && !bStart) return -1;
-          if (!aStart && bStart) return 1;
-
-          const aCount = rangeCounts[aLower] || 0;
-          const bCount = rangeCounts[bLower] || 0;
-          if (aCount !== bCount) return bCount - aCount;
-
-          return a.localeCompare(b);
+          if (a.score !== b.score) return a.score - b.score;
+          if (a.count !== b.count) return b.count - a.count;
+          return a.name.localeCompare(b.name);
         })
-        .slice(0, 3);
+        .slice(0, 3)
+        .map(item => item.name);
+
       setSuggestedTypeAheadRanges(matches);
     } else {
       setSuggestedTypeAheadRanges([]);
@@ -133,20 +289,33 @@ export default function AddInventoryScreen() {
         await db.runAsync("UPDATE Inventory SET product_range = NULL WHERE product_range = ?", [val]);
       }
     } catch (e) {
-      console.error("Purge failed in background", e);
+      console.error(e);
+      Alert.alert('Error', 'Failed to save inventory');
     }
   };
 
 
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [showYearPicker, setShowYearPicker] = useState(false);
+  const [showOptionalFields, setShowOptionalFields] = useState(true);
   
   const [errorField, setErrorField] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [cabinets, setCabinets] = useState<any[]>([]);
   const [selectedCabinetId, setSelectedCabinetId] = useState<number | null>(null);
+  const [hasManuallyChangedCabinet, setHasManuallyChangedCabinet] = useState(false);
   const [showCabinetPicker, setShowCabinetPicker] = useState(false);
+  const [showLocationConflictModal, setShowLocationConflictModal] = useState(false);
+  const [showVanguardModal, setShowVanguardModal] = useState(false);
+  const [showBrandFuzzyModal, setShowBrandFuzzyModal] = useState(false);
+  const [fuzzyBrandMatches, setFuzzyBrandMatches] = useState<string[]>([]);
+  const [ignoredFuzzyBrands, setIgnoredFuzzyBrands] = useState<Set<string>>(new Set());
+  const [showRangeFuzzyModal, setShowRangeFuzzyModal] = useState(false);
+  const [fuzzyRangeMatches, setFuzzyRangeMatches] = useState<string[]>([]);
+  const [ignoredFuzzyRanges, setIgnoredFuzzyRanges] = useState<Set<string>>(new Set());
+  const [otherLocations, setOtherLocations] = useState<{id: number, name: string}[]>([]);
+  const [makeDefaultHome, setMakeDefaultHome] = useState(false);
   const [showFreezeMonthPicker, setShowFreezeMonthPicker] = useState(false);
   const [showFreezeYearPicker, setShowFreezeYearPicker] = useState(false);
   const [freezeMonth, setFreezeMonth] = useState(currentMonth.toString());
@@ -159,13 +328,6 @@ export default function AddInventoryScreen() {
 
   useEffect(() => {
     async function loadData() {
-      const typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null}>('SELECT name, unit_type, default_size, default_cabinet_id, freeze_months, default_supplier, default_product_range FROM ItemTypes WHERE id = ?', [Number(typeId)]);
-      if (typeRes) {
-        setUnitType(typeRes.unit_type || 'weight');
-        setTypeName(typeRes.name);
-        if (typeRes.default_cabinet_id) setSelectedCabinetId(typeRes.default_cabinet_id);
-        if (typeRes.freeze_months) setFreezeLimit(typeRes.freeze_months.toString());
-      }
 
       const cabRows = await db.getAllAsync<any>('SELECT * FROM Cabinets');
       setCabinets(cabRows);
@@ -214,7 +376,9 @@ export default function AddInventoryScreen() {
       rawR.forEach(v => {
         if (!v) return;
         const key = v.trim().toLowerCase();
-        if (!normalizedR.has(key)) normalizedR.set(key, v.trim());
+        if (!normalizedR.has(key)) {
+          normalizedR.set(key, v.trim());
+        }
       });
       setRangeVocabulary(Array.from(normalizedR.values()).sort());
 
@@ -229,6 +393,32 @@ export default function AddInventoryScreen() {
       const rMap: Record<string, number> = {};
       rStats.forEach(r => { rMap[r.val.toLowerCase()] = r.total; });
       setRangeCounts(rMap);
+
+      // Fetch Sensible Defaults for item type
+      let typeRes: any = null;
+      if (typeId) {
+        typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null}>('SELECT name, unit_type, default_size, default_cabinet_id, freeze_months, default_supplier, default_product_range FROM ItemTypes WHERE id = ?', [Number(typeId)]);
+        if (typeRes) {
+          setUnitType(typeRes.unit_type || 'weight');
+          setTypeName(typeRes.name);
+          if (typeRes.default_cabinet_id) setSelectedCabinetId(typeRes.default_cabinet_id);
+          if (typeRes.freeze_months) setFreezeLimit(typeRes.freeze_months.toString());
+        }
+
+        const lastBrandRow = await db.getFirstAsync<{supplier: string}>("SELECT supplier FROM Inventory WHERE item_type_id = ? AND supplier IS NOT NULL AND supplier != '' ORDER BY id DESC LIMIT 1", [Number(typeId)]);
+        const lastBrand = typeRes?.default_supplier || lastBrandRow?.supplier || null;
+        if (lastBrand) setDefaultBrandSuggestion(lastBrand);
+
+        const lastRangeRow = await db.getFirstAsync<{product_range: string}>("SELECT product_range FROM Inventory WHERE item_type_id = ? AND product_range IS NOT NULL AND product_range != '' ORDER BY id DESC LIMIT 1", [Number(typeId)]);
+        const lastRange = typeRes?.default_product_range || lastRangeRow?.product_range || null;
+        if (lastRange) setDefaultRangeSuggestion(lastRange);
+
+        const freqBrandRow = await db.getFirstAsync<{supplier: string}>("SELECT supplier, COUNT(*) as count FROM Inventory WHERE item_type_id = ? AND supplier IS NOT NULL AND supplier != '' GROUP BY supplier COLLATE NOCASE ORDER BY count DESC LIMIT 1", [Number(typeId)]);
+        if (freqBrandRow) setMostFreqBrandSuggestion(freqBrandRow.supplier);
+
+        const freqRangeRow = await db.getFirstAsync<{product_range: string}>("SELECT product_range, COUNT(*) as count FROM Inventory WHERE item_type_id = ? AND product_range IS NOT NULL AND product_range != '' GROUP BY product_range COLLATE NOCASE ORDER BY count DESC LIMIT 1", [Number(typeId)]);
+        if (freqRangeRow) setMostFreqRangeSuggestion(freqRangeRow.product_range);
+      }
       
       // --- INTELLIGENCE HIERARCHY FOR CABINET SELECTION ---
       if (editBatchId) {
@@ -242,7 +432,10 @@ export default function AddInventoryScreen() {
           setSelectedCabinetId(typeRes.default_cabinet_id);
         } else {
           // TIER 2: Item History
-          const lastForItem = await db.getFirstAsync<{cabinet_id: number}>('SELECT cabinet_id FROM Inventory WHERE item_type_id = ? ORDER BY id DESC LIMIT 1', [Number(typeId)]);
+          let lastForItem = null;
+          if (typeId) {
+            lastForItem = await db.getFirstAsync<{cabinet_id: number}>('SELECT cabinet_id FROM Inventory WHERE item_type_id = ? ORDER BY id DESC LIMIT 1', [Number(typeId)]);
+          }
           if (lastForItem) {
             setSelectedCabinetId(lastForItem.cabinet_id);
           } else {
@@ -259,12 +452,24 @@ export default function AddInventoryScreen() {
       }
 
 
-      const res = await db.getAllAsync<{size: string}>(
-        "SELECT size FROM Inventory WHERE item_type_id = ? AND size NOT GLOB '*[^0-9]*' GROUP BY size ORDER BY MAX(id) DESC LIMIT 3",
-        [Number(typeId)]
-      );
-      if (res && res.length > 0) {
-        setCustomChips(res.map(r => r.size));
+      if (typeId) {
+        const res = await db.getAllAsync<{size: string}>(
+          "SELECT size FROM Inventory WHERE item_type_id = ? AND size NOT GLOB '*[^0-9]*' GROUP BY size ORDER BY MAX(id) DESC LIMIT 3",
+          [Number(typeId)]
+        );
+        if (res && res.length > 0) {
+          setCustomChips(res.map(r => r.size));
+        }
+
+        if (!editBatchId) {
+          if (typeRes && typeRes.default_size) {
+             setSize(typeRes.default_size.toString().replace(/[^0-9]/g, '') || '');
+          } else if (res && res.length > 0) {
+            setSize(res[0].size.toString().replace(/[^0-9]/g, '') || '');
+          }
+          if (typeRes && typeRes.default_supplier) setSupplier(typeRes.default_supplier);
+          if (typeRes && typeRes.default_product_range) setProductRange(typeRes.default_product_range);
+        }
       }
 
       if (editBatchId) {
@@ -285,14 +490,6 @@ export default function AddInventoryScreen() {
           if (batch.entry_month) setFreezeMonth(batch.entry_month.toString());
           if (batch.entry_year) setFreezeYear(batch.entry_year.toString());
         }
-      } else {
-        if (typeRes && typeRes.default_size) {
-           setSize(typeRes.default_size.toString().replace(/[^0-9]/g, '') || '');
-        } else if (res && res.length > 0) {
-          setSize(res[0].size.toString().replace(/[^0-9]/g, '') || '');
-        }
-        if (typeRes && typeRes.default_supplier) setSupplier(typeRes.default_supplier);
-        if (typeRes && typeRes.default_product_range) setProductRange(typeRes.default_product_range);
       }
 
       const catRows = await db.getAllAsync<any>('SELECT * FROM Categories ORDER BY name');
@@ -311,6 +508,10 @@ export default function AddInventoryScreen() {
 
   const handleSave = async () => {
     try {
+      // PRE-SAVE LOGISTICAL AUDIT (Catch near-misses before validation/commit)
+      if (handleSupplierFuzzyCheck(showQuickAddType ? quickAddSupplier : supplier)) return;
+      if (handleRangeFuzzyCheck(showQuickAddType ? quickAddRange : productRange)) return;
+
       setErrorField(null);
       setErrorMsg(null);
 
@@ -355,7 +556,7 @@ export default function AddInventoryScreen() {
           LEFT JOIN Cabinets c ON v.cabinet_id = c.id 
           WHERE i.freeze_months IS NOT NULL OR c.cabinet_type = 'freezer'
         `);
-        const alreadyInFreezer = freezerTypes.some(t => t.id === Number(typeId));
+        const alreadyInFreezer = typeId ? freezerTypes.some(t => t.id === Number(typeId)) : false;
         if (!alreadyInFreezer && freezerTypes.length >= limits.freezer_items) {
            checkEntitlement('FREEZER_LIMIT');
            return;
@@ -378,6 +579,15 @@ export default function AddInventoryScreen() {
 
       // For freezer batches: skip merge
       if (isFreezerMode) {
+        let freezerTypeId = typeId;
+        if (showQuickAddType && !freezerTypeId) {
+          const tRes = await db.runAsync(
+            'INSERT INTO ItemTypes (name, category_id, unit_type, default_cabinet_id) VALUES (?, ?, ?, ?)',
+            [quickAddName.trim(), selectedQuickAddCat, quickAddUnit, selectedCabinetId]
+          );
+          freezerTypeId = tRes.lastInsertRowId.toString();
+        }
+
         if (editBatchId) {
           await db.runAsync(
             'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = NULL, expiry_year = NULL, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ? WHERE id = ?',
@@ -386,15 +596,19 @@ export default function AddInventoryScreen() {
         } else {
           await db.runAsync(
             `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
-            [Number(typeId), q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null]
+            [Number(freezerTypeId), q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null]
           );
         }
         
-        await db.runAsync('UPDATE ItemTypes SET freeze_months = ? WHERE id = ?', [fLimit, Number(typeId)]);
+        await db.runAsync('UPDATE ItemTypes SET freeze_months = ? WHERE id = ?', [fLimit, Number(freezerTypeId)]);
         await markModified(db);
-        router.replace({ pathname: '/', params: { targetCatId: categoryId ? Number(categoryId) : undefined, targetTypeId: typeId ? Number(typeId) : undefined, timestamp: Date.now().toString() } });
+        router.replace({ pathname: '/', params: { targetCatId: categoryId ? Number(categoryId) : undefined, targetTypeId: freezerTypeId ? Number(freezerTypeId) : undefined, timestamp: Date.now().toString() } });
         return;
       }
+      
+      const cleanNewIntel = batchIntel?.trim() || null;
+      const cleanNewSupplier = supplier?.trim() || null;
+      const cleanNewRange = productRange?.trim() || null;
 
       const exM = parseInt(expiryMonth);
       const exY = parseInt(expiryYear);
@@ -409,54 +623,92 @@ export default function AddInventoryScreen() {
           AND ( (expiry_year IS NULL AND ? IS NULL) OR (expiry_year = ?) )
           AND id != ?
       `;
-      const potentialMatches = await db.getAllAsync<any>(
+      const potentialMatches = typeId ? await db.getAllAsync<any>(
         existingSearchQuery, 
         [
           Number(typeId), finalSize, selectedCabinetId, 
           expMVal, expMVal, expYVal, expYVal, 
           editBatchId ? Number(editBatchId) : -1
         ]
-      );
-
-      const cleanNewIntel = batchIntel?.trim() || null;
-      const cleanNewSupplier = supplier?.trim() || null;
-      const cleanNewRange = productRange?.trim() || null;
+      ) : [];
 
       if (potentialMatches.length > 0) {
         // 1. SILENT MERGE: All metadata (Supplier, Range, Intel) must match exactly
         const exactMatch = potentialMatches.find(m => 
-          (m.batch_intel?.trim() || null) === cleanNewIntel &&
-          (m.supplier || null) === cleanNewSupplier &&
-          (m.product_range || null) === cleanNewRange
+          (m.batch_intel?.trim() || null)?.toLowerCase() === cleanNewIntel?.toLowerCase() &&
+          (m.supplier || null)?.toLowerCase() === cleanNewSupplier?.toLowerCase() &&
+          (m.product_range || null)?.toLowerCase() === cleanNewRange?.toLowerCase()
         );
 
         if (exactMatch) {
-          await finalizeCommit(exactMatch.id, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel });
+          await finalizeCommit(exactMatch.id, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
         } else {
-          // 2. MODAL MERGE: If not exact, offer a merge if Supplier/Range are NULL-compatible 
-          // (i.e. we allow NULL to match a value, but don't merge mismatched non-NULL values)
+          // 2. MODAL MERGE: If not exact, offer a merge if Supplier/Range/Intel are NULL-compatible 
+          // (i.e. we allow NULL in the new record to match an existing value, but a populated new record cannot merge into a NULL existing record)
           const mergeCandidate = potentialMatches.find(m => {
-            const sMatch = !cleanNewSupplier || !m.supplier || cleanNewSupplier === m.supplier;
-            const rMatch = !cleanNewRange || !m.product_range || cleanNewRange === m.product_range;
-            return sMatch && rMatch;
+            const mIntel = m.batch_intel?.trim() || null;
+            const sMatch = !cleanNewSupplier || cleanNewSupplier.toLowerCase() === (m.supplier || null)?.toLowerCase();
+            const rMatch = !cleanNewRange || cleanNewRange.toLowerCase() === (m.product_range || null)?.toLowerCase();
+            const iMatch = !cleanNewIntel || cleanNewIntel.toLowerCase() === (mIntel || null)?.toLowerCase();
+            return sMatch && rMatch && iMatch;
           });
 
           if (mergeCandidate) {
             setMergeCandidate(mergeCandidate);
-            setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel });
+            setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
             setShowMergeModal(true);
           } else {
             // 3. NO MATCH: Structural metadata differs (e.g. different brands), so create new
-            await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel, supplier, productRange });
+            await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
           }
         }
       } else {
-        await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel, supplier, productRange });
+        // Only challenge if: No default, no manual override, stock exists in OTHER cabinets, and NO stock here.
+        if (typeId) {
+          const typeRes = await db.getFirstAsync<{default_cabinet_id: number | null}>('SELECT default_cabinet_id FROM ItemTypes WHERE id = ?', [Number(typeId)]);
+          if (!hasManuallyChangedCabinet && !typeRes?.default_cabinet_id) {
+            // Check if we ALREADY have stock of this item in the currently selected cabinet
+            const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? LIMIT 1', [Number(typeId), selectedCabinetId]);
+            
+            if (!existingHere) {
+               const others = await db.getAllAsync<any>(
+                'SELECT DISTINCT c.id, c.name FROM Inventory v JOIN Cabinets c ON v.cabinet_id = c.id WHERE v.item_type_id = ? AND v.cabinet_id != ?',
+                [Number(typeId), selectedCabinetId]
+              );
+              if (others.length > 0) {
+                setOtherLocations(others.map(o => ({ id: o.id, name: o.name })));
+                setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel, supplier, productRange });
+                setShowLocationConflictModal(true);
+                return;
+              } else {
+                // --- SCENARIO 4: VANGUARD HANDSHAKE ---
+                // First arrival, no default, no manual intent, AND hasn't been resolved yet.
+                const typeStatus = await db.getFirstAsync<{vanguard_resolved: number}>('SELECT vanguard_resolved FROM ItemTypes WHERE id = ?', [Number(typeId)]);
+                if (!typeStatus?.vanguard_resolved) {
+                  setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
+                  setShowVanguardModal(true);
+                  return;
+                }
+              }
+            }
+          }
+        }
+        await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
       }
     } catch (err: any) {
       console.error('Save failed:', err);
       Alert.alert('Save Failed', err.message);
     }
+  };
+
+  // Sync ref after every render so resumePipeline always calls the freshest closure
+  useLayoutEffect(() => {
+    handleSaveRef.current = handleSave;
+  });
+
+  const triggerSave = () => {
+    isAutoSavePipeline.current = true;
+    handleSave();
   };
 
   const finalizeCommit = async (mergeTargetId: number | null, data: any) => {
@@ -605,7 +857,7 @@ export default function AddInventoryScreen() {
   // ─── PHASE 1: ITEM TYPE SPECIFICATION ───
   if (isNewType === '1' && !typeId) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#0f172a' }}>
+      <View style={{ flex: 1, backgroundColor: '#000000' }}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
             <Text style={styles.title}>DEPLOY ITEM TYPE</Text>
@@ -689,7 +941,14 @@ export default function AddInventoryScreen() {
             </View>
             <View style={{ width: '100%', marginBottom: 4 }}>
               <Text style={styles.miniLabel}>DEFAULT BRAND / SUPPLIER</Text>
-              <TextInput style={styles.inputSmall} value={quickAddSupplier} onChangeText={(val) => { setQuickAddSupplier(val); updateSupplierSuggestions(val, 'quick'); }} placeholder="Heinz, Nestle, Tesco..." placeholderTextColor="#64748b" />
+              <TextInput 
+                style={styles.inputSmall} 
+                value={quickAddSupplier} 
+                onChangeText={(val) => { setQuickAddSupplier(val); updateSupplierSuggestions(val, 'quick'); }} 
+                onBlur={handleSupplierFuzzyCheck}
+                placeholder="Heinz, Nestle, Tesco..." 
+                placeholderTextColor="#64748b" 
+              />
             </View>
             <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginBottom: 8, flexDirection: 'row' }}>
               {suggestedTypeAheadSuppliers.length > 0 && quickAddSupplier.length > 0 && (
@@ -716,7 +975,14 @@ export default function AddInventoryScreen() {
 
             <View style={{ width: '100%', marginBottom: 4 }}>
               <Text style={styles.miniLabel}>DEFAULT PRODUCT RANGE</Text>
-              <TextInput style={styles.inputSmall} value={quickAddRange} onChangeText={(val) => { setQuickAddRange(val); updateRangeSuggestions(val); }} placeholder="Gastropub, Finest..." placeholderTextColor="#64748b" />
+              <TextInput
+                style={styles.inputSmall}
+                placeholder="Product Range (e.g. Dark Roast)"
+                placeholderTextColor="#64748b"
+                value={quickAddRange}
+                onChangeText={(val) => { setQuickAddRange(val); updateRangeSuggestions(val); }}
+                onBlur={handleRangeFuzzyCheck}
+              />
             </View>
             <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginBottom: 8, flexDirection: 'row' }}>
               {suggestedTypeAheadRanges.length > 0 && quickAddRange.length > 0 && (
@@ -763,8 +1029,95 @@ export default function AddInventoryScreen() {
           </TouchableOpacity>
         </ScrollView>
 
-        {/* RE-RENDER MODALS IN THIS BRANCH TO ENSURE THEY WORK HERE TOO */}
-        <Modal visible={showAddCabinet} transparent animationType="slide">
+        {/* --- PHASE 1 ROOT LEVEL HARMONIZER --- */}
+        {showBrandFuzzyModal && (
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { borderColor: '#f59e0b', borderWidth: 2, width: '90%', maxWidth: 400, maxHeight: '85%' }]}>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                  <NearMissIcon />
+                  <Text style={[styles.modalTitle, { marginBottom: 0 }]}>NEAR MISS DETECTED</Text>
+                </View>
+                
+                <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+                  <Text style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: 15 }}>{(showQuickAddType ? quickAddSupplier : supplier)}</Text> appears to be a possible near miss. Align this <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>brand/supplier</Text> entry with the established vocabulary for this field?
+                </Text>
+
+                <View style={{ marginBottom: 10, gap: 8 }}>
+                  {fuzzyBrandMatches.map(match => (
+                    <TouchableOpacity 
+                      key={match}
+                      style={{ backgroundColor: '#1e293b', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                      onPress={async () => {
+                        if (showQuickAddType) setQuickAddSupplier(match);
+                        else setSupplier(match);
+                        setShowBrandFuzzyModal(false);
+                      }}
+                    >
+                      <MaterialCommunityIcons name="check-circle" size={18} color="#22c55e" />
+                      <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>ALIGN TO: {match.toUpperCase()}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TouchableOpacity 
+                  style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#475569', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}
+                  onPress={async () => {
+                     setIgnoredFuzzyBrands(prev => new Set(prev).add((showQuickAddType ? quickAddSupplier : supplier).trim().toLowerCase()));
+                     setShowBrandFuzzyModal(false);
+                  }}
+                >
+                  <MaterialCommunityIcons name="plus-circle-outline" size={18} color="#94a3b8" />
+                  <Text style={{ color: '#cbd5e1', fontWeight: 'bold' }}>NO, THIS IS INTENTIONAL</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        )}
+
+        {/* RANGE FUZZY MODAL */}
+        {showRangeFuzzyModal && (
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { borderColor: '#f59e0b', borderWidth: 2, width: '90%', maxWidth: 400 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <NearMissIcon />
+                <Text style={[styles.modalTitle, { marginBottom: 0 }]}>NEAR MISS DETECTED</Text>
+              </View>
+              <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+                <Text style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: 15 }}>{(showQuickAddType ? quickAddRange : productRange)}</Text> appears to be a possible near miss. Align this <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>product range</Text> entry with the established vocabulary for this field?
+              </Text>
+              <View style={{ marginBottom: 10, gap: 8 }}>
+                {fuzzyRangeMatches.map(match => (
+                  <TouchableOpacity 
+                    key={match}
+                    style={{ backgroundColor: '#1e293b', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                    onPress={async () => {
+                      if (showQuickAddType) setQuickAddRange(match);
+                      else setProductRange(match);
+                      setShowRangeFuzzyModal(false);
+                    }}
+                  >
+                    <MaterialCommunityIcons name="check-circle" size={18} color="#22c55e" />
+                    <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>ALIGN TO: {match.toUpperCase()}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TouchableOpacity 
+                style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#475569', flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                onPress={async () => {
+                   setIgnoredFuzzyRanges(prev => new Set(prev).add((showQuickAddType ? quickAddRange : productRange).trim().toLowerCase()));
+                   setShowRangeFuzzyModal(false);
+                }}
+              >
+                <MaterialCommunityIcons name="plus-circle-outline" size={18} color="#94a3b8" />
+                <Text style={{ color: '#cbd5e1', fontWeight: 'bold' }}>NO, THIS IS INTENTIONAL</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* RE-RENDER MODALS IN THIS BRANCH AS VIEW OVERLAYS */}
+        {showAddCabinet && (
           <View style={styles.modalOverlay}><View style={styles.modalContent}>
             <Text style={styles.modalTitle}>DEPLOY CABINET</Text>
             <View style={{ marginBottom: 16 }}>
@@ -774,8 +1127,8 @@ export default function AddInventoryScreen() {
             <TouchableOpacity style={styles.saveButton} onPress={handleCreateCabinet}><Text style={styles.saveText}>CREATE CABINET</Text></TouchableOpacity>
             <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCabinet(false)}><Text style={styles.modalCloseText}>CANCEL</Text></TouchableOpacity>
           </View></View>
-        </Modal>
-        <Modal visible={showAddCategory} transparent animationType="slide">
+        )}
+        {showAddCategory && (
           <View style={styles.modalOverlay}><View style={styles.modalContent}>
             <Text style={styles.modalTitle}>DEPLOY CATEGORY</Text>
             <View style={{ marginBottom: 16 }}>
@@ -785,18 +1138,19 @@ export default function AddInventoryScreen() {
             <TouchableOpacity style={styles.saveButton} onPress={handleCreateCategory}><Text style={styles.saveText}>CREATE CATEGORY</Text></TouchableOpacity>
             <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCategory(false)}><Text style={styles.modalCloseText}>CANCEL</Text></TouchableOpacity>
           </View></View>
-        </Modal>
+        )}
       </View>
     );
   }
 
   // ─── PHASE 2: BATCH LOGISTICS ───
   return (
-    <View style={{ flex: 1, backgroundColor: '#0f172a' }}>
+    <View style={[styles.container, { padding: 0 }]}>
+
       <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 60 }}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-             <Text style={styles.title}>{editBatchId ? 'UPDATE BATCH' : 'DEPLOY BATCH'}</Text>
+             <Text style={styles.title}>{editBatchId ? 'UPDATE BATCH' : 'ADD BATCH'}</Text>
              <Text style={styles.subTitle}>{typeName}</Text>
           </View>
           <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} testID="cancel-btn">
@@ -885,83 +1239,7 @@ export default function AddInventoryScreen() {
         )}
       </View>
 
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Brand / Supplier (Optional)</Text>
-        <TextInput 
-          style={styles.input} 
-          value={supplier} 
-          onChangeText={(val) => {
-            setSupplier(val);
-            updateSupplierSuggestions(val, 'main');
-          }} 
-          placeholder="Heinz, Nestle, Tesco, Walmart..."
-          placeholderTextColor="#64748b"
-          testID="supplier-input"
-        />
-        <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
-          {suggestedTypeAheadSuppliers.length > 0 && supplier.length > 0 && (
-            <View style={{flexDirection: 'row', gap: 4}}>
-              {suggestedTypeAheadSuppliers.map(s => {
-                const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
-                               Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
-                return (
-                  <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
-                    <TouchableOpacity onPress={() => { setSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
-                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
-                    </TouchableOpacity>
-                    {!isCore && (
-                      <TouchableOpacity 
-                        onPress={() => handlePurgeVocabulary(s, 'supplier')}
-                        hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
-                        style={{padding: 2}}
-                      >
-                        <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </View>
-      </View>
-
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Product Range (Optional)</Text>
-        <TextInput 
-          style={styles.input} 
-          value={productRange} 
-          onChangeText={(val) => {
-            setProductRange(val);
-            updateRangeSuggestions(val);
-          }} 
-          placeholder="e.g. Gastropub, Essential, Finest..."
-          placeholderTextColor="#64748b"
-          testID="product-range-input"
-        />
-        <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row' }}>
-          {suggestedTypeAheadRanges.length > 0 && productRange.length > 0 && (
-            <View style={{flexDirection: 'row', gap: 4}}>
-              {suggestedTypeAheadRanges.map(r => (
-                <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
-                  <TouchableOpacity onPress={() => { setProductRange(r); setSuggestedTypeAheadRanges([]); }}>
-                    <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    onPress={() => handlePurgeVocabulary(r, 'range')}
-                    hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
-                    style={{padding: 2}}
-                  >
-                    <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-      </View>
-
-      {/* Expiry Date (standard) / Date Frozen (freezer) */}
+      {/* ─── EXPIRY / DATE FROZEN (moved up - quasi-mandatory) ─── */}
       {isFreezerMode ? (
         <View style={styles.formGroup}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -1005,7 +1283,6 @@ export default function AddInventoryScreen() {
               ))}
             </ScrollView>
           )}
-
           {/* Freeze Limit Editor */}
           <View style={{ marginTop: 16 }}>
              <Text style={styles.label}>Safe Freeze Lifespan (Months)</Text>
@@ -1024,7 +1301,18 @@ export default function AddInventoryScreen() {
         </View>
       ) : (
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Expiry Date</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text style={styles.label}>Expiry Date</Text>
+            {(expiryMonth !== '' || expiryYear !== '') && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                onPress={() => { setExpiryMonth(''); setExpiryYear(''); }}
+              >
+                <MaterialCommunityIcons name="calendar-remove" size={14} color="#ef4444" />
+                <Text style={styles.clearDateText}>NO DATE MARK</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <TouchableOpacity 
               style={[styles.input, { flex: 1, alignItems: 'center' }]} 
@@ -1043,17 +1331,6 @@ export default function AddInventoryScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-
-          {(expiryMonth !== '' || expiryYear !== '') && (
-            <TouchableOpacity 
-              style={styles.clearDateBtn} 
-              onPress={() => { setExpiryMonth(''); setExpiryYear(''); }}
-            >
-              <MaterialCommunityIcons name="calendar-remove" size={16} color="#ef4444" />
-              <Text style={styles.clearDateText}>CLEAR EXPIRY (UNMARKED)</Text>
-            </TouchableOpacity>
-          )}
-
           {showMonthPicker && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
               {Array.from({length: 12}, (_, i) => i + 1).map(m => (
@@ -1063,7 +1340,6 @@ export default function AddInventoryScreen() {
               ))}
             </ScrollView>
           )}
-
           {showYearPicker && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
               {Array.from({length: 15}, (_, i) => currentYear + i).map(y => (
@@ -1076,17 +1352,188 @@ export default function AddInventoryScreen() {
         </View>
       )}
 
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Batch Intel (Optional)</Text>
-        <TextInput 
-          style={styles.input} 
-          value={batchIntel} 
-          onChangeText={setBatchIntel} 
-          placeholder="Flavor, condition, reserve status, or tactical details..."
-          placeholderTextColor="#64748b"
-          testID="batch-intel-input"
-        />
+      {/* ─── OPTIONAL DETAILS CARD ─── */}
+      <View
+        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1e293b', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, borderTopLeftRadius: 8, borderTopRightRadius: 8, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderWidth: 1, borderColor: '#334155', marginBottom: 0 }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <MaterialCommunityIcons name="tune-variant" size={16} color="#64748b" />
+          <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold', letterSpacing: 0.5 }}>OPTIONAL DETAILS</Text>
+          {(supplier || productRange || batchIntel) ? (
+            <View style={{ flexDirection: 'row', gap: 4 }}>
+              {supplier ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#3b82f6' }} /> : null}
+              {productRange ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#3b82f6' }} /> : null}
+              {batchIntel ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#3b82f6' }} /> : null}
+            </View>
+          ) : null}
+        </View>
       </View>
+
+      <View style={{ backgroundColor: '#1e293b', borderWidth: 1, borderTopWidth: 0, borderColor: '#334155', borderBottomLeftRadius: 8, borderBottomRightRadius: 8, marginBottom: 16, padding: 16, gap: 16 }}>
+
+          {/* Brand / Supplier */}
+          <View>
+            <Text style={styles.label}>Brand / Supplier</Text>
+        <TextInput 
+          style={[styles.input, { backgroundColor: '#0f172a' }]} 
+          value={supplier} 
+          onChangeText={(val) => {
+            setSupplier(val);
+            updateSupplierSuggestions(val, 'main');
+          }} 
+          onSubmitEditing={(e) => { isAutoSavePipeline.current = false; handleSupplierFuzzyCheck(e.nativeEvent.text); }}
+          placeholder="e.g. Heinz, Nestle, Tesco, Walmart..."
+          placeholderTextColor="#64748b"
+          testID="supplier-input"
+        />
+        <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row', gap: 6 }}>
+          {!supplier && (defaultBrandSuggestion || mostFreqBrandSuggestion) ? (
+            <>
+              {defaultBrandSuggestion === mostFreqBrandSuggestion ? (
+                <TouchableOpacity
+                  style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                  onPress={() => { setSupplier(defaultBrandSuggestion!); updateSupplierSuggestions(defaultBrandSuggestion!, 'main'); setSuggestedTypeAheadSuppliers([]); }}
+                >
+                  <MaterialCommunityIcons name="history" size={11} color="#64748b" />
+                  <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultBrandSuggestion!.toUpperCase()}</Text>
+                  <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Last Logged & Most Frequent</Text>
+                </TouchableOpacity>
+              ) : (
+                <>
+                  {defaultBrandSuggestion && (
+                    <TouchableOpacity
+                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                      onPress={() => { setSupplier(defaultBrandSuggestion); updateSupplierSuggestions(defaultBrandSuggestion, 'main'); setSuggestedTypeAheadSuppliers([]); }}
+                    >
+                      <MaterialCommunityIcons name="history" size={11} color="#64748b" />
+                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultBrandSuggestion.toUpperCase()}</Text>
+                      <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Last Logged</Text>
+                    </TouchableOpacity>
+                  )}
+                  {mostFreqBrandSuggestion && (
+                    <TouchableOpacity
+                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                      onPress={() => { setSupplier(mostFreqBrandSuggestion); updateSupplierSuggestions(mostFreqBrandSuggestion, 'main'); setSuggestedTypeAheadSuppliers([]); }}
+                    >
+                      <MaterialCommunityIcons name="trending-up" size={11} color="#64748b" />
+                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{mostFreqBrandSuggestion.toUpperCase()}</Text>
+                      <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Most Frequent</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+            </>
+          ) : suggestedTypeAheadSuppliers.length > 0 && supplier.length > 0 && (
+            <View style={{flexDirection: 'row', gap: 4}}>
+              {suggestedTypeAheadSuppliers.map(s => {
+                const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
+                               Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
+                return (
+                  <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                    <TouchableOpacity onPress={() => { setSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
+                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
+                    </TouchableOpacity>
+                    {!isCore && (
+                      <TouchableOpacity 
+                        onPress={() => handlePurgeVocabulary(s, 'supplier')}
+                        hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                        style={{padding: 2}}
+                      >
+                        <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+          </View>
+
+          {/* Range */}
+          <View>
+            <Text style={styles.label}>Range (Optional)</Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: '#0f172a' }]}
+          placeholder="e.g. Finest, Essential, Gastropub..."
+          placeholderTextColor="#64748b"
+          value={productRange}
+          onChangeText={(val) => { setProductRange(val); updateRangeSuggestions(val); }}
+          onSubmitEditing={(e) => { isAutoSavePipeline.current = false; handleRangeFuzzyCheck(e.nativeEvent.text); }}
+          testID="product-range-input"
+        />
+        <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row', gap: 6 }}>
+          {!productRange && (defaultRangeSuggestion || mostFreqRangeSuggestion) ? (
+            <>
+              {defaultRangeSuggestion === mostFreqRangeSuggestion ? (
+                <TouchableOpacity
+                  style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                  onPress={() => { setProductRange(defaultRangeSuggestion!); updateRangeSuggestions(defaultRangeSuggestion!); setSuggestedTypeAheadRanges([]); }}
+                >
+                  <MaterialCommunityIcons name="history" size={11} color="#64748b" />
+                  <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultRangeSuggestion!.toUpperCase()}</Text>
+                  <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Last Logged & Most Frequent</Text>
+                </TouchableOpacity>
+              ) : (
+                <>
+                  {defaultRangeSuggestion && (
+                    <TouchableOpacity
+                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                      onPress={() => { setProductRange(defaultRangeSuggestion); updateRangeSuggestions(defaultRangeSuggestion); setSuggestedTypeAheadRanges([]); }}
+                    >
+                      <MaterialCommunityIcons name="history" size={11} color="#64748b" />
+                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultRangeSuggestion.toUpperCase()}</Text>
+                      <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Last Logged</Text>
+                    </TouchableOpacity>
+                  )}
+                  {mostFreqRangeSuggestion && (
+                    <TouchableOpacity
+                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                      onPress={() => { setProductRange(mostFreqRangeSuggestion); updateRangeSuggestions(mostFreqRangeSuggestion); setSuggestedTypeAheadRanges([]); }}
+                    >
+                      <MaterialCommunityIcons name="trending-up" size={11} color="#64748b" />
+                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{mostFreqRangeSuggestion.toUpperCase()}</Text>
+                      <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Most Frequent</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+            </>
+          ) : suggestedTypeAheadRanges.length > 0 && productRange.length > 0 && (
+            <View style={{flexDirection: 'row', gap: 4}}>
+              {suggestedTypeAheadRanges.map(r => (
+                <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                  <TouchableOpacity onPress={() => { setProductRange(r); setSuggestedTypeAheadRanges([]); }}>
+                    <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    onPress={() => handlePurgeVocabulary(r, 'range')}
+                    hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
+                    style={{padding: 2}}
+                  >
+                    <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
+
+
+          {/* Batch Intel */}
+          <View>
+            <Text style={styles.label}>Batch Intel</Text>
+            <TextInput 
+              style={[styles.input, { backgroundColor: '#0f172a' }]} 
+              value={batchIntel} 
+              onChangeText={setBatchIntel} 
+              placeholder="Flavour, condition, reserve status, or tactical details..."
+              placeholderTextColor="#64748b"
+              testID="batch-intel-input"
+            />
+          </View>
+        </View>
 
       <Modal visible={showCabinetPicker} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -1098,6 +1545,7 @@ export default function AddInventoryScreen() {
                 style={[styles.modalItem, selectedCabinetId === cab.id && styles.modalItemActive]}
                 onPress={() => {
                   setSelectedCabinetId(cab.id);
+                  setHasManuallyChangedCabinet(true);
                   setShowCabinetPicker(false);
                 }}
               >
@@ -1122,67 +1570,7 @@ export default function AddInventoryScreen() {
         </View>
       </Modal>
 
-      <Modal visible={showMergeModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>CONSOLIDATE BATCH?</Text>
-            <Text style={{color: '#64748b', textAlign: 'center', fontSize: 13, marginBottom: 16}}>
-              A batch with matching specifications already exists.
-            </Text>
 
-            {mergeCandidate && (
-              <View style={{ backgroundColor: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16, width: '100%' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                  <MaterialCommunityIcons name="warehouse" size={14} color="#3b82f6" style={{ marginRight: 8 }} />
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                    {cabinets.find(c => c.id === selectedCabinetId)?.name.toUpperCase()}
-                  </Text>
-                </View>
-                {(mergeCandidate.batch_intel || mergeCandidate.supplier || mergeCandidate.product_range) && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
-                    <MaterialCommunityIcons name="information" size={14} color="#3b82f6" />
-                    {mergeCandidate.supplier && <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>{mergeCandidate.supplier.toUpperCase()}</Text>}
-                    {mergeCandidate.product_range && <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>[{mergeCandidate.product_range.toUpperCase()}]</Text>}
-                    {mergeCandidate.batch_intel && <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic' }}>{mergeCandidate.batch_intel}</Text>}
-                  </View>
-                )}
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                  <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                    {deferredSave?.finalSize}{getUnitSuffix(unitType)}
-                  </Text>
-                </View>
-                {mergeCandidate.expiry_month && mergeCandidate.expiry_year && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <MaterialCommunityIcons name="calendar-clock" size={14} color="#64748b" style={{ marginRight: 8 }} />
-                    <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                      EXPIRES {String(mergeCandidate.expiry_month).padStart(2, '0')}/{mergeCandidate.expiry_year}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            <TouchableOpacity 
-              style={[styles.confirmBtn, { backgroundColor: '#22c55e', marginBottom: 12 }]} 
-              onPress={() => handleMergeChoice('MERGE')}
-            >
-              <Text style={styles.confirmBtnText}>MERGE INTO EXISTING</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[styles.confirmBtn, { backgroundColor: '#334155', marginBottom: 12 }]} 
-              onPress={() => handleMergeChoice('NEW')}
-            >
-              <Text style={styles.confirmBtnText}>KEEP AS NEW BATCH</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.cancelLink} onPress={() => { setShowMergeModal(false); setDeferredSave(null); }}>
-              <Text style={{color: '#64748b', fontWeight: 'bold'}}>CANCEL</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {/* MODALS REMOVED FROM HERE AS THEY ARE BRANCHED ABOVE */}
 
@@ -1258,22 +1646,334 @@ export default function AddInventoryScreen() {
         </View>
       </Modal>
 
+    </ScrollView>
+
+      {/* --- CABINET PICKER --- */}
+      <Modal visible={showCabinetPicker} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>CHOOSE STORAGE SITE</Text>
+            <ScrollView>
+              {cabinets.map(cab => (
+                <TouchableOpacity 
+                  key={cab.id} 
+                  style={[styles.modalItem, selectedCabinetId === cab.id && styles.modalItemActive]} 
+                  onPress={() => { setSelectedCabinetId(Number(cab.id)); setHasManuallyChangedCabinet(true); setShowCabinetPicker(false); }}
+                >
+                  <Text style={[styles.modalItemText, selectedCabinetId === cab.id && styles.modalItemTextActive]}>
+                    {cab.cabinet_type === 'freezer' ? '❄ ' : ''}{cab.name.toUpperCase()}
+                  </Text>
+                  {selectedCabinetId === cab.id && <MaterialCommunityIcons name="check-circle" size={20} color="#3b82f6" />}
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity 
+                style={[styles.modalItem, { borderBottomWidth: 0, marginTop: 10 }]} 
+                onPress={() => { setShowCabinetPicker(false); setShowAddCabinet(true); }}
+              >
+                <Text style={[styles.modalItemText, { color: '#3b82f6', fontWeight: 'bold' }]}>+ DEPLOY NEW CABINET</Text>
+              </TouchableOpacity>
+            </ScrollView>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowCabinetPicker(false)}>
+              <Text style={styles.modalCloseText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* --- CONSOLIDATION MODAL --- */}
+      <Modal visible={showMergeModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderColor: '#3b82f6', borderWidth: 2, width: '90%', maxWidth: 450, maxHeight: '85%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <MaterialCommunityIcons name="source-branch-sync" size={24} color="#3b82f6" />
+                <Text style={[styles.modalTitle, { marginBottom: 0 }]}>INTEL COLLISION</Text>
+              </View>
+              <Text style={{ color: '#cbd5e1', fontSize: 13, textAlign: 'center', marginBottom: 20 }}>
+                Matching item found in <Text style={{fontWeight: 'bold', color: '#f8fafc'}}>{selectedCabinet?.name}</Text> with different brand intel.
+              </Text>
+              <View style={{ backgroundColor: '#0f172a', padding: 12, borderRadius: 8, marginBottom: 24, borderWidth: 1, borderColor: '#334155' }}>
+                <Text style={{ color: '#64748b', fontSize: 10, textTransform: 'uppercase', fontWeight: 'bold', marginBottom: 12 }}>EXISTING BATCH DETAILS</Text>
+                
+                <View style={{flexDirection: 'row', marginBottom: 6}}>
+                  <Text style={{color: '#94a3b8', width: 60, fontSize: 13}}>Brand</Text>
+                  <Text style={{color: mergeCandidate?.supplier ? '#f8fafc' : '#64748b', fontWeight: 'bold', fontSize: 13}}>{mergeCandidate?.supplier ? mergeCandidate.supplier.toUpperCase() : 'NO BRAND'}</Text>
+                </View>
+
+                <View style={{flexDirection: 'row', marginBottom: 6}}>
+                  <Text style={{color: '#94a3b8', width: 60, fontSize: 13}}>Range</Text>
+                  <Text style={{color: mergeCandidate?.product_range ? '#f8fafc' : '#64748b', fontWeight: 'bold', fontSize: 13}}>{mergeCandidate?.product_range ? mergeCandidate.product_range.toUpperCase() : 'NO RANGE'}</Text>
+                </View>
+
+                <View style={{flexDirection: 'row', marginBottom: 6}}>
+                  <Text style={{color: '#94a3b8', width: 60, fontSize: 13}}>Size</Text>
+                  <Text style={{color: '#f8fafc', fontWeight: 'bold', fontSize: 13}}>
+                    {deferredSave?.finalSize}{getUnitSuffix(unitType)}
+                  </Text>
+                </View>
+
+                {mergeCandidate?.expiry_month && mergeCandidate?.expiry_year && (
+                  <View style={{flexDirection: 'row', marginBottom: 6}}>
+                    <Text style={{color: '#94a3b8', width: 60, fontSize: 13}}>Expiry</Text>
+                    <Text style={{color: '#f8fafc', fontWeight: 'bold', fontSize: 13}}>
+                      {String(mergeCandidate.expiry_month).padStart(2, '0')}/{mergeCandidate.expiry_year}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={{flexDirection: 'row'}}>
+                  <Text style={{color: '#94a3b8', width: 60, fontSize: 13}}>Intel</Text>
+                  <Text style={{color: mergeCandidate?.batch_intel ? '#94a3b8' : '#64748b', fontWeight: mergeCandidate?.batch_intel ? 'normal' : 'bold', fontStyle: mergeCandidate?.batch_intel ? 'italic' : 'normal', fontSize: 13}}>{mergeCandidate?.batch_intel ? `"${mergeCandidate.batch_intel}"` : 'NO UNIQUE INTEL'}</Text>
+                </View>
+              </View>
+              <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#3b82f6', marginBottom: 12, marginHorizontal: 0 }]} onPress={() => handleMergeChoice('MERGE')}>
+                <Text style={styles.saveText}>MERGE INTO EXISTING</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ padding: 15, alignItems: 'center', borderRadius: 8, borderWidth: 1, borderColor: '#475569', backgroundColor: 'transparent' }} onPress={() => handleMergeChoice('NEW')}>
+                <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>CREATE SEPARATE BATCH</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      {/* --- LOCATION CONFLICT MODAL --- */}
+      {showLocationConflictModal && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderColor: '#fb923c', borderWidth: 2, width: '90%', maxWidth: 450, maxHeight: '85%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <MaterialCommunityIcons name="alert-decagram" size={24} color="#fb923c" />
+                <Text style={[styles.modalTitle, { marginBottom: 0 }]}>LOCATION CONFLICT</Text>
+              </View>
+              
+              <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+                This item is already assigned to established sites. Deploying to [<Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{selectedCabinet?.name}</Text>] creates fragmentation. Standardize or override?
+              </Text>
+
+              <View style={{ marginBottom: 20, gap: 8 }}>
+                {otherLocations.map(loc => (
+                  <TouchableOpacity 
+                    key={loc.id}
+                    style={{ backgroundColor: '#1e293b', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                    onPress={async () => {
+                      setShowLocationConflictModal(false);
+                      const finalData = { ...deferredSave, selectedCabinetId: loc.id };
+                      if (makeDefaultHome) {
+                        await db.runAsync('UPDATE ItemTypes SET default_cabinet_id = ? WHERE id = ?', [loc.id, Number(typeId)]);
+                      }
+                      await finalizeCommit(null, finalData);
+                    }}
+                  >
+                    <MaterialCommunityIcons name="undo-variant" size={18} color="#22c55e" />
+                    <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>CORRECT TO: {loc.name.toUpperCase()}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity 
+                style={{ backgroundColor: 'rgba(251, 146, 60, 0.1)', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: '#fb923c', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}
+                onPress={async () => {
+                  setShowLocationConflictModal(false);
+                  if (deferredSave) {
+                    if (makeDefaultHome) {
+                      await db.runAsync('UPDATE ItemTypes SET default_cabinet_id = ? WHERE id = ?', [deferredSave.selectedCabinetId, Number(typeId)]);
+                    }
+                    await finalizeCommit(null, deferredSave);
+                  }
+                }}
+              >
+                <MaterialCommunityIcons name="arrow-right-bold" size={18} color="#fb923c" />
+                <Text style={{ color: '#fb923c', fontWeight: 'bold' }}>PROCEED TO: {selectedCabinet?.name.toUpperCase()}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, marginBottom: 10 }}
+                onPress={() => setMakeDefaultHome(!makeDefaultHome)}
+              >
+                <MaterialCommunityIcons 
+                  name={makeDefaultHome ? "checkbox-marked" : "checkbox-blank-outline"} 
+                  size={22} 
+                  color={makeDefaultHome ? "#3b82f6" : "#64748b"} 
+                />
+                <Text style={{ color: makeDefaultHome ? '#f8fafc' : '#94a3b8', fontSize: 13, fontWeight: makeDefaultHome ? 'bold' : 'normal' }}>
+                  Set selection as primary default home
+                </Text>
+              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#0f172a', paddingTop: 16 }}>
+                <TouchableOpacity style={{ flex: 1, paddingVertical: 12, alignItems: 'center' }} onPress={() => setShowLocationConflictModal(false)}>
+                  <Text style={{ color: '#94a3b8', fontWeight: 'bold' }}>ABORT & CANCEL</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      )}
+
+      {/* --- VANGUARD HANDSHAKE (FIRST ARRIVAL) --- */}
+      {showVanguardModal && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderColor: '#3b82f6', borderWidth: 2 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <MaterialCommunityIcons name="star-circle" size={24} color="#3b82f6" />
+              <Text style={[styles.modalTitle, { marginBottom: 0 }]}>VANGUARD ESTABLISHMENT</Text>
+            </View>
+            
+            <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+              This is the first deployment of this item. Confirming <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{selectedCabinet?.name?.toUpperCase()}</Text> as the primary home?
+            </Text>
+
+            <TouchableOpacity 
+              style={[styles.saveButton, { backgroundColor: '#3b82f6', marginBottom: 12, marginTop: 0, width: '100%', margin: 0 }]} 
+              onPress={async () => {
+                setShowVanguardModal(false);
+                if (deferredSave) {
+                  await db.runAsync('UPDATE ItemTypes SET default_cabinet_id = ?, vanguard_resolved = 1 WHERE id = ?', [deferredSave.selectedCabinetId, Number(typeId)]);
+                  await finalizeCommit(null, deferredSave);
+                }
+              }}
+            >
+              <Text style={styles.saveText}>PROMOTE TO DEFAULT</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={{ backgroundColor: '#1e293b', padding: 15, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 12, alignItems: 'center' }}
+              onPress={async () => {
+                setShowVanguardModal(false);
+                if (deferredSave) {
+                  await db.runAsync('UPDATE ItemTypes SET vanguard_resolved = 1 WHERE id = ?', [Number(typeId)]);
+                  await finalizeCommit(null, deferredSave);
+                }
+              }}
+            >
+              <Text style={{ color: '#cbd5e1', fontWeight: 'bold' }}>DEPLOY ONCE</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={{ padding: 12, alignItems: 'center' }} 
+              onPress={() => {
+                setShowVanguardModal(false);
+                setShowCabinetPicker(true);
+              }}
+            >
+              <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>CHANGE SITE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* --- RANGE FUZZY HARMONIZER --- */}
+      {showRangeFuzzyModal && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderColor: '#f59e0b', borderWidth: 2, width: '90%', maxWidth: 400, maxHeight: '85%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <NearMissIcon />
+                <Text style={[styles.modalTitle, { marginBottom: 0 }]}>NEAR MISS DETECTED</Text>
+              </View>
+              
+                <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+                  <Text style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: 15 }}>{(showQuickAddType ? quickAddRange : productRange)}</Text> appears to be a possible near miss. Align this <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>product range</Text> entry with the established vocabulary for this field?
+                </Text>
+
+              <View style={{ marginBottom: 10, gap: 8 }}>
+                {fuzzyRangeMatches.map(match => (
+                  <TouchableOpacity 
+                    key={match}
+                    style={{ backgroundColor: '#1e293b', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                    onPress={async () => {
+                      if (showQuickAddType) setQuickAddRange(match);
+                      else setProductRange(match);
+                      setShowRangeFuzzyModal(false);
+                      resumePipeline();
+                    }}
+                  >
+                    <MaterialCommunityIcons name="check-circle" size={18} color="#22c55e" />
+                    <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>ALIGN TO: {match.toUpperCase()}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity 
+                style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#475569', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}
+                onPress={async () => {
+                   setIgnoredFuzzyRanges(prev => {
+                     const next = new Set(prev);
+                     next.add((showQuickAddType ? quickAddRange : productRange).trim().toLowerCase());
+                     return next;
+                   });
+                   setShowRangeFuzzyModal(false);
+                   resumePipeline();
+                }}
+              >
+                <MaterialCommunityIcons name="plus-circle-outline" size={18} color="#94a3b8" />
+                <Text style={{ color: '#cbd5e1', fontWeight: 'bold' }}>NO, THIS IS INTENTIONAL</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      )}
+
+      {/* --- BRAND FUZZY HARMONIZER --- */}
+      {showBrandFuzzyModal && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderColor: '#f59e0b', borderWidth: 2, width: '90%', maxWidth: 400, maxHeight: '85%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <NearMissIcon />
+                <Text style={[styles.modalTitle, { marginBottom: 0 }]}>NEAR MISS DETECTED</Text>
+              </View>
+              
+                <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+                  <Text style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: 15 }}>{(showQuickAddType ? quickAddSupplier : supplier)}</Text> appears to be a possible near miss. Align this <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>brand/supplier</Text> entry with the established vocabulary for this field?
+                </Text>
+
+              <View style={{ marginBottom: 10, gap: 8 }}>
+                {fuzzyBrandMatches.map(match => (
+                  <TouchableOpacity 
+                    key={match}
+                    style={{ backgroundColor: '#1e293b', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                    onPress={async () => {
+                      if (showQuickAddType) setQuickAddSupplier(match);
+                      else setSupplier(match);
+                      setShowBrandFuzzyModal(false);
+                      resumePipeline();
+                    }}
+                  >
+                    <MaterialCommunityIcons name="check-circle" size={18} color="#22c55e" />
+                    <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>ALIGN TO: {match.toUpperCase()}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity 
+                style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#475569', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}
+                onPress={async () => {
+                   setIgnoredFuzzyBrands(prev => {
+                     const next = new Set(prev);
+                     next.add((showQuickAddType ? quickAddSupplier : supplier).trim().toLowerCase());
+                     return next;
+                   });
+                   setShowBrandFuzzyModal(false);
+                   resumePipeline();
+                }}
+              >
+                <MaterialCommunityIcons name="plus-circle-outline" size={18} color="#94a3b8" />
+                <Text style={{ color: '#cbd5e1', fontWeight: 'bold' }}>NO, THIS IS INTENTIONAL</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      )}
 
       {(isNewType !== '1' || !showQuickAddType) && (
-        <TouchableOpacity style={styles.saveButton} onPress={handleSave} testID="save-stock-btn">
+        <TouchableOpacity style={styles.saveButton} onPress={triggerSave} testID="save-stock-btn">
           <Text style={styles.saveText}>{editBatchId ? 'UPDATE BATCH' : 'SAVE TO BATCHES'}</Text>
         </TouchableOpacity>
       )}
-    </ScrollView>
     </View>
   );
 }
-
-const customModalStyles = {
-  confirmBtn: { padding: 16, borderRadius: 8, width: '100%', alignItems: 'center' },
-  confirmBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-  cancelLink: { padding: 12, width: '100%', alignItems: 'center' }
-};
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a', padding: 20 },
@@ -1288,7 +1988,18 @@ const styles = StyleSheet.create({
   stepper: { flexDirection: 'row', alignItems: 'center' },
   stepButton: { backgroundColor: '#334155', padding: 12, borderRadius: 8 },
   stepInput: { flex: 1, backgroundColor: '#1e293b', color: '#f8fafc', fontSize: 20, textAlign: 'center', paddingVertical: 12, marginHorizontal: 12, borderRadius: 8 },
-  saveButton: { backgroundColor: '#22c55e', padding: 18, borderRadius: 8, alignItems: 'center', marginTop: 20 },
+  saveButton: {
+    backgroundColor: '#22c55e',
+    margin: 20,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 8,
+  },
   saveText: { color: 'white', fontWeight: 'bold', fontSize: 18 },
   chipsContainer: { flexDirection: 'row', marginBottom: 12, marginTop: 10 },
   chip: { backgroundColor: '#334155', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16, marginRight: 8 },
@@ -1300,7 +2011,18 @@ const styles = StyleSheet.create({
   unitLabel: { position: 'absolute', right: 16, color: '#3b82f6', fontWeight: 'bold', fontSize: 16 },
   clearDateBtn: { flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 4 },
   clearDateText: { color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginLeft: 6, letterSpacing: 0.5 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
   modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 24, maxHeight: '80%' },
   modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
   modalItem: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#334155', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -1309,9 +2031,6 @@ const styles = StyleSheet.create({
   modalItemTextActive: { color: '#3b82f6', fontWeight: 'bold' },
   modalClose: { marginTop: 20, padding: 15, alignItems: 'center' },
   modalCloseText: { color: '#ef4444', fontWeight: 'bold', letterSpacing: 1 },
-  confirmBtn: { padding: 16, borderRadius: 8, width: '100%', alignItems: 'center' },
-  confirmBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-  cancelLink: { padding: 12, width: '100%', alignItems: 'center' },
   unitChipRowMini: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   unitChip: { backgroundColor: '#334155', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, minWidth: 80, alignItems: 'center', borderWidth: 1, borderColor: '#475569' },
   unitChipActive: { backgroundColor: '#1e3a8a', borderColor: '#3b82f6' },
@@ -1321,3 +2040,4 @@ const styles = StyleSheet.create({
   inputSmall: { backgroundColor: '#0f172a', color: '#f8fafc', borderRadius: 8, padding: 12, fontSize: 14, borderWidth: 1, borderColor: '#334155', width: '100%' },
   formSection: { marginBottom: 16 }
 });
+

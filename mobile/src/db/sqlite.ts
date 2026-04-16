@@ -26,6 +26,7 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       freeze_months INTEGER,
       default_supplier TEXT,
       default_product_range TEXT,
+      vanguard_resolved INTEGER DEFAULT 0,
       FOREIGN KEY(category_id) REFERENCES Categories(id)
     );
 
@@ -112,6 +113,11 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     const hasDefRange = columnsRes.some(col => col.name === 'default_product_range');
     if (!hasDefRange) {
       await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN default_product_range TEXT');
+    }
+
+    const hasVanguardResolved = columnsRes.some(col => col.name === 'vanguard_resolved');
+    if (!hasVanguardResolved) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN vanguard_resolved INTEGER DEFAULT 0');
     }
 
     // Migration: add is_mess_hall to Categories if it does not exist

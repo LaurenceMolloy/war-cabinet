@@ -37,7 +37,33 @@ AUDIT MODE
 We need to re-assess the backup and restore capability in light of
 the new fields just added (Supplier/Range/BatchIntel).
 
-we need to EXCLUDE cooked food from the recipe generator.
 
 I wonder if Front Line should be learned from usage in addition to
 (or maybe instead of) configuration.
+
+perhaps we can relegate batch intel/notes to a note icon that brings
+up notes in a separate dialog - this allows more freedom with length
+of notes and we can keep the main UI cleaner.
+
+
+Iteration 84: Quantity Intelligence: Focuses on the "Accidental Zero" (e.g., entering 10 instead of 1). It uses a $>300%$ historical maximum trigger to catch stray characters.
+Iteration 85: Thermal Intelligence: Focuses on "Climate Silos." It audits the match between Category (Ambient/Frozen) and Cabinet (Standard/Freezer) to prevent spoiled data.
+Iteration 86: Dimensional Intelligence: Focuses on "Size Scaling" (e.g., your 5L vs. 1L example). It uses the $<50%$ or $>200%$ heuristic with a 3-batch "baseline establishment" period to avoid over-alerting on new items.
+Iteration 92: Logistical Intelligence (I): Hardens Near Miss detection using full-word Levenshtein distance (D <= 2) and the "Elite 3" pooling rule to ensure vocabulary alignment across brands and ranges.
+Iteration 93: Logistical Intelligence (II): Extends Elastic Typeahead (distance-aware scoring) and fuzzy harmonization modals to fresh ingredients and legendary chefs in the Mess Hall.
+
+Other intelligence: mixing up g/kg and ml/l (factor of 1000 and float values perhaps used)
+
+
+I still need to test the following:
+1. recipe fuzzy suggestion and alignment
+2. batch add suggestions (default/memory when empty)
+3. merge rules for batches.
+4. sensible alignment triggering on submit button - esp when multiple fields require alignment (I don't like repeated need to hit submit button)
+
+
+batch add: i note that there is no range suggestion offered in this form?
+
+generated recipe prompt page - header format seemsto have gotten corrupted
+
+deal with partial consumption of items (5ltr oil being used 1ltr at a time)
