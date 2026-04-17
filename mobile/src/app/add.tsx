@@ -57,8 +57,11 @@ export default function AddInventoryScreen() {
   const [expiryYear, setExpiryYear] = useState(currentYear.toString());
   const [customChips, setCustomChips] = useState<string[]>([]);
   const [unitType, setUnitType] = useState('weight');
-  const [batchIntel, setBatchIntel] = useState('');
-  const [supplier, setSupplier] = useState('');
+  const [batchIntel, setBatchIntel] = useState("");
+  const [bulkSegments, setBulkSegments] = useState<string>("");
+  const [isFractionalEnabled, setIsFractionalEnabled] = useState(false);
+  const [portionsRemaining, setPortionsRemaining] = useState<number | null>(null);
+  const [supplier, setSupplier] = useState("");
   const [productRange, setProductRange] = useState('');
   const [suggestedTypeAheadSuppliers, setSuggestedTypeAheadSuppliers] = useState<string[]>([]);
   const [suggestedTypeAheadRanges, setSuggestedTypeAheadRanges] = useState<string[]>([]);
@@ -155,6 +158,7 @@ export default function AddInventoryScreen() {
   };
 
   const handleSupplierFuzzyCheck = (valToCheck?: string): boolean => {
+    if (!checkEntitlement('ERROR_DETECTION')) return false;
     const valStr = typeof valToCheck === 'string' ? valToCheck : (showQuickAddType ? quickAddSupplier : supplier);
     const val = valStr.trim().toLowerCase();
     if (!val || (ignoredFuzzyBrands && ignoredFuzzyBrands.has(val))) return false;
@@ -194,6 +198,7 @@ export default function AddInventoryScreen() {
   };
 
   const handleRangeFuzzyCheck = (valToCheck?: string): boolean => {
+    if (!checkEntitlement('ERROR_DETECTION')) return false;
     const valStr = typeof valToCheck === 'string' ? valToCheck : (showQuickAddType ? quickAddRange : productRange);
     const val = valStr.trim().toLowerCase();
     if (!val || (ignoredFuzzyRanges && ignoredFuzzyRanges.has(val))) return false;
@@ -397,7 +402,13 @@ export default function AddInventoryScreen() {
       // Fetch Sensible Defaults for item type
       let typeRes: any = null;
       if (typeId) {
-        typeRes = await db.getFirstAsync<{name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null}>('SELECT name, unit_type, default_size, default_cabinet_id, freeze_months, default_supplier, default_product_range FROM ItemTypes WHERE id = ?', [Number(typeId)]);
+        typeRes = await db.getFirstAsync<{name: string, category_name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null}>(
+          `SELECT i.name, c.name as category_name, i.unit_type, i.default_size, i.default_cabinet_id, i.freeze_months, i.default_supplier, i.default_product_range 
+           FROM ItemTypes i 
+           JOIN Categories c ON c.id = i.category_id
+           WHERE i.id = ?`, 
+          [Number(typeId)]
+        );
         if (typeRes) {
           setUnitType(typeRes.unit_type || 'weight');
           setTypeName(typeRes.name);
@@ -483,7 +494,35 @@ export default function AddInventoryScreen() {
           setExpiryMonth(batch.expiry_month?.toString() || '');
           setExpiryYear(batch.expiry_year?.toString() || '');
           if (batch.cabinet_id) setSelectedCabinetId(batch.cabinet_id);
-          if (batch.batch_intel) setBatchIntel(batch.batch_intel);
+          let fractionalActive = false;
+          let loadedPortionsRem = null;
+          
+          if (batch.portions_total) {
+            setBulkSegments(batch.portions_total.toString());
+            fractionalActive = true;
+            setPortionsRemaining(batch.portions_remaining);
+          } else if (batch.batch_intel) {
+            setBatchIntel(batch.batch_intel);
+            const bulkMatch = batch.batch_intel.match(/\[BULK:(\d+)\]/i);
+            if (bulkMatch) {
+              setBulkSegments(bulkMatch[1]);
+              fractionalActive = true;
+            }
+          }
+          
+          // Legacy/Auto-Bulk Fallback: If no explicit tag yet, check if it's a bulk-classified item (matches index.tsx logic)
+          if (!fractionalActive && typeRes) {
+            const isAutoBulk = 
+              typeRes.name.toLowerCase().includes('bulk') || 
+              (typeRes.category_name || '').toLowerCase().includes('bulk') ||
+              typeRes.category_name === 'Tactical Rations';
+              
+            if (isAutoBulk) {
+              setBulkSegments('5'); // Standard legacy default
+              fractionalActive = true;
+            }
+          }
+          setIsFractionalEnabled(fractionalActive);
           if (batch.supplier) setSupplier(batch.supplier);
           if (batch.product_range) setProductRange(batch.product_range);
           // Pre-fill freeze date from entry date for freezer edits
@@ -577,6 +616,21 @@ export default function AddInventoryScreen() {
          return;
       }
 
+      let finalPortionsTotal = null;
+      let finalPortionsRemaining = null;
+      if (checkEntitlement('OPEN_CONSUMPTION') && isFractionalEnabled) {
+        const segs = parseInt(bulkSegments || '5');
+        if (segs > 0) {
+          finalPortionsTotal = segs;
+          // If editing and same total count, preserve remaining. Otherwise reset.
+          if (editBatchId && portionsRemaining !== null) {
+            finalPortionsRemaining = portionsRemaining;
+          } else {
+            finalPortionsRemaining = finalPortionsTotal;
+          }
+        }
+      }
+
       // For freezer batches: skip merge
       if (isFreezerMode) {
         let freezerTypeId = typeId;
@@ -590,13 +644,13 @@ export default function AddInventoryScreen() {
 
         if (editBatchId) {
           await db.runAsync(
-            'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = NULL, expiry_year = NULL, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ? WHERE id = ?',
-            [q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null, Number(editBatchId)]
+            'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = NULL, expiry_year = NULL, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ?, portions_total = ?, portions_remaining = ? WHERE id = ?',
+            [q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null, finalPortionsTotal, finalPortionsRemaining, Number(editBatchId)]
           );
         } else {
           await db.runAsync(
-            `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
-            [Number(freezerTypeId), q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null]
+            `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [Number(freezerTypeId), q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null, finalPortionsTotal, finalPortionsRemaining]
           );
         }
         
@@ -606,7 +660,11 @@ export default function AddInventoryScreen() {
         return;
       }
       
-      const cleanNewIntel = batchIntel?.trim() || null;
+      let cleanNewIntel = batchIntel?.trim() || "";
+      // Remove legacy portions related tags from intel field
+      cleanNewIntel = cleanNewIntel.replace(/\[BULK:\d+\]/gi, '').replace(/REMAINDER:\d+/gi, '').trim();
+      if (!cleanNewIntel) cleanNewIntel = null as any;
+
       const cleanNewSupplier = supplier?.trim() || null;
       const cleanNewRange = productRange?.trim() || null;
 
@@ -641,7 +699,7 @@ export default function AddInventoryScreen() {
         );
 
         if (exactMatch) {
-          await finalizeCommit(exactMatch.id, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
+          await finalizeCommit(exactMatch.id, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
         } else {
           // 2. MODAL MERGE: If not exact, offer a merge if Supplier/Range/Intel are NULL-compatible 
           // (i.e. we allow NULL in the new record to match an existing value, but a populated new record cannot merge into a NULL existing record)
@@ -655,11 +713,11 @@ export default function AddInventoryScreen() {
 
           if (mergeCandidate) {
             setMergeCandidate(mergeCandidate);
-            setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
+            setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
             setShowMergeModal(true);
           } else {
             // 3. NO MATCH: Structural metadata differs (e.g. different brands), so create new
-            await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
+            await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
           }
         }
       } else {
@@ -677,7 +735,7 @@ export default function AddInventoryScreen() {
               );
               if (others.length > 0) {
                 setOtherLocations(others.map(o => ({ id: o.id, name: o.name })));
-                setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel, supplier, productRange });
+                setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
                 setShowLocationConflictModal(true);
                 return;
               } else {
@@ -685,7 +743,8 @@ export default function AddInventoryScreen() {
                 // First arrival, no default, no manual intent, AND hasn't been resolved yet.
                 const typeStatus = await db.getFirstAsync<{vanguard_resolved: number}>('SELECT vanguard_resolved FROM ItemTypes WHERE id = ?', [Number(typeId)]);
                 if (!typeStatus?.vanguard_resolved) {
-                  setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
+                  const savePayload = { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining };
+                  setDeferredSave(savePayload);
                   setShowVanguardModal(true);
                   return;
                 }
@@ -693,7 +752,7 @@ export default function AddInventoryScreen() {
             }
           }
         }
-        await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange });
+        await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
       }
     } catch (err: any) {
       console.error('Save failed:', err);
@@ -715,22 +774,22 @@ export default function AddInventoryScreen() {
     try {
       if (mergeTargetId) {
         await db.runAsync(
-          'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ? WHERE id = ?',
-          [data.q, data.currentMonth, data.currentYear, mergeTargetId]
+          'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ?, portions_total = IFNULL(portions_total, 0) + ?, portions_remaining = IFNULL(portions_remaining, 0) + ? WHERE id = ?',
+          [data.q, data.currentMonth, data.currentYear, data.portions_total || 0, data.portions_remaining || 0, mergeTargetId]
         );
         if (editBatchId) {
           await db.runAsync('DELETE FROM Inventory WHERE id = ?', [Number(editBatchId)]);
         }
       } else if (editBatchId) {
         await db.runAsync(
-          'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ? WHERE id = ?',
-          [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, Number(editBatchId)]
+          'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ?, portions_total = ?, portions_remaining = ? WHERE id = ?',
+          [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, data.portions_remaining, Number(editBatchId)]
         );
       } else {
         await db.runAsync(
-          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null]
+          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, data.portions_remaining]
         );
       }
 
@@ -1388,7 +1447,7 @@ export default function AddInventoryScreen() {
         />
         <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row', gap: 6 }}>
           {!supplier && (defaultBrandSuggestion || mostFreqBrandSuggestion) ? (
-            <>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               {defaultBrandSuggestion === mostFreqBrandSuggestion ? (
                 <TouchableOpacity
                   style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
@@ -1422,7 +1481,7 @@ export default function AddInventoryScreen() {
                   )}
                 </>
               )}
-            </>
+            </View>
           ) : suggestedTypeAheadSuppliers.length > 0 && supplier.length > 0 && (
             <View style={{flexDirection: 'row', gap: 4}}>
               {suggestedTypeAheadSuppliers.map(s => {
@@ -1464,7 +1523,7 @@ export default function AddInventoryScreen() {
         />
         <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row', gap: 6 }}>
           {!productRange && (defaultRangeSuggestion || mostFreqRangeSuggestion) ? (
-            <>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               {defaultRangeSuggestion === mostFreqRangeSuggestion ? (
                 <TouchableOpacity
                   style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
@@ -1498,9 +1557,9 @@ export default function AddInventoryScreen() {
                   )}
                 </>
               )}
-            </>
-          ) : suggestedTypeAheadRanges.length > 0 && productRange.length > 0 && (
-            <View style={{flexDirection: 'row', gap: 4}}>
+            </View>
+          ) : suggestedTypeAheadRanges.length > 0 && (
+            <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 4}}>
               {suggestedTypeAheadRanges.map(r => (
                 <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
                   <TouchableOpacity onPress={() => { setProductRange(r); setSuggestedTypeAheadRanges([]); }}>
@@ -1533,6 +1592,65 @@ export default function AddInventoryScreen() {
               testID="batch-intel-input"
             />
           </View>
+
+          {/* FRACTIONAL CONSUMPTION (Sergeant+) */}
+          {checkEntitlement('OPEN_CONSUMPTION') && (
+            <View style={{ marginTop: 24 }}>
+              <Text style={styles.label}>Portion Tracking</Text>
+              
+              <View style={{ backgroundColor: '#111827', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: isFractionalEnabled ? '#1e3a5f' : '#1e293b', opacity: isFractionalEnabled ? 1 : 0.7 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={{ color: isFractionalEnabled ? '#60a5fa' : '#94a3b8', fontSize: 13, fontWeight: 'bold' }}>
+                    STATUS: {isFractionalEnabled ? 'ACTIVE' : 'INACTIVE'}
+                  </Text>
+                  <Switch 
+                    value={isFractionalEnabled} 
+                    onValueChange={setIsFractionalEnabled}
+                    trackColor={{ false: "#334155", true: "#3b82f6" }}
+                    thumbColor={isFractionalEnabled ? "#ffffff" : "#94a3b8"}
+                  />
+                </View>
+
+                <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', lineHeight: 15, marginBottom: 16 }}>
+                  If this item will be consumed in multiple usage portions rather than all at once (e.g. decanting 500ml of oil at a time from a 5L bottle into a kitchen container), how many portions is it likely to be divided into?
+                </Text>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 16 }}>
+                  <View style={styles.stepperMini}>
+                    <TouchableOpacity 
+                      style={styles.stepButtonMini} 
+                      disabled={!isFractionalEnabled}
+                      onPress={() => setBulkSegments(prev => Math.max(1, parseInt(prev || '5') - 1).toString())}
+                    >
+                      <MaterialCommunityIcons name="minus" size={18} color={isFractionalEnabled ? "white" : "#475569"} />
+                    </TouchableOpacity>
+                    <TextInput 
+                      style={styles.stepInputMini} 
+                      value={bulkSegments || (isFractionalEnabled ? '5' : '')} 
+                      onChangeText={setBulkSegments}
+                      disabled={!isFractionalEnabled}
+                      placeholder="Off"
+                      placeholderTextColor="#475569"
+                      keyboardType="numeric"
+                    />
+                    <TouchableOpacity 
+                      style={styles.stepButtonMini} 
+                      disabled={!isFractionalEnabled}
+                      onPress={() => setBulkSegments(prev => (parseInt(prev || '5') + 1).toString())}
+                    >
+                      <MaterialCommunityIcons name="plus" size={18} color={isFractionalEnabled ? "white" : "#475569"} />
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: isFractionalEnabled ? '#60a5fa' : '#475569', fontSize: 11, fontWeight: 'bold' }}>
+                      {isFractionalEnabled ? `${bulkSegments || '5'} PORTIONS DEFINED` : 'TRACKING INACTIVE'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
         </View>
 
       <Modal visible={showCabinetPicker} transparent animationType="fade">
@@ -1985,6 +2103,31 @@ const styles = StyleSheet.create({
   formGroup: { marginBottom: 20 },
   label: { color: '#94a3b8', fontSize: 16, marginBottom: 8 },
   input: { backgroundColor: '#1e293b', color: '#f8fafc', borderRadius: 8, padding: 16, fontSize: 16, borderWidth: 1, borderColor: '#334155' },
+  stepperMini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#334155',
+    overflow: 'hidden',
+    height: 36,
+    alignSelf: 'flex-start',
+  },
+  stepButtonMini: {
+    paddingHorizontal: 12,
+    height: '100%',
+    justifyContent: 'center',
+    backgroundColor: '#1e293b',
+  },
+  stepInputMini: {
+    width: 50,
+    color: '#f8fafc',
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: 'bold',
+    padding: 0,
+  },
   stepper: { flexDirection: 'row', alignItems: 'center' },
   stepButton: { backgroundColor: '#334155', padding: 12, borderRadius: 8 },
   stepInput: { flex: 1, backgroundColor: '#1e293b', color: '#f8fafc', fontSize: 20, textAlign: 'center', paddingVertical: 12, marginHorizontal: 12, borderRadius: 8 },

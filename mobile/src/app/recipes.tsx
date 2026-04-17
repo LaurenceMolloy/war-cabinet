@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, LayoutAnimation, Platform, UIManager, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, LayoutAnimation, Platform, UIManager, Linking, Switch } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -13,6 +13,7 @@ import Markdown from 'react-native-markdown-display';
 import { RECIPE_PROMPT_TEMPLATE, AUTHENTIC_MODE_SUB_TEMPLATES, LOGISTICS_MODE_SUB_TEMPLATES } from '../data/recipe_template';
 import CHEFS_DATA from '../data/chefs.json';
 import FRIDGE_INGREDIENTS from '../data/fridge_ingredients.json';
+import { useBilling } from '../context/BillingContext';
 
 function getLevenshteinDistance(a: string, b: string): number {
   const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
@@ -52,8 +53,6 @@ const ALLERGENS = [
 
 const FRIDGE_STAPLES_PRESETS = []; // Rule 1: Must start empty
 
-import { useBilling } from '../context/BillingContext';
-
 export default function RecipesScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -83,6 +82,8 @@ export default function RecipesScreen() {
   const [sessionCustomExp, setSessionCustomExp] = useState<string[]>([]);
   const [historyExp, setHistoryExp] = useState<string[]>([]);
   const [fridgeSuggestions, setFridgeSuggestions] = useState<string[]>([]);
+  const [siloCabinetId, setSiloCabinetId] = useState<number | null>(null);
+  const [cabinets, setCabinets] = useState<any[]>([]);
 
   // --- LOGISTICAL REFS (to prevent onBlur race conditions with suggestions) ---
   const customInputRef = useRef("");
@@ -163,8 +164,11 @@ export default function RecipesScreen() {
   useEffect(() => {
     async function load() {
       let tempCustomChefs: string[] = [];
-      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_excluded_pantry', 'recipe_excluded_freezer', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs', 'recipe_fridge_staples_selected', 'recipe_fridge_staples_persistent', 'recipe_active_accordion', 'recipe_expiring_history'
+      const cabs = await db.getAllAsync('SELECT * FROM Cabinets ORDER BY name');
+      setCabinets(cabs);
+
+      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_excluded_pantry', 'recipe_excluded_freezer', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs', 'recipe_fridge_staples_selected', 'recipe_fridge_staples_persistent', 'recipe_active_accordion', 'recipe_expiring_history', 'recipe_silo_cabinet'
       );
       rows.forEach(r => {
         if (r.key === 'recipe_expiring_history') {
@@ -223,6 +227,8 @@ export default function RecipesScreen() {
           deployAnim.setValue(panel === 'deploy' ? 1 : 0);
         }
         
+        if (r.key === 'recipe_silo_cabinet') setSiloCabinetId(r.value ? Number(r.value) : null);
+        
         for (let i = 1; i <= 3; i++) {
           if (r.key === `recipe_deploy_${i}_name`) {
             setDeployStations(prev => {
@@ -255,6 +261,7 @@ export default function RecipesScreen() {
         JOIN Categories c ON c.id = i.category_id
         JOIN Cabinets cab ON cab.id = inv.cabinet_id
         WHERE c.is_mess_hall = 1
+        ${siloCabinetId ? `AND inv.cabinet_id = ${siloCabinetId}` : ''}
       `);
 
       const expSet = new Set<string>();
@@ -312,7 +319,7 @@ export default function RecipesScreen() {
       }
     }
     load();
-  }, [db]);
+  }, [db, siloCabinetId]);
 
   const savePref = async (key: string, val: string) => {
     await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', key, val);
@@ -478,6 +485,7 @@ export default function RecipesScreen() {
   };
 
   const handleIngredientFuzzyCheck = (val: string, segment: 'staple' | 'addon'): boolean => {
+    if (!checkEntitlement('ERROR_DETECTION')) return false;
     const v = val.trim();
     if (!v || v.length < 2 || ignoredFuzzyIngredients.has(v.toLowerCase())) return false;
 
@@ -521,6 +529,7 @@ export default function RecipesScreen() {
   };
 
   const handleChefFuzzyCheck = (val: string) => {
+    if (!checkEntitlement('ERROR_DETECTION')) return;
     const v = val.trim();
     if (!v || v.length < 2 || ignoredFuzzyChefs.has(v.toLowerCase())) return;
 
@@ -621,6 +630,7 @@ export default function RecipesScreen() {
       JOIN Categories c ON c.id = i.category_id
       JOIN Cabinets cab ON cab.id = inv.cabinet_id
       WHERE c.is_mess_hall = 1
+      ${siloCabinetId ? `AND inv.cabinet_id = ${siloCabinetId}` : ''}
     `);
 
     const expItems: any[] = [];
@@ -743,19 +753,18 @@ export default function RecipesScreen() {
 
     return RECIPE_PROMPT_TEMPLATE
       .replace('[DIETARY_PREF]', selectedDietary.join(', ') || "None recorded.")
-      .replace('[LIST_ALLERGENS]', selectedAllergens.length > 0 ? selectedAllergens.map(a => `- ${a}`).sort().join('\n') : "None declared.")
-      .replace('[LIST_STAPLES]', selectedStaples.length > 0 ? selectedStaples.sort().map(s => `- ${s}`).join('\n') : "No fresh staples defined.")
-      .replace('[LIST_EXPIRING]', allExpiringString || "No mandatory supplies found in inventory.")
-      .replace('[LIST_PANTRY]', pantryListPrompt)
-      .replace('[LIST_FREEZER]', freezerListPrompt)
-      .replace('[LIST_PREFERRED]', formatCsvList(preferred))
-      .replace('[LIST_AVOID]', formatCsvList(avoid))
-      .replace('[EXTRA_REQUESTS]', extraRequests ? extraRequests : "None declared.")
+      .replace('[LIST_ALLERGENS]', selectedAllergens.length > 0 ? '\n' + selectedAllergens.map(a => `- ${a}`).sort().join('\n') : "None declared.")
+      .replace('[LIST_STAPLES]', selectedStaples.length > 0 ? '\n' + selectedStaples.sort().map(s => `- ${s}`).join('\n') : "No fresh staples defined.")
+      .replace('[LIST_EXPIRING]', allExpiringString ? '\n' + allExpiringString : "No mandatory supplies found in inventory.")
+      .replace('[LIST_PANTRY]', pantryListPrompt ? '\n' + pantryListPrompt : "None recorded.")
+      .replace('[LIST_FREEZER]', freezerListPrompt ? '\n' + freezerListPrompt : "None recorded.")
+      .replace('[LIST_PREFERRED]', preferred ? '\n' + formatCsvList(preferred) : "None recorded.")
+      .replace('[LIST_AVOID]', avoid ? '\n' + formatCsvList(avoid) : "None recorded.")
+      .replace('[EXTRA_REQUESTS]', extraRequests ? '\n- ' + extraRequests : "None recorded.")
       .replace('[RECIPE_MODE]', recipeMode.toUpperCase())
-      .replace('[CHEF_STRATEGY_LINE]', 
-        recipeMode === "experimental" ? "- **Influence:** No specific influence. Focus on zero-waste improvisation." : 
-        (recipeMode === "authentic" ? `- **Target Source:** ${selectedChef}` : `- **Chef Influence:** Adopt the culinary philosophy, seasoning style, and voice of ${selectedChef}.`)
-      )
+      .replace('[CHEF_STRATEGY_LINE]', (selectedChef && (CHEF_PHILOSOPHIES[selectedChef] || (CHEFS_DATA[selectedChef as keyof typeof CHEFS_DATA] as any)?.philosophy)) 
+        ? `**Chef Strategy:** ${CHEF_PHILOSOPHIES[selectedChef] || (CHEFS_DATA[selectedChef as keyof typeof CHEFS_DATA] as any)?.philosophy}` 
+        : "")
       .replace('[GEN_TASK_DESCRIPTION]', genTaskDescription)
       .replace('[MODE_SPECIFIC_CONSTRAINTS]', modeSpecificConstraints)
       .replace('[DYNAMIC_OUTPUT_FORMAT]', dynamicOutputFormat);
@@ -1454,6 +1463,22 @@ export default function RecipesScreen() {
                   testID="fav-ingredients-input"
                 />
               </View>
+
+              <View style={{marginBottom: 24}}>
+                <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>AVOIDED INGREDIENTS <Text style={styles.textMutedItalic}>(dislikes)</Text></Text>
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="e.g. Olives, Anchovies, Liver"
+                  placeholderTextColor="#475569"
+                  value={avoid}
+                  onChangeText={(val) => { setAvoid(val); savePref('recipe_avoided', val); }}
+                  multiline
+                  spellCheck={false}
+                  autoCorrect={false}
+                  data-gramm={false}
+                  testID="avoid-ingredients-input"
+                />
+              </View>
             </View>
           )}
 
@@ -1590,7 +1615,7 @@ export default function RecipesScreen() {
                     </View>
                   </View>
                 </View>
-                
+
                 <View style={{marginBottom: 24}}>
                   <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10}}>
                     <Text style={[styles.textHighlightTitle, {marginBottom: 0, marginTop: 0}]}>PANTRY STOCK <Text style={styles.textMutedItalic}>(room temp)</Text></Text>
@@ -1674,9 +1699,63 @@ export default function RecipesScreen() {
             </Animated.View>
           </TouchableOpacity>
 
-          {activeAccordion === 'protocols' && (
+           {activeAccordion === 'protocols' && (
             <View style={styles.protocolBody}>
               <View style={{marginTop: 16, marginBottom: 24}}>
+                    {/* --- STRATEGIC SILO ISOLATION (SERGEANT GATED) --- */}
+                    <View style={{ marginBottom: 24 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 15 }}>
+                        <Text style={[styles.textHighlightTitle, { marginTop: 0 }]}>STRATEGIC SILO ISOLATION</Text>
+                        <MaterialCommunityIcons name="shield-lock" size={14} color="#60a5fa" />
+                      </View>
+                      
+                      <View style={[styles.panelBase, { padding: 12, backgroundColor: '#111827' }]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                          <MaterialCommunityIcons name="office-building-marker" size={18} color={siloCabinetId ? '#fbbf24' : '#64748b'} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: '#f8fafc', fontSize: 13, fontWeight: 'bold' }}>Cabinet Lockdown</Text>
+                            <Text style={{ color: '#94a3b8', fontSize: 11 }}>Restrict intelligence search to a single storage site.</Text>
+                          </View>
+                          <Switch
+                            value={!!siloCabinetId}
+                            onValueChange={() => {
+                              if (!checkEntitlement('SILO_ISOLATION')) return;
+                              if (siloCabinetId) {
+                                setSiloCabinetId(null);
+                                savePref('recipe_silo_cabinet', "");
+                              } else if (cabinets.length > 0) {
+                                setSiloCabinetId(cabinets[0].id);
+                                savePref('recipe_silo_cabinet', cabinets[0].id.toString());
+                              }
+                            }}
+                            trackColor={{ false: '#334155', true: '#1e3a5f' }}
+                            thumbColor={siloCabinetId ? '#fbbf24' : '#64748b'}
+                          />
+                        </View>
+
+                        {siloCabinetId && (
+                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                             {cabinets.map(cab => (
+                               <TouchableOpacity
+                                 key={cab.id}
+                                 onPress={() => {
+                                   setSiloCabinetId(cab.id);
+                                   savePref('recipe_silo_cabinet', cab.id.toString());
+                                 }}
+                                 style={[
+                                   styles.chipBase,
+                                   { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: siloCabinetId === cab.id ? '#1e3a5f' : '#1e293b', borderColor: siloCabinetId === cab.id ? '#3b82f6' : '#334155' }
+                                 ]}
+                               >
+                                 <Text style={{ color: siloCabinetId === cab.id ? '#f8fafc' : '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>
+                                   {cab.name.toUpperCase()}
+                                 </Text>
+                               </TouchableOpacity>
+                             ))}
+                           </View>
+                        )}
+                      </View>
+                    </View>
                 <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>DIETARY PREFERENCES <Text style={styles.textMutedItalic}>(global rules)</Text></Text>
                 <View style={styles.allergenGrid}>
                   {DIETARY_CHOICES.map(c => (
@@ -1877,6 +1956,16 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 40 : 10, 
     borderBottomWidth: 1, 
     borderBottomColor: '#334155' 
+  },
+  headerRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 16, 
+    paddingTop: Platform.OS === 'ios' ? 40 : 10, 
+    paddingBottom: 16,
+    backgroundColor: '#1e293b',
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155'
   },
   headerTopRow: { 
     flexDirection: 'row', 

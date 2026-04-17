@@ -281,19 +281,24 @@ export const BackupService = {
 
         const cats = tables.Categories || [];
         for (const cat of cats) {
-          await db.runAsync("INSERT INTO Categories (id, name, icon) VALUES (?, ?, ?)", cat.id, cat.name, cat.icon || 'box');
+          await db.runAsync(
+            "INSERT INTO Categories (id, name, icon, is_mess_hall) VALUES (?, ?, ?, ?)", 
+            cat.id, cat.name, cat.icon || 'box', 
+            cat.is_mess_hall !== undefined ? cat.is_mess_hall : 1
+          );
         }
 
         const itemTypes = tables.ItemTypes || [];
         for (const it of itemTypes) {
           await db.runAsync(
-            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months, default_supplier, default_product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months, default_supplier, default_product_range, vanguard_resolved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
             it.id, it.category_id, it.name, it.unit_type || 'weight', it.default_size || null, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0,
             it.min_stock_level !== undefined ? it.min_stock_level : null,
             it.max_stock_level !== undefined ? it.max_stock_level : null,
             it.freeze_months !== undefined ? it.freeze_months : null,
             it.default_supplier || null,
-            it.default_product_range || null
+            it.default_product_range || null,
+            it.vanguard_resolved !== undefined ? it.vanguard_resolved : 0
           );
         }
 
@@ -305,7 +310,7 @@ export const BackupService = {
         const invs = tables.Inventory || [];
         for (const inv of invs) {
           await db.runAsync(
-            "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
             inv.id, inv.item_type_id, inv.quantity, inv.size || '', 
             inv.expiry_month !== undefined ? inv.expiry_month : null, 
             inv.expiry_year !== undefined ? inv.expiry_year : null, 
@@ -314,7 +319,9 @@ export const BackupService = {
             inv.cabinet_id !== undefined ? inv.cabinet_id : null,
             inv.batch_intel !== undefined ? inv.batch_intel : null,
             inv.supplier || null,
-            inv.product_range || null
+            inv.product_range || null,
+            inv.portions_total !== undefined ? inv.portions_total : null,
+            inv.portions_remaining !== undefined ? inv.portions_remaining : null
           );
         }
 

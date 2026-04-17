@@ -3,8 +3,6 @@ import * as SQLite from 'expo-sqlite';
 export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
   
   await db.execAsync(`
-    PRAGMA journal_mode = WAL;
-
     CREATE TABLE IF NOT EXISTS Categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -43,6 +41,8 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       batch_intel TEXT,
       supplier TEXT,
       product_range TEXT,
+      portions_total INTEGER,
+      portions_remaining INTEGER,
       FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id)
     );
 
@@ -133,26 +133,13 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.execAsync('ALTER TABLE Cabinets ADD COLUMN cabinet_type TEXT DEFAULT "standard"');
     }
 
-    const invCols = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
-    const hasCabinetId = invCols.some(col => col.name === 'cabinet_id');
-    if (!hasCabinetId) {
-      await db.execAsync('ALTER TABLE Inventory ADD COLUMN cabinet_id INTEGER');
-    }
-
-    const hasBatchIntel = invCols.some(col => col.name === 'batch_intel');
-    if (!hasBatchIntel) {
-      await db.execAsync('ALTER TABLE Inventory ADD COLUMN batch_intel TEXT');
-    }
-
-    const hasSupplier = invCols.some(col => col.name === 'supplier');
-    if (!hasSupplier) {
-      await db.execAsync('ALTER TABLE Inventory ADD COLUMN supplier TEXT');
-    }
-
-    const hasProductRange = invCols.some(col => col.name === 'product_range');
-    if (!hasProductRange) {
-      await db.execAsync('ALTER TABLE Inventory ADD COLUMN product_range TEXT');
-    }
+    const iInv = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
+    if (!iInv.some(col => col.name === 'cabinet_id')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN cabinet_id INTEGER');
+    if (!iInv.some(col => col.name === 'batch_intel')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN batch_intel TEXT');
+    if (!iInv.some(col => col.name === 'supplier')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN supplier TEXT');
+    if (!iInv.some(col => col.name === 'product_range')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN product_range TEXT');
+    if (!iInv.some(col => col.name === 'portions_total')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN portions_total INTEGER');
+    if (!iInv.some(col => col.name === 'portions_remaining')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN portions_remaining INTEGER');
 
     // Iteration 73: Size Standardization - Robust Cross-Platform Cleanup
     const dirtyRows = await db.getAllAsync<{id: number, size: string}>(
@@ -218,6 +205,17 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
 
       await db.runAsync('INSERT INTO Settings (key, value) VALUES (?, ?)', 'migration_v65_complete', '1');
       console.log('Migration v65 (Data Sovereignty) complete.');
+    }
+
+    // Iteration 99: Decouple Portions (Marker Only) - Deferring complex migration to UI trigger
+    try {
+      const migCheck = await db.getAllAsync<{key: string}>('SELECT key FROM Settings WHERE key = ?', 'migration_v99_complete');
+      if (migCheck.length === 0) {
+        // Fast marker write to satisfy boot
+        await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', 'migration_v99_complete', '1');
+      }
+    } catch (e: any) {
+      console.error('v99 marker failed', e);
     }
 
   } catch(e) {

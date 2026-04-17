@@ -77,12 +77,17 @@ export const FEATURE_TIER: Record<string, 'SERGEANT' | 'GENERAL'> = {
   FREEZER_LIMIT:  'SERGEANT',
   RECIPES:        'GENERAL',
   ALERTS:         'GENERAL',
+  OPEN_CONSUMPTION: 'SERGEANT',
+  SILO_ISOLATION:   'SERGEANT',
+  VANGUARD_INTEGRITY: 'SERGEANT',
+  ERROR_DETECTION:  'SERGEANT',
+  CABINET_AUDIT:    'GENERAL',
 };
 
 // Feature lock descriptions
 const FEATURE_COPY: Record<string, { title: string; desc: string; tier: 'SERGEANT' | 'GENERAL' }> = {
   LOGISTICS:      { title: 'The Quartermaster',       desc: 'Low-stock reports & shareable shopping lists.',                          tier: 'SERGEANT' },
-  BACKUPS:        { title: 'Tactical Backups',         desc: 'Automated snapshots & disaster recovery.',                              tier: 'SERGEANT' },
+  BACKUPS:        { title: 'Tactical Backups',         desc: 'Automated snapshots & disaster recovery.',                              tier: 'GENERAL'  },
   CABINET_LIMIT:  { title: 'Multiple Cabinets',        desc: 'Unlimited storage locations.',                                          tier: 'SERGEANT' },
   CATEGORY_LIMIT: { title: 'More Categories',          desc: 'Unlimited item categories.',                                            tier: 'SERGEANT' },
   ITEM_LIMIT:     { title: 'More Items',               desc: 'Unlimited tracked item types.',                                         tier: 'SERGEANT' },
@@ -91,6 +96,11 @@ const FEATURE_COPY: Record<string, { title: string; desc: string; tier: 'SERGEAN
   FREEZER_LIMIT:  { title: 'Freezer Logistics',        desc: 'Unlimited freezer item specifications & storage.',                      tier: 'SERGEANT' },
   RECIPES:        { title: 'The Mess Hall',            desc: 'Waste-conscious AI recipe suggestions from what you have.',             tier: 'GENERAL'  },
   ALERTS:         { title: 'Stock & Expiry Alerts',    desc: 'Monthly push notifications for low stock and upcoming expiry dates.',   tier: 'GENERAL'  },
+  OPEN_CONSUMPTION: { title: 'Open Item Intelligence', desc: 'Track partial usage & split batches for precise logistics.',            tier: 'SERGEANT' },
+  SILO_ISOLATION:   { title: 'Strategic Silo Isolation',desc: 'Lock recipe generation to specific cabinets or categories.',            tier: 'SERGEANT' },
+  VANGUARD_INTEGRITY: { title: 'Vanguard Integrity',    desc: 'Automated active-silence checks for inventory drift.',                  tier: 'SERGEANT' },
+  ERROR_DETECTION:  { title: 'Smart Error Detection',   desc: 'Fuzzy-logic validation for entry errors and near-misses.',               tier: 'SERGEANT' },
+  CABINET_AUDIT:    { title: 'Cabinet Audit Mode',      desc: 'High-speed physical inventory reconciliation flow.',                    tier: 'GENERAL'  },
 };
 
 const TIER_PRICE: Record<'SERGEANT' | 'GENERAL', string> = {
@@ -110,7 +120,7 @@ const TIER_NAME: Record<'SERGEANT' | 'GENERAL', string> = {
 
 // Checks whether a given licence tier satisfies a feature's requirement
 const tierSatisfies = (userTier: TierType | 'FREE', required: 'SERGEANT' | 'GENERAL'): boolean => {
-  if (userTier === 'GENERAL') return true;
+  if (userTier === 'GENERAL' || userTier === 'TRIAL') return true;
   if (userTier === 'SERGEANT' && required === 'SERGEANT') return true;
   return false;
 };

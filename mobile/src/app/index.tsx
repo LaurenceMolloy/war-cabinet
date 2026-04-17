@@ -45,6 +45,9 @@ export default function HomeScreen() {
   const [confirmTarget, setConfirmTarget] = useState<any>(null);
   const [confirmBatch, setConfirmBatch] = useState<any>(null);
   
+  // OPTIMISTIC SEGMENTS (Iteration 97 Prototype)
+  const [optimisticRemainders, setOptimisticRemainders] = useState<Record<number, number>>({});
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleteBatch, setDeleteBatch] = useState<any>(null);
@@ -188,6 +191,7 @@ export default function HomeScreen() {
              i.default_supplier as type_supplier, i.default_product_range as type_range,
              inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.batch_intel,
              inv.supplier as inv_supplier, inv.product_range as inv_product_range,
+             inv.portions_total, inv.portions_remaining,
              inv.cabinet_id as inv_cabinet_id, inv.item_type_id as inv_item_type_id,
              cab.name as cab_name, cab.location as cab_location, cab.cabinet_type as cab_type,
              c.is_mess_hall
@@ -279,6 +283,7 @@ export default function HomeScreen() {
             cab_name: row.cab_name, cab_location: row.cab_location,
             cab_type: row.cab_type, batch_intel: row.batch_intel,
             supplier: row.inv_supplier, product_range: row.inv_product_range,
+            portions_total: row.portions_total, portions_remaining: row.portions_remaining,
           });
         }
       }
@@ -752,6 +757,37 @@ export default function HomeScreen() {
     triggerFeedback(next === 1 ? 'MESS HALL COMPATIBILITY ENABLED' : 'MESS HALL COMPATIBILITY DISABLED');
   };
 
+  const handleDecantSegment = async (inv: any, type: any, totalSegments: number) => {
+    // Favor dedicated column, then optimistic state
+    const current = optimisticRemainders[inv.id] !== undefined 
+      ? optimisticRemainders[inv.id] 
+      : (inv.portions_remaining !== null ? inv.portions_remaining : totalSegments);
+    
+    if (current > 1) {
+      setOptimisticRemainders(prev => ({ ...prev, [inv.id]: current - 1 }));
+
+      await db.runAsync('UPDATE Inventory SET portions_remaining = ? WHERE id = ?', [current - 1, inv.id]);
+      await markModified(db);
+    } else {
+      // Hard reload required for whole unit deduction
+      setOptimisticRemainders(prev => {
+        const next = { ...prev };
+        delete next[inv.id];
+        return next;
+      });
+
+      if (inv.quantity <= 1) {
+        await db.runAsync('DELETE FROM Inventory WHERE id = ?', [inv.id]);
+        triggerFeedback('BATCH DEPLETED');
+      } else {
+        await db.runAsync('UPDATE Inventory SET quantity = quantity - 1, portions_remaining = portions_total WHERE id = ?', [inv.id]);
+        triggerFeedback(`WHOLE UNIT CONSUMED`);
+      }
+      await markModified(db);
+      load();
+    }
+  };
+
   const renderCategory = ({ item: cat }: any) => {
     const isExpanded = expandedCatIds.has(cat.id);
     const isEmpty = !cat.types || cat.types.length === 0;
@@ -965,26 +1001,32 @@ export default function HomeScreen() {
                       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
                          <Text style={{color: '#60a5fa', fontSize: 12, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
                       </View>
-                      {(inv.batch_intel || inv.supplier || inv.product_range) ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
-                          <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>•</Text>
-                          {inv.supplier && (
-                            <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>
-                              {inv.supplier.toUpperCase()}
-                            </Text>
-                          )}
-                          {inv.product_range && (
-                            <Text style={{ color: '#60a5fa', fontSize: 10, fontWeight: 'bold' }}>
-                              [{inv.product_range.toUpperCase()}]
-                            </Text>
-                          )}
-                          {inv.batch_intel && (
-                            <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic' }}>
-                              {inv.batch_intel}
-                            </Text>
-                          )}
-                        </View>
-                      ) : null}
+                      {(() => {
+                        const cleanIntel = (inv.batch_intel || '').replace(/REMAINDER:\d+/, '').trim();
+                        if (inv.supplier || inv.product_range || cleanIntel) {
+                          return (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
+                              <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>•</Text>
+                              {inv.supplier && (
+                                <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>
+                                  {inv.supplier.toUpperCase()}
+                                </Text>
+                              )}
+                              {inv.product_range && (
+                                <Text style={{ color: '#60a5fa', fontSize: 10, fontWeight: 'bold' }}>
+                                  [{inv.product_range.toUpperCase()}]
+                                </Text>
+                              )}
+                              {cleanIntel ? (
+                                <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic' }}>
+                                  {cleanIntel}
+                                </Text>
+                              ) : null}
+                            </View>
+                          );
+                        }
+                        return null;
+                      })()}
                       <View style={styles.rowMain}>
                         {inv.id === flashBatchId ? (
                           <Animated.View style={[styles.qtyBadge, { backgroundColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['#1e293b', '#166534'] }), borderWidth: 1.5, borderColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['transparent', '#22c55e'] }) }]}>
@@ -1051,6 +1093,66 @@ export default function HomeScreen() {
                           </>
                         )}
                       </View>
+
+                      {/* --- EXPERIMENTAL: PARTIAL CONSUMPTION UI (ITERATION 97 PROTOTYPE) --- */}
+                      {(() => {
+                        const isAutoBulk = type.name.toLowerCase().includes('bulk') || cat.name.toLowerCase().includes('bulk') || cat.name === 'Tactical Rations';
+                        const segments = inv.portions_total || (isAutoBulk ? 5 : 0);
+                        if (!segments || segments <= 0) return null;
+
+                        const dbSegments = inv.portions_remaining !== null ? inv.portions_remaining : segments;
+                        const activeSegments = optimisticRemainders[inv.id] !== undefined 
+                          ? optimisticRemainders[inv.id] 
+                          : dbSegments;
+                        
+                        const pipColor = getBatchStatusColor(inv, type);
+
+                        return (
+                          <View style={{ marginTop: 8 }}>
+                            <TouchableOpacity 
+                              activeOpacity={1}
+                              style={{ 
+                                backgroundColor: '#0f172a', 
+                                padding: 10, 
+                                borderRadius: 10, 
+                                borderWidth: 1, 
+                                borderColor: 'rgba(59, 130, 246, 0.3)',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.3,
+                                shadowRadius: 3,
+                                elevation: 4,
+                                borderColor: 'rgba(59, 130, 246, 0.3)'
+                              }}
+                              onPress={() => {
+                                if (!checkEntitlement('OPEN_CONSUMPTION')) return;
+                                handleDecantSegment(inv, type, segments);
+                              }}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                <Text style={{ color: '#3b82f6', fontSize: 10, fontWeight: '900', textTransform: 'uppercase' }}>
+                                  1 OPEN • {Math.max(0, inv.quantity - 1)} RESERVE
+                                </Text>
+                                <Text style={[styles.experimentalLabel, { color: '#60a5fa' }]}>TAP TO CONSUME</Text>
+                              </View>
+
+                              <View style={[styles.pipRail, { marginBottom: 6 }]}>
+                                {Array.from({ length: segments }).map((_, i) => (
+                                  <View 
+                                    key={i} 
+                                    style={[
+                                      styles.pip, 
+                                      { backgroundColor: i < activeSegments ? pipColor : '#1e293b' }
+                                    ]} 
+                                  />
+                                ))}
+                              </View>
+
+                              <Text style={[styles.experimentalLabel, { color: pipColor }]}>{activeSegments} OUT OF {segments} PORTIONS REMAIN</Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })()}
                     </View>
                   ))}
                 </>
@@ -1777,8 +1879,38 @@ const styles = StyleSheet.create({
   confirmBtnText: { color: 'black', fontWeight: 'bold', fontSize: 16 },
   cancelLink: { marginTop: 20, alignItems: 'center' },
   trialBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1c1200', borderBottomWidth: 1, borderBottomColor: '#92400e', paddingHorizontal: 16, paddingVertical: 8 },
-  trialBannerText: { flex: 1, color: '#fbbf24', fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
-  trialBannerCta: { color: '#fbbf24', fontSize: 11, fontWeight: 'bold', opacity: 0.75 },
+  trialBannerCta: {
+    color: '#fbbf24',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  // --- EXPERIMENTAL: SEGMENTED LOGISTICS STYLES ---
+  experimentalPartialContainer: {
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.05)',
+  },
+  experimentalLabel: {
+    color: '#64748b',
+    fontSize: 8,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  pipRail: {
+    flexDirection: 'row',
+    gap: 3,
+    height: 6,
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  pip: {
+    flex: 1,
+    height: '100%',
+    borderRadius: 2,
+  },
   miniLabel: { color: '#cbd5e1', fontSize: 12, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4, textTransform: 'uppercase' },
   inputSmall: { flex: 1, backgroundColor: '#0f172a', color: '#f8fafc', borderRadius: 6, padding: 8, fontSize: 14, borderWidth: 1, borderColor: '#334155' },
   unitChipRowMini: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
