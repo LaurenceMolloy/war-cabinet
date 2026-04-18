@@ -336,6 +336,23 @@ export default function HomeScreen() {
             }
           }
         });
+        t.items.sort((a: any, b: any) => {
+          const getStamp = (it: any) => {
+            if (it.cab_type === 'freezer' && it.entry_month && it.entry_year) {
+              const limit = t.freeze_months ?? 6;
+              let m = it.entry_month + limit;
+              let y = it.entry_year;
+              while (m > 12) { m -= 12; y += 1; }
+              return y * 12 + m;
+            }
+            return (it.expiry_year && it.expiry_month) ? (it.expiry_year * 12 + it.expiry_month) : 999999;
+          };
+          const stampA = getStamp(a);
+          const stampB = getStamp(b);
+          if (stampA !== stampB) return stampA - stampB;
+          return (a.size || '').localeCompare(b.size || '');
+        });
+
         t.soonest_stamp = soonestTypeStamp;
         if (typeQty > 0) itemsStocked++;
         totalQty += typeQty;
@@ -701,20 +718,13 @@ export default function HomeScreen() {
     const ageMonths = (now.getFullYear() - inv.entry_year) * 12 + ((now.getMonth() + 1) - inv.entry_month);
     const limit = type.freeze_months ?? 6;
     const remaining = limit - ageMonths;
-    
-    const rawColor = remaining <= 0 ? '#f43f5e' : remaining < 4 ? '#f97316' : remaining < 7 ? '#fde047' : '#22c55e';
-    const color = rawColor;
-
+    const color = remaining <= 0 ? '#f43f5e' : remaining < 4 ? '#f97316' : remaining < 7 ? '#fde047' : '#22c55e';
+    const isExpired = remaining < 0;
     const abs = Math.abs(remaining);
-    const label = remaining <= 0 ? (remaining === 0 ? "expires " : "expired ") : "expires ";
     
     let timeText = "";
     if (remaining < 0) {
-      if (abs === 1) {
-        timeText = 'last month';
-      } else {
-        timeText = `${abs} months`;
-      }
+      timeText = abs === 1 ? 'last month' : `${abs} months`;
     } else if (remaining === 0) {
       timeText = 'this month';
     } else {
@@ -722,10 +732,17 @@ export default function HomeScreen() {
     }
 
     return (
-      <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold', marginLeft: 8}}>
-        {label}
-        <Text style={{color}}>{timeText}</Text>
-      </Text>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 8}}>
+        {isExpired ? (
+          <View style={{ width: 16, height: 16, justifyContent: 'center', alignItems: 'center' }}>
+            <MaterialCommunityIcons name="clock-outline" size={16} color={color} />
+            <View style={{ position: 'absolute', width: 18, height: 2, backgroundColor: color, transform: [{ rotate: '-45deg' }], borderRadius: 1 }} />
+          </View>
+        ) : (
+          <MaterialCommunityIcons name="clock-outline" size={16} color={color} />
+        )}
+        <Text style={{color, fontSize: 10, fontWeight: 'bold'}}>{timeText}</Text>
+      </View>
     );
   };
 
@@ -1084,9 +1101,7 @@ export default function HomeScreen() {
                         {inv.cab_type === 'freezer' ? (
                           <>
                             <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
-                              <Text style={styles.subText}>FRZ <Text style={{color: '#f8fafc'}}>{formatMonth(inv.entry_month)}/{String(inv.entry_year).slice(-2)}</Text></Text>
-                              <Text style={styles.divider}>|</Text>
-                              <Text style={styles.subText}>LIM <Text style={{color: '#f8fafc'}}>{type.freeze_months ?? 6}m</Text></Text>
+                              <Text style={styles.subText}>FROZEN <Text style={{color: '#f8fafc'}}>{formatMonth(inv.entry_month)}/{String(inv.entry_year).slice(-2)}</Text></Text>
                             </View>
                             {getFreezerUrgency(inv, type)}
                           </>
