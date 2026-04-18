@@ -31,14 +31,11 @@ CREATE TABLE BarcodeSignatures (
 
 1. **Scan Execution**: The user taps the "Scan" icon on the dashboard and scans a barcode.
 2. **Lookup Miss**: The app checks `BarcodeSignatures` and finds no match.
-3. **The Taxonomy Handshake (UI modal)**: 
-   The app asks: *"Unknown Barcode. Link this to what item?"*
-   It presents:
-   - **Suggestion 1**: [Top Frequency ItemType]
-   - **Suggestion 2**: [2nd Frequency ItemType]
-   - **Suggestion 3**: [3rd Frequency ItemType]
-   - **[+ SEARCH ALL]**
-   - **[+ CREATE BRAND NEW ITEM TYPE]**
+3. **The Taxonomy Handshake (UI modal)**:
+   The app presents a simple prompt: *"Unknown Barcode. Link this to an item."*
+   Since the user is physically holding the item, no guessing is needed. Two options are presented:
+   - **[🔍 SEARCH]** — Full-text search across all existing Item Types
+   - **[+ CREATE NEW ITEM TYPE]** — If the item has never been logged before
 4. **The Invisible Memory Handoff**: The barcode string is held invisibly in the React state. The user completes the taxonomy step (e.g. creating the item and setting physical defaults). The app then instantly drops them into the standard `Add Batch` screen. The form auto-populates using the defaults they just set.
 5. **The Double Commit**: The user confirms the actual expiry date and taps "SAVE". At that exact millisecond, the app executes two Database queries:
    - *Query A*: Insert the new record into the `Inventory` table.

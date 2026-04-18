@@ -78,3 +78,14 @@ This document tracks items that were strictly specified in the `requirements.md`
     3.  **Low Friction**: Maintains the core "Speed" principle by treating partials as discrete "charges" (like an ammo clip).
 *   **Status**: Conceptual (Spit-balled). Held for future implementation.
 
+---
+
+## Iteration 98: Expiry Omission Guard (Silent Error Mitigation)
+*   **Tactical Goal**: Prevent the "Error of Omission" where a user inadvertently submits a batch with the default "Current Month" expiry date.
+*   **Implementation**: 
+    1.  **Interaction Logging**: Introduced `expiryTouched` ref in `add.tsx` to detect active engagement with the date pickers.
+    2.  **Handshake Intercept**: Save logic now pauses for non-freezer items if `expiryTouched` is false and the date matches the current month/year.
+    3.  **Two-Path Resolution**: 
+        - **[SET EXPIRY DATE]**: Triggers an orchestrated UI transition—closing the modal, auto-scrolling the form to the pinned date badge, and opening the month picker.
+        - **[SAVE ANYWAY]**: Explicitly confirms the user's intent to record a "near-expiry" item, preventing future prompts for that specific save attempt.
+    4.  **UX Polish**: Added a prominent **Pinned Date Badge** (MM/YYYY) that remains visible at the top of the expiry section during interaction to maintain temporal context.

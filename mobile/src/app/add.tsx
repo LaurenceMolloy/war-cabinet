@@ -105,6 +105,10 @@ export default function AddInventoryScreen() {
 
   const isAutoSavePipeline = useRef(false);
   const handleSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const expiryTouched = useRef(false);
+  const [showExpiryWarningModal, setShowExpiryWarningModal] = useState(false);
+  const mainScrollRef = useRef<ScrollView>(null);
+  const expirySectionY = useRef(0);
 
   const resumePipeline = () => {
     if (isAutoSavePipeline.current) {
@@ -500,6 +504,7 @@ export default function AddInventoryScreen() {
           setSize(batch.size?.toString().replace(/[^0-9]/g, '') || '');
           setExpiryMonth(batch.expiry_month?.toString() || '');
           setExpiryYear(batch.expiry_year?.toString() || '');
+          expiryTouched.current = true; // Edit mode — user set this previously, no warning needed
           if (batch.cabinet_id) setSelectedCabinetId(batch.cabinet_id);
           let fractionalActive = false;
           let loadedPortionsRem = null;
@@ -557,6 +562,17 @@ export default function AddInventoryScreen() {
       // PRE-SAVE LOGISTICAL AUDIT (Catch near-misses before validation/commit)
       if (handleSupplierFuzzyCheck(showQuickAddType ? quickAddSupplier : supplier)) return;
       if (handleRangeFuzzyCheck(showQuickAddType ? quickAddRange : productRange)) return;
+
+      // EXPIRY OMISSION GUARD: Warn if the user never touched the expiry date (defaults to current month)
+      if (!isFreezerMode && !expiryTouched.current) {
+        const exM = parseInt(expiryMonth);
+        const exY = parseInt(expiryYear);
+        const isDefaultDate = exM === currentMonth && exY === currentYear;
+        if (isDefaultDate) {
+          setShowExpiryWarningModal(true);
+          return;
+        }
+      }
 
       setErrorField(null);
       setErrorMsg(null);
@@ -1229,7 +1245,11 @@ export default function AddInventoryScreen() {
   return (
     <View style={[styles.container, { padding: 0 }]}>
 
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 60 }}>
+      <ScrollView 
+        ref={mainScrollRef}
+        style={styles.container} 
+        contentContainerStyle={{ paddingBottom: 140 }}
+      >
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
              <Text style={styles.title}>{editBatchId ? 'UPDATE BATCH' : 'ADD BATCH'}</Text>
@@ -1382,9 +1402,17 @@ export default function AddInventoryScreen() {
           </View>
         </View>
       ) : (
-        <View style={styles.formGroup}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <Text style={styles.label}>Expiry Date</Text>
+        <View 
+          style={styles.formGroup}
+          onLayout={(e) => { expirySectionY.current = e.nativeEvent.layout.y; }}
+        >
+
+          {/* PINNED DATE BADGE — always visible above keyboard */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <MaterialCommunityIcons name="calendar-clock" size={18} color="#3b82f6" />
+              <Text style={styles.label}>Expiry Date</Text>
+            </View>
             {(expiryMonth !== '' || expiryYear !== '') && (
               <TouchableOpacity
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
@@ -1395,28 +1423,61 @@ export default function AddInventoryScreen() {
               </TouchableOpacity>
             )}
           </View>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TouchableOpacity 
-              style={[styles.input, { flex: 1, alignItems: 'center' }]} 
-              onPress={() => setShowMonthPicker(!showMonthPicker)}
+
+          {/* PROMINENT SELECTED DATE DISPLAY */}
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#0f172a',
+            borderRadius: 12,
+            borderWidth: 1.5,
+            borderColor: (expiryMonth && expiryYear) ? '#3b82f6' : '#334155',
+            padding: 14,
+            marginBottom: 12,
+            gap: 6
+          }}>
+            <Text style={{
+              color: expiryMonth ? '#f8fafc' : '#475569',
+              fontSize: 26,
+              fontWeight: '900',
+              letterSpacing: 2,
+              fontVariant: ['tabular-nums']
+            }}>
+              {expiryMonth ? expiryMonth.toString().padStart(2, '0') : 'MM'}
+            </Text>
+            <Text style={{ color: '#475569', fontSize: 22, fontWeight: '300' }}>/</Text>
+            <Text style={{
+              color: expiryYear ? '#f8fafc' : '#475569',
+              fontSize: 26,
+              fontWeight: '900',
+              letterSpacing: 2,
+              fontVariant: ['tabular-nums']
+            }}>
+              {expiryYear || 'YYYY'}
+            </Text>
+          </View>
+
+          {/* PICKER TRIGGERS */}
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 8 }}>
+            <TouchableOpacity
+              style={[styles.input, { flex: 1, alignItems: 'center', borderColor: showMonthPicker ? '#3b82f6' : '#334155' }]}
+              onPress={() => { setShowMonthPicker(!showMonthPicker); setShowYearPicker(false); }}
             >
-              <Text style={{ color: expiryMonth ? '#f8fafc' : '#64748b', fontSize: 16 }}>
-                {expiryMonth ? `Month: ${expiryMonth.toString().padStart(2, '0')}` : '(None)'}
-              </Text>
+              <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>MONTH</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.input, { flex: 1, alignItems: 'center' }]} 
-              onPress={() => setShowYearPicker(!showYearPicker)}
+            <TouchableOpacity
+              style={[styles.input, { flex: 1, alignItems: 'center', borderColor: showYearPicker ? '#3b82f6' : '#334155' }]}
+              onPress={() => { setShowYearPicker(!showYearPicker); setShowMonthPicker(false); }}
             >
-              <Text style={{ color: expiryYear ? '#f8fafc' : '#64748b', fontSize: 16 }}>
-                {expiryYear ? `Year: ${expiryYear}` : '(None)'}
-              </Text>
+              <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>YEAR</Text>
             </TouchableOpacity>
           </View>
+
           {showMonthPicker && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
               {Array.from({length: 12}, (_, i) => i + 1).map(m => (
-                <TouchableOpacity key={m} style={[styles.dateChip, expiryMonth === m.toString() && styles.chipActive]} onPress={() => { setExpiryMonth(m.toString()); setShowMonthPicker(false); }}>
+                <TouchableOpacity key={m} style={[styles.dateChip, expiryMonth === m.toString() && styles.chipActive]} onPress={() => { setExpiryMonth(m.toString()); setShowMonthPicker(false); expiryTouched.current = true; }}>
                   <Text style={[styles.chipText, expiryMonth === m.toString() && styles.chipTextActive]}>{m}</Text>
                 </TouchableOpacity>
               ))}
@@ -1425,7 +1486,7 @@ export default function AddInventoryScreen() {
           {showYearPicker && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
               {Array.from({length: 15}, (_, i) => currentYear + i).map(y => (
-                <TouchableOpacity key={y} style={[styles.dateChip, expiryYear === y.toString() && styles.chipActive]} onPress={() => { setExpiryYear(y.toString()); setShowYearPicker(false); }}>
+                <TouchableOpacity key={y} style={[styles.dateChip, expiryYear === y.toString() && styles.chipActive]} onPress={() => { setExpiryYear(y.toString()); setShowYearPicker(false); expiryTouched.current = true; }}>
                   <Text style={[styles.chipText, expiryYear === y.toString() && styles.chipTextActive]}>{y}</Text>
                 </TouchableOpacity>
               ))}
@@ -1787,6 +1848,12 @@ export default function AddInventoryScreen() {
         </View>
       </Modal>
 
+      {(isNewType !== '1' || !showQuickAddType) && (
+        <TouchableOpacity style={styles.saveButton} onPress={triggerSave} testID="save-stock-btn">
+          <Text style={styles.saveText}>{editBatchId ? 'UPDATE BATCH' : 'SAVE TO BATCHES'}</Text>
+        </TouchableOpacity>
+      )}
+
     </ScrollView>
 
       {/* --- CABINET PICKER --- */}
@@ -1817,6 +1884,71 @@ export default function AddInventoryScreen() {
             <TouchableOpacity style={styles.modalClose} onPress={() => setShowCabinetPicker(false)}>
               <Text style={styles.modalCloseText}>CANCEL</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* --- EXPIRY OMISSION WARNING MODAL --- */}
+      <Modal visible={showExpiryWarningModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderColor: '#f59e0b', borderWidth: 2, width: '88%', maxWidth: 420 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <MaterialCommunityIcons name="clock-alert-outline" size={26} color="#f59e0b" />
+              <Text style={[styles.modalTitle, { marginBottom: 0, color: '#f59e0b' }]}>EXPIRY NOT SET</Text>
+            </View>
+            <Text style={{ color: '#94a3b8', fontSize: 14, lineHeight: 20, marginBottom: 20 }}>
+              {`You haven't selected an expiry date. The batch will be recorded as expiring `}
+              <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>this month</Text>
+              {`, which is likely incorrect.\n\nDid you mean to set a different date?`}
+            </Text>
+            <View style={{ gap: 10 }}>
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 10,
+                  backgroundColor: '#f59e0b',
+                  borderRadius: 12,
+                  paddingVertical: 14,
+                  paddingHorizontal: 20,
+                }}
+                onPress={() => {
+                  setShowExpiryWarningModal(false);
+                  setTimeout(() => {
+                    setShowMonthPicker(true);
+                    setShowYearPicker(false);
+                    // Scroll to the expiry section so it's not hidden by keyboard
+                    mainScrollRef.current?.scrollTo({ y: expirySectionY.current - 10, animated: true });
+                  }, 200);
+                }}
+              >
+                <MaterialCommunityIcons name="calendar-edit" size={20} color="#000" />
+                <Text style={{ color: '#000', fontSize: 14, fontWeight: '900', letterSpacing: 1 }}>SET EXPIRY DATE</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 10,
+                  backgroundColor: '#1e293b',
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: '#334155',
+                  paddingVertical: 12,
+                  paddingHorizontal: 20,
+                }}
+                onPress={() => {
+                  setShowExpiryWarningModal(false);
+                  expiryTouched.current = true;
+                  handleSave();
+                }}
+              >
+                <MaterialCommunityIcons name="check" size={18} color="#64748b" />
+                <Text style={{ color: '#64748b', fontSize: 13, fontWeight: 'bold', letterSpacing: 0.5 }}>SAVE ANYWAY (EXPIRES THIS MONTH)</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -2107,11 +2239,7 @@ export default function AddInventoryScreen() {
         </View>
       )}
 
-      {(isNewType !== '1' || !showQuickAddType) && (
-        <TouchableOpacity style={styles.saveButton} onPress={triggerSave} testID="save-stock-btn">
-          <Text style={styles.saveText}>{editBatchId ? 'UPDATE BATCH' : 'SAVE TO BATCHES'}</Text>
-        </TouchableOpacity>
-      )}
+
     </View>
   );
 }
