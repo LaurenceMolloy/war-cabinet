@@ -96,7 +96,32 @@ While the system uses a **Global Default (30 Days)**, General-tier users can set
 
 ---
 
-## 6. UI Requirements
+## 7. Data Integrity & Noise Cancellation
+
+To prevent "UI Fidgeting" (tapping pips up and down) from poisoning the BurnRate intelligence, the following filters are applied:
+
+### The Interactive Reconciliation Prompt
+To distinguish between "Undo/Fidgeting" and "Fast Replenishment" (using an item and immediately replacing it), the system uses an interactive check:
+
+1.  **Trigger**: Any manual **increase** in `portions_remaining` or `quantity` for a batch that has a consumption entry within the last **10 minutes**.
+2.  **The Prompt**: *"Stock increased. Was the previous deduction a mistake?"*
+3.  **Path A: [Mistake/Undo]**: The system deletes the recent `ConsumptionLedger` entries (FIFO). Usage Rate stays flat.
+4.  **Path B: [Used/Replenished]**: The system ignores the prompt. Consumption data is preserved, and the new stock is added. Usage Rate reflects the actual consumption.
+5.  **Audit Exception**: Changes made via the "Edit Batch" manual entry form are flagged as `TYPE_AUDIT` and are **excluded** from BurnRate calculations. They represent "Logistical Truth" corrections rather than "Consumption Events."
+
+### Consumption Debouncing
+UI interactions (pip taps, quick-deduct buttons) are not written to the Ledger immediately. 
+- A **30-second quiet window** is required.
+- Multiple taps within this window are aggregated into a single "Session" entry.
+- This prevents the database from filling with micro-entries and ensures "accidental double-taps" are handled as one event.
+
+### Audit vs. Usage Distinction
+- **UI Button Taps**: Logged as "Consumption" (Usage).
+- **Manual Batch Editing**: Logged as an "Audit" (Correction). Manual changes in the 'Edit Batch' modal **do not** write to the `ConsumptionLedger` by default, as they are assumed to be "Cleanup" actions to match reality.
+
+---
+
+## 8. UI Requirements
 
 ### The "Intelligence Row" (Inventory Card)
 For items with an established baseline, the card shows:

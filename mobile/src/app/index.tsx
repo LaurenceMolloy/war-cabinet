@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Link, useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import * as Notifications from 'expo-notifications';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { requestPermissions, scheduleMonthlyBriefing } from '../services/notifications';
 import { initializeDatabase, markModified } from '../db/sqlite';
 import { BackupService } from '../services/BackupService';
@@ -69,6 +70,9 @@ export default function HomeScreen() {
   const [inlineCatName, setInlineCatName] = useState('');
   const [inlineCatIsMessHall, setInlineCatIsMessHall] = useState(true);
 
+  // BARCODE LOGISTICS TEST STATE
+  const [showTestScanner, setShowTestScanner] = useState(false);
+  const [permission, requestCameraPermission] = useCameraPermissions();
 
   const params = useLocalSearchParams();
 
@@ -1192,6 +1196,9 @@ export default function HomeScreen() {
             <MaterialCommunityIcons name="cog" size={26} color="#cbd5e1" />
           </TouchableOpacity>
         </Link>
+        <TouchableOpacity style={StyleSheet.flatten([styles.settingsBtn, { right: 96 }])} onPress={() => setShowTestScanner(true)}>
+          <MaterialCommunityIcons name="barcode-scan" size={26} color="#3b82f6" />
+        </TouchableOpacity>
       </View>
 
       {isTrialActive && !isPremium && (
@@ -1773,6 +1780,41 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      {showTestScanner && (
+        <Modal visible={showTestScanner} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { height: '80%', padding: 0, overflow: 'hidden' }]}>
+              <View style={{ padding: 16, backgroundColor: '#0f172a', zIndex: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{color: 'white', fontWeight: 'bold'}}>SCAN BARCODE</Text>
+                <TouchableOpacity onPress={() => setShowTestScanner(false)}>
+                  <MaterialCommunityIcons name="close" size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              
+              {permission?.granted ? (
+                <CameraView
+                  style={{ flex: 1 }}
+                  facing="back"
+                  onBarcodeScanned={(result) => {
+                    setShowTestScanner(false);
+                    Alert.alert("Barcode Extracted", `Value: ${result.data}\nType: ${result.type}`, [
+                      { text: "OK", style: "default" }
+                    ]);
+                  }}
+                />
+              ) : (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ color: 'white', marginBottom: 16 }}>Camera access required.</Text>
+                  <TouchableOpacity style={styles.actionBtn} onPress={requestCameraPermission}>
+                    <Text style={styles.actionBtnText}>Request Permission</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
+      )}
 
     </View>
   );

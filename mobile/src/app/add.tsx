@@ -430,6 +430,13 @@ export default function AddInventoryScreen() {
         const freqRangeRow = await db.getFirstAsync<{product_range: string}>("SELECT product_range, COUNT(*) as count FROM Inventory WHERE item_type_id = ? AND product_range IS NOT NULL AND product_range != '' GROUP BY product_range COLLATE NOCASE ORDER BY count DESC LIMIT 1", [Number(typeId)]);
         if (freqRangeRow) setMostFreqRangeSuggestion(freqRangeRow.product_range);
       }
+
+      // --- GLOBAL FALLBACK INTELLIGENCE (For items with no history) ---
+      const globalFreqBrand = await db.getFirstAsync<{supplier: string}>("SELECT supplier, COUNT(*) as count FROM Inventory WHERE supplier IS NOT NULL AND supplier != '' GROUP BY supplier COLLATE NOCASE ORDER BY count DESC LIMIT 1");
+      const globalFreqRange = await db.getFirstAsync<{product_range: string}>("SELECT product_range, COUNT(*) as count FROM Inventory WHERE product_range IS NOT NULL AND product_range != '' GROUP BY product_range COLLATE NOCASE ORDER BY count DESC LIMIT 1");
+      
+      if (globalFreqBrand && !mostFreqBrandSuggestion) setMostFreqBrandSuggestion(globalFreqBrand.supplier);
+      if (globalFreqRange && !mostFreqRangeSuggestion) setMostFreqRangeSuggestion(globalFreqRange.product_range);
       
       // --- INTELLIGENCE HIERARCHY FOR CABINET SELECTION ---
       if (editBatchId) {
@@ -1009,8 +1016,16 @@ export default function AddInventoryScreen() {
                 placeholderTextColor="#64748b" 
               />
             </View>
-            <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginBottom: 8, flexDirection: 'row' }}>
-              {suggestedTypeAheadSuppliers.length > 0 && quickAddSupplier.length > 0 && (
+            <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginBottom: 8, flexDirection: 'row', gap: 6 }}>
+              {!quickAddSupplier && mostFreqBrandSuggestion ? (
+                <TouchableOpacity
+                  style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                  onPress={() => { setQuickAddSupplier(mostFreqBrandSuggestion); updateSupplierSuggestions(mostFreqBrandSuggestion, 'quick'); setSuggestedTypeAheadSuppliers([]); }}
+                >
+                  <MaterialCommunityIcons name="trending-up" size={11} color="#64748b" />
+                  <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{mostFreqBrandSuggestion.toUpperCase()}</Text>
+                </TouchableOpacity>
+              ) : suggestedTypeAheadSuppliers.length > 0 && quickAddSupplier.length > 0 && (
                 <View style={{flexDirection: 'row', gap: 4}}>
                   {suggestedTypeAheadSuppliers.map(s => {
                     const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
@@ -1043,8 +1058,16 @@ export default function AddInventoryScreen() {
                 onBlur={handleRangeFuzzyCheck}
               />
             </View>
-            <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginBottom: 8, flexDirection: 'row' }}>
-              {suggestedTypeAheadRanges.length > 0 && quickAddRange.length > 0 && (
+            <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginBottom: 8, flexDirection: 'row', gap: 6 }}>
+              {!quickAddRange && mostFreqRangeSuggestion ? (
+                <TouchableOpacity
+                  style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                  onPress={() => { setQuickAddRange(mostFreqRangeSuggestion); updateRangeSuggestions(mostFreqRangeSuggestion); setSuggestedTypeAheadRanges([]); }}
+                >
+                  <MaterialCommunityIcons name="trending-up" size={11} color="#64748b" />
+                  <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{mostFreqRangeSuggestion.toUpperCase()}</Text>
+                </TouchableOpacity>
+              ) : suggestedTypeAheadRanges.length > 0 && quickAddRange.length > 0 && (
                 <View style={{flexDirection: 'row', gap: 4}}>
                   {suggestedTypeAheadRanges.map(r => (
                     <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
@@ -1558,8 +1581,8 @@ export default function AddInventoryScreen() {
                 </>
               )}
             </View>
-          ) : suggestedTypeAheadRanges.length > 0 && (
-            <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 4}}>
+          ) : suggestedTypeAheadRanges.length > 0 && productRange.length > 0 && (
+            <View style={{flexDirection: 'row', gap: 4}}>
               {suggestedTypeAheadRanges.map(r => (
                 <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
                   <TouchableOpacity onPress={() => { setProductRange(r); setSuggestedTypeAheadRanges([]); }}>

@@ -56,6 +56,14 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS BarcodeSignatures (
+      barcode TEXT PRIMARY KEY,
+      item_type_id INTEGER NOT NULL,
+      supplier TEXT,
+      size TEXT,
+      FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id)
+    );
   `);
 
   // Migration: add unit_type to ItemTypes if it does not exist

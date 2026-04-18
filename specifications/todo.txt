@@ -67,3 +67,15 @@ batch add: i note that there is no range suggestion offered in this form?
 generated recipe prompt page - header format seemsto have gotten corrupted
 
 deal with partial consumption of items (5ltr oil being used 1ltr at a time)
+
+
+
+MOBILE TESTING FEEDBACK
+1. batch "expires"/"expired" needs to be replaced with the clock icon
+2. FRZ => Frozen, LIM can be removed entirely
+3. Config item editing, default batch and range don't have default suggestions
+4. Error of omission when user forgets to set expiry (and gets current month)
+5. deletion of user added suggestions is too easy - slight redesign might help
+6. confirmation for user suggestion delete - items affected by it + do you just want to change or actually delete?
+7. weekly or monthly reminder that manual backup hasn't been done - would they like to do one?
+8. we might need a way to automate the sending of an email (free service?)

@@ -89,24 +89,33 @@ To empower user agency, Cadets may choose to "Graduate Early" within the Promoti
 ## Rank-Specific Feature Anchors (Proposed)
 
 ### RANK: CADET (Trial - Day 1-7)
-- **Scale**: 2 Cabinets / 3 Categories / 12 Item Types.
-- **Full Intel**: Full access to AI Suggestions & Alerts.
-- **Experimental Protocol**: Limited Freezer Mode (1 Cabinet / 3 Item Specs).
+- [✓] **Scale**: 2 Cabinets / 3 Categories / 12 Item Types.
+- [✓] **Full Intel**: Full access to AI Suggestions & Alerts.
+- [✓] **Experimental Protocol**: Limited Freezer Mode (1 Cabinet / 3 Item Specs).
 
 ### RANK: PRIVATE (Post-Trial Free)
-- **Earned Scale**: 6 Cabinets / 6 Categories / 24 Item Types.
-- **Core Ops**: Basic stock tracking only. No Freezer mode intelligence, AI, or Alerts.
+- [✓] **Earned Scale**: 6 Cabinets / 6 Categories / 24 Item Types.
+- [✓] **Core Ops**: Basic stock tracking only. No Freezer mode intelligence, AI, or Alerts.
 
 ### RANK: SERGEANT (£2.99 One-Time)
-- **Unlimited Logistics Net**: Unlimited cabinets, categories, and items.
-- **Freezer Intelligence**: Full visibility of "frozen-since" age data.
-- **Tactical Consolidation**: Quality-of-life tools (Batch Consolidation).
-- **The Quartermaster Hub**: Tactical reports and sharing.
+- [✓] **Unlimited Logistics Net**: Unlimited cabinets, categories, and items.
+- [✓] **Freezer Intelligence**: Full visibility of "frozen-since" age data.
+- [✓] **Tactical Consolidation**: Quality-of-life tools (Batch Consolidation).
+- [✓] **Portion Tracking**: Fractional pip deductions and bulk decanting support.
+- [TODO] **Barcode Logistics**: Lightning-fast data entry via memory-mapped physical scanner.
+- [✓] **Data Integrity Engine**: Advanced noise cancellation and interactive reconciliation to keep your usage metrics clean.
+- [✓] **The Quartermaster Hub**: Tactical reports and sharing.
 
 ### RANK: GENERAL (£4.99 One-Time)
-- **Strategic Command**: Automated monthly low-stock and expiry alerts.
-- **The Mess Hall**: Full AI-powered recipe suggestions from inventory.
-- **Tactical Backups**: Automated rolling snapshots and disaster recovery.
+- [TODO] **Strategic Command**: Automated alerts
+    - [TODO] weekly low-stock (predictive)
+    - [TODO] monthly overstock (predictive)
+    - [✓] expiry (based on actual expiry dates)
+- [TODO] **SITREP Intelligence**: 90-day BurnRate and "Days of Cover" forecasting.
+- [TODO] **Predictive Waste Analysis**: The Intersection Model (Expiry vs. Consumption conflicts).
+- [PARKED] **Market & Cost Intelligence**: Personalised inflation tracking, proxy batches, and recon-only (no stock) items.
+- [✓] **The Mess Hall**: Full AI-powered recipe suggestions from inventory.
+- [✓] **Tactical Backups**: Automated rolling snapshots and disaster recovery.
 
 ---
 
