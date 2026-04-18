@@ -74,6 +74,7 @@ export default function HomeScreen() {
   const [showTestScanner, setShowTestScanner] = useState(false);
   const [pendingBarcode, setPendingBarcode] = useState<string | null>(null);
   const [showLinkBarcodeModal, setShowLinkBarcodeModal] = useState(false);
+  console.log('[HOME] Initializing with showLinkBarcodeModal:', showLinkBarcodeModal);
   const [barcodeSearchQuery, setBarcodeSearchQuery] = useState('');
   const [allItemTypes, setAllItemTypes] = useState<any[]>([]);
   const [permission, requestCameraPermission] = useCameraPermissions();

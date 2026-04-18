@@ -3,8 +3,8 @@ import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, S
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
-import { BackupService, BackupMetadata } from '../services/BackupService';
-import { markModified } from '../db/sqlite';
+import { BackupService, BackupMetadata, BACKUP_MANIFEST_VERSION } from '../services/BackupService';
+import { CURRENT_SCHEMA_VERSION, markModified } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
 import SUPPLIERS_DATA from '../data/suppliers.json';
 import BRANDS_DATA from '../data/brands.json';
@@ -68,6 +68,7 @@ export default function CatalogScreen() {
   const [mirrorUri, setMirrorUri] = useState<string | null>(null);
   const [backups, setBackups] = useState<BackupMetadata[]>([]);
   const [totalItemCount, setTotalItemCount] = useState(0);
+  const [schemaVersion, setSchemaVersion] = useState('0');
   const [minReqCount, setMinReqCount] = useState(0);
   const [maxReqCount, setMaxReqCount] = useState(0);
   const [freezerItemCount, setFreezerItemCount] = useState(0);
@@ -148,6 +149,9 @@ export default function CatalogScreen() {
 
     const backupRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['auto_backup_enabled']);
     setAutoBackupEnabled(backupRes?.value === '1');
+
+    const schemaRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['schema_version']);
+    setSchemaVersion(schemaRes?.value || '0');
 
     const mirrorRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['persistence_mirror_uri']);
     setMirrorUri(mirrorRes?.value || null);
@@ -1291,6 +1295,18 @@ export default function CatalogScreen() {
           </View>
           <Text style={styles.label}>Local Snapshot Archive (Rolling 5)</Text>
           <FlatList data={backups} keyExtractor={item => item.name} renderItem={({ item }) => (<View style={styles.backupItem}><View style={{flex: 1}}><Text style={styles.backupName}>{new Date(item.timestamp).toLocaleDateString()}</Text><Text style={styles.backupMeta}>{new Date(item.timestamp).toLocaleTimeString()}</Text></View><View style={{flexDirection: 'row', gap: 8}}><TouchableOpacity onPress={() => handleLocalRestore(item)} style={[styles.shareBtn, {backgroundColor: '#ef4444'}]}><MaterialCommunityIcons name="backup-restore" size={20} color="white" /></TouchableOpacity><TouchableOpacity onPress={() => BackupService.shareBackup(item.uri)} style={styles.shareBtn}><MaterialCommunityIcons name="share-variant" size={20} color="#3b82f6" /></TouchableOpacity></View></View>)} ListEmptyComponent={<Text style={{color: '#64748b', textAlign: 'center', marginTop: 20}}>No backups recorded yet.</Text>} ListFooterComponent={Platform.OS === 'android' ? (<View style={{marginTop: 24, paddingBottom: 40}}><Text style={styles.prefTitle}>Strategic Shadow Mirroring</Text><Text style={styles.prefSub}>On Android, auto-backups are wiped if the app is uninstalled. Enable mirroring for disaster recovery.</Text><TouchableOpacity style={[styles.testBtn, {marginTop: 12, backgroundColor: mirrorUri ? '#22c55e' : '#334155'}]} onPress={handlePersistentMirrorSetup}><MaterialCommunityIcons name="folder-sync" size={24} color="white" /><Text style={styles.testBtnText}>{mirrorUri ? 'MIRROR ACTIVE' : 'SETUP MIRROR FOLDER'}</Text></TouchableOpacity></View>) : null} />
+          
+          <View style={{marginTop: 20, backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 20}}>
+            <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 12}}>STRATEGIC BUILD MANIFEST</Text>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
+              <Text style={{color: '#94a3b8', fontSize: 12}}>Database Schema</Text>
+              <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>v{schemaVersion}</Text>
+            </View>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+              <Text style={{color: '#94a3b8', fontSize: 12}}>Backup Manifest</Text>
+              <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>v{BACKUP_MANIFEST_VERSION}</Text>
+            </View>
+          </View>
         </View>
       ) : activeTab === 'rank' ? (
         <ScrollView style={{padding: 16}} contentContainerStyle={{paddingBottom: 40}}>

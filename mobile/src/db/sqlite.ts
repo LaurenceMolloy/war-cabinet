@@ -1,5 +1,17 @@
 import * as SQLite from 'expo-sqlite';
 
+/**
+ * STRATEGIC SCHEMA MANIFEST
+ * 
+ * VERSIONING DOCTRINE:
+ * 1. Increment CURRENT_SCHEMA_VERSION for ANY structural database change.
+ * 2. DO NOT update BACKUP_MANIFEST_VERSION in BackupService.ts yet.
+ * 3. The resulting version discrepancy in the UI tells us that the backup 
+ *    script is lagging and requires an audit.
+ * 4. Only after auditing BackupService.ts should the versions be re-aligned.
+ */
+export const CURRENT_SCHEMA_VERSION = 103; 
+
 export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
   
   await db.execAsync('PRAGMA foreign_keys = ON;');
@@ -261,6 +273,9 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
         await db.runAsync('UPDATE Inventory SET expiry_month = ?, expiry_year = ? WHERE id = ?', [m, y, row.id]);
       }
     }
+
+    // Set formal schema version
+    await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', 'schema_version', CURRENT_SCHEMA_VERSION.toString());
 
   } catch(e) {
     console.error('Migration failed:', e);

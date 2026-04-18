@@ -4,6 +4,15 @@ import * as DocumentPicker from 'expo-document-picker';
 import { type SQLiteDatabase } from 'expo-sqlite';
 import { Platform } from 'react-native';
 
+/**
+ * BACKUP MANIFEST INTEGRITY
+ * 
+ * Only increment BACKUP_MANIFEST_VERSION after manually auditing 
+ * createBackup and restore methods to account for all structural 
+ * changes in sqlite.ts.
+ */
+export const BACKUP_MANIFEST_VERSION = 102; // MANUALLY SYNCED TO ITERATION 102
+
 const getBackupDir = () => (FileSystem.documentDirectory || "") + 'backups/';
 const MAX_BACKUPS = 5;
 
@@ -38,16 +47,18 @@ export const BackupService = {
       const inventory = await db.getAllAsync('SELECT * FROM Inventory');
       const cabinets = await db.getAllAsync('SELECT * FROM Cabinets');
       const settings = await db.getAllAsync('SELECT * FROM Settings');
+      const barcodeSignatures = await db.getAllAsync('SELECT * FROM BarcodeSignatures');
 
       const backupData = {
-        version: '1.0',
+        version: BACKUP_MANIFEST_VERSION.toString(),
         timestamp,
         tables: {
           Categories: categories,
           ItemTypes: itemTypes,
           Inventory: inventory,
           Cabinets: cabinets,
-          Settings: settings
+          Settings: settings,
+          BarcodeSignatures: barcodeSignatures
         }
       };
 
@@ -275,6 +286,7 @@ export const BackupService = {
         await db.runAsync("DELETE FROM Categories");
         await db.runAsync("DELETE FROM Cabinets");
         await db.runAsync("DELETE FROM Settings");
+        await db.runAsync("DELETE FROM BarcodeSignatures");
 
         const { tables } = jsonData;
         if (!tables) throw new Error("Invalid tactical data packet: Missing tables.");
@@ -328,6 +340,11 @@ export const BackupService = {
         const settings = tables.Settings || [];
         for (const s of settings) {
           await db.runAsync("INSERT INTO Settings (key, value) VALUES (?, ?)", s.key, s.value);
+        }
+
+        const barcodeSigs = tables.BarcodeSignatures || [];
+        for (const bs of barcodeSigs) {
+          await db.runAsync("INSERT INTO BarcodeSignatures (barcode, item_type_id, supplier, size) VALUES (?, ?, ?, ?)", bs.barcode, bs.item_type_id, bs.supplier || null, bs.size || null);
         }
       });
       return true;
