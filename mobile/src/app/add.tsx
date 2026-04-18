@@ -41,7 +41,8 @@ const NearMissIcon = () => (
 );
 
 export default function AddInventoryScreen() {
-  const { typeId, editBatchId, inheritedCabinetId, categoryId, isNewType } = useLocalSearchParams();
+  const { typeId, editBatchId, inheritedCabinetId, categoryId, isNewType, barcode, inheritedSupplier, inheritedSize } = useLocalSearchParams();
+  const barcodeStr = Array.isArray(barcode) ? barcode[0] : (barcode as string | undefined);
   const router = useRouter();
   const db = useSQLiteContext();
   const { isCadet, isPrivate, hasFullAccess, limits, checkEntitlement } = useBilling();
@@ -420,6 +421,14 @@ export default function AddInventoryScreen() {
           if (typeRes.freeze_months) setFreezeLimit(typeRes.freeze_months.toString());
         }
 
+        // --- BARCODE DEFAULTS ---
+        if (barcodeStr) {
+          if (inheritedSupplier) setSupplier(decodeURIComponent(inheritedSupplier as string));
+          if (inheritedSize) setSize(decodeURIComponent(inheritedSize as string));
+        } else if (typeRes?.default_size) {
+          setSize(typeRes.default_size);
+        }
+
         const lastBrandRow = await db.getFirstAsync<{supplier: string}>("SELECT supplier FROM Inventory WHERE item_type_id = ? AND supplier IS NOT NULL AND supplier != '' ORDER BY id DESC LIMIT 1", [Number(typeId)]);
         const lastBrand = typeRes?.default_supplier || lastBrandRow?.supplier || null;
         if (lastBrand) setDefaultBrandSuggestion(lastBrand);
@@ -654,35 +663,15 @@ export default function AddInventoryScreen() {
         }
       }
 
-      // For freezer batches: skip merge
-      if (isFreezerMode) {
-        let freezerTypeId = typeId;
-        if (showQuickAddType && !freezerTypeId) {
-          const tRes = await db.runAsync(
-            'INSERT INTO ItemTypes (name, category_id, unit_type, default_cabinet_id) VALUES (?, ?, ?, ?)',
-            [quickAddName.trim(), selectedQuickAddCat, quickAddUnit, selectedCabinetId]
-          );
-          freezerTypeId = tRes.lastInsertRowId.toString();
-        }
-
-        if (editBatchId) {
-          await db.runAsync(
-            'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = NULL, expiry_year = NULL, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ?, portions_total = ?, portions_remaining = ? WHERE id = ?',
-            [q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null, finalPortionsTotal, finalPortionsRemaining, Number(editBatchId)]
-          );
-        } else {
-          await db.runAsync(
-            `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [Number(freezerTypeId), q, finalSize, entryM, entryY, selectedCabinetId, batchIntel || null, supplier || null, productRange || null, finalPortionsTotal, finalPortionsRemaining]
-          );
-        }
-        
-        await db.runAsync('UPDATE ItemTypes SET freeze_months = ? WHERE id = ?', [fLimit, Number(freezerTypeId)]);
-        await markModified(db);
-        router.replace({ pathname: '/', params: { targetCatId: categoryId ? Number(categoryId) : undefined, targetTypeId: freezerTypeId ? Number(freezerTypeId) : undefined, timestamp: Date.now().toString() } });
-        return;
+      let finalTypeId = typeId;
+      if (showQuickAddType && !finalTypeId) {
+        const tRes = await db.runAsync(
+          'INSERT INTO ItemTypes (name, category_id, unit_type, default_cabinet_id, freeze_months) VALUES (?, ?, ?, ?, ?)',
+          [quickAddName.trim(), selectedQuickAddCat, quickAddUnit, selectedCabinetId, isFreezerMode ? fLimit : null]
+        );
+        finalTypeId = tRes.lastInsertRowId.toString();
       }
-      
+
       let cleanNewIntel = batchIntel?.trim() || "";
       // Remove legacy portions related tags from intel field
       cleanNewIntel = cleanNewIntel.replace(/\[BULK:\d+\]/gi, '').replace(/REMAINDER:\d+/gi, '').trim();
@@ -691,11 +680,25 @@ export default function AddInventoryScreen() {
       const cleanNewSupplier = supplier?.trim() || null;
       const cleanNewRange = productRange?.trim() || null;
 
-      const exM = parseInt(expiryMonth);
-      const exY = parseInt(expiryYear);
-      const validExpiry = !isNaN(exM) && !isNaN(exY) && exM > 0 && exM <= 12 && exY > 2020;
-      const expMVal = validExpiry ? exM : null;
-      const expYVal = validExpiry ? exY : null;
+      let expMVal = null;
+      let expYVal = null;
+
+      if (isFreezerMode) {
+        let m = entryM + fLimit;
+        let y = entryY;
+        while (m > 12) {
+          m -= 12;
+          y += 1;
+        }
+        expMVal = m;
+        expYVal = y;
+      } else {
+        const exM = parseInt(expiryMonth);
+        const exY = parseInt(expiryYear);
+        const validExpiry = !isNaN(exM) && !isNaN(exY) && exM > 0 && exM <= 12 && exY > 2020;
+        expMVal = validExpiry ? exM : null;
+        expYVal = validExpiry ? exY : null;
+      }
 
       const existingSearchQuery = `
         SELECT id, batch_intel, expiry_month, expiry_year, supplier, product_range FROM Inventory 
@@ -704,14 +707,29 @@ export default function AddInventoryScreen() {
           AND ( (expiry_year IS NULL AND ? IS NULL) OR (expiry_year = ?) )
           AND id != ?
       `;
-      const potentialMatches = typeId ? await db.getAllAsync<any>(
+      const potentialMatches = finalTypeId ? await db.getAllAsync<any>(
         existingSearchQuery, 
         [
-          Number(typeId), finalSize, selectedCabinetId, 
+          Number(finalTypeId), finalSize, selectedCabinetId, 
           expMVal, expMVal, expYVal, expYVal, 
           editBatchId ? Number(editBatchId) : -1
         ]
       ) : [];
+
+      // Update freeze limit on type if modified
+      if (finalTypeId && isFreezerMode) {
+        await db.runAsync('UPDATE ItemTypes SET freeze_months = ? WHERE id = ?', [fLimit, Number(finalTypeId)]);
+        // Recalculate expiry for all batches of this type to maintain data integrity
+        const batchesToSync = await db.getAllAsync<any>('SELECT id, entry_month, entry_year FROM Inventory WHERE item_type_id = ?', [Number(finalTypeId)]);
+        for (const b of batchesToSync) {
+           if (b.entry_month && b.entry_year) {
+             let m = b.entry_month + fLimit;
+             let y = b.entry_year;
+             while (m > 12) { m -= 12; y += 1; }
+             await db.runAsync('UPDATE Inventory SET expiry_month = ?, expiry_year = ? WHERE id = ?', [m, y, b.id]);
+           }
+        }
+      }
 
       if (potentialMatches.length > 0) {
         // 1. SILENT MERGE: All metadata (Supplier, Range, Intel) must match exactly
@@ -722,7 +740,7 @@ export default function AddInventoryScreen() {
         );
 
         if (exactMatch) {
-          await finalizeCommit(exactMatch.id, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
+          await finalizeCommit(exactMatch.id, { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
         } else {
           // 2. MODAL MERGE: If not exact, offer a merge if Supplier/Range/Intel are NULL-compatible 
           // (i.e. we allow NULL in the new record to match an existing value, but a populated new record cannot merge into a NULL existing record)
@@ -736,37 +754,37 @@ export default function AddInventoryScreen() {
 
           if (mergeCandidate) {
             setMergeCandidate(mergeCandidate);
-            setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
+            setDeferredSave({ typeId: finalTypeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
             setShowMergeModal(true);
           } else {
             // 3. NO MATCH: Structural metadata differs (e.g. different brands), so create new
-            await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
+            await finalizeCommit(null, { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
           }
         }
       } else {
         // Only challenge if: No default, no manual override, stock exists in OTHER cabinets, and NO stock here.
-        if (typeId) {
-          const typeRes = await db.getFirstAsync<{default_cabinet_id: number | null}>('SELECT default_cabinet_id FROM ItemTypes WHERE id = ?', [Number(typeId)]);
+        if (finalTypeId) {
+          const typeRes = await db.getFirstAsync<{default_cabinet_id: number | null}>('SELECT default_cabinet_id FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
           if (!hasManuallyChangedCabinet && !typeRes?.default_cabinet_id) {
             // Check if we ALREADY have stock of this item in the currently selected cabinet
-            const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? LIMIT 1', [Number(typeId), selectedCabinetId]);
+            const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? LIMIT 1', [Number(finalTypeId), selectedCabinetId]);
             
             if (!existingHere) {
                const others = await db.getAllAsync<any>(
                 'SELECT DISTINCT c.id, c.name FROM Inventory v JOIN Cabinets c ON v.cabinet_id = c.id WHERE v.item_type_id = ? AND v.cabinet_id != ?',
-                [Number(typeId), selectedCabinetId]
+                [Number(finalTypeId), selectedCabinetId]
               );
               if (others.length > 0) {
                 setOtherLocations(others.map(o => ({ id: o.id, name: o.name })));
-                setDeferredSave({ typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
+                setDeferredSave({ typeId: finalTypeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
                 setShowLocationConflictModal(true);
                 return;
               } else {
                 // --- SCENARIO 4: VANGUARD HANDSHAKE ---
                 // First arrival, no default, no manual intent, AND hasn't been resolved yet.
-                const typeStatus = await db.getFirstAsync<{vanguard_resolved: number}>('SELECT vanguard_resolved FROM ItemTypes WHERE id = ?', [Number(typeId)]);
+                const typeStatus = await db.getFirstAsync<{vanguard_resolved: number}>('SELECT vanguard_resolved FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
                 if (!typeStatus?.vanguard_resolved) {
-                  const savePayload = { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining };
+                  const savePayload = { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining };
                   setDeferredSave(savePayload);
                   setShowVanguardModal(true);
                   return;
@@ -775,7 +793,7 @@ export default function AddInventoryScreen() {
             }
           }
         }
-        await finalizeCommit(null, { typeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
+        await finalizeCommit(null, { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, expMVal, expYVal, entryM, entryY, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
       }
     } catch (err: any) {
       console.error('Save failed:', err);
@@ -798,7 +816,7 @@ export default function AddInventoryScreen() {
       if (mergeTargetId) {
         await db.runAsync(
           'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ?, portions_total = IFNULL(portions_total, 0) + ?, portions_remaining = IFNULL(portions_remaining, 0) + ? WHERE id = ?',
-          [data.q, data.currentMonth, data.currentYear, data.portions_total || 0, data.portions_remaining || 0, mergeTargetId]
+          [data.q, data.entryM, data.entryY, data.portions_total || 0, data.portions_remaining || 0, mergeTargetId]
         );
         if (editBatchId) {
           await db.runAsync('DELETE FROM Inventory WHERE id = ?', [Number(editBatchId)]);
@@ -818,6 +836,14 @@ export default function AddInventoryScreen() {
 
       if (data.selectedCabinetId) {
         await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['last_used_cabinet_id', data.selectedCabinetId.toString()]);
+      }
+
+      // --- BARCODE SIGNATURE DOUBLE-COMMIT (Workflow A & Correction Logic) ---
+      if (barcodeStr) {
+        await db.runAsync(
+          'INSERT OR REPLACE INTO BarcodeSignatures (barcode, item_type_id, supplier, size) VALUES (?, ?, ?, ?)',
+          [barcodeStr, Number(data.typeId), data.supplier || null, data.finalSize || null]
+        );
       }
 
       await markModified(db);
@@ -858,8 +884,8 @@ export default function AddInventoryScreen() {
       const newTypeId = res.lastInsertRowId;
       setShowQuickAddType(false);
       setQuickAddName('');
-      // Update the URL params and trigger a reload
-      router.setParams({ typeId: newTypeId.toString(), isNewType: undefined });
+      // Update the URL params and trigger a reload - EXPLICITLY preserve barcode
+      router.setParams({ typeId: newTypeId.toString(), isNewType: undefined, barcode: barcodeStr });
     } catch (e) {
       Alert.alert('Error', 'Could not create new item type.');
     }

@@ -2,6 +2,8 @@ import * as SQLite from 'expo-sqlite';
 
 export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
   
+  await db.execAsync('PRAGMA foreign_keys = ON;');
+  
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS Categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +64,7 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       item_type_id INTEGER NOT NULL,
       supplier TEXT,
       size TEXT,
-      FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id)
+      FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE
     );
   `);
 
@@ -224,6 +226,40 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       }
     } catch (e: any) {
       console.error('v99 marker failed', e);
+    }
+    // Migration: ensure BarcodeSignatures has ON DELETE CASCADE
+    const hasBarcodeCascade = await db.getAllAsync<any>("PRAGMA foreign_key_list(BarcodeSignatures)");
+    if (hasBarcodeCascade.length > 0 && !hasBarcodeCascade.some(fk => fk.on_delete === 'CASCADE')) {
+      await db.execAsync(`
+        CREATE TABLE BarcodeSignatures_new (
+          barcode TEXT PRIMARY KEY,
+          item_type_id INTEGER NOT NULL,
+          supplier TEXT,
+          size TEXT,
+          FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE
+        );
+        INSERT INTO BarcodeSignatures_new SELECT * FROM BarcodeSignatures;
+        DROP TABLE BarcodeSignatures;
+        ALTER TABLE BarcodeSignatures_new RENAME TO BarcodeSignatures;
+      `);
+    }
+
+    // Migration: Silently populate freezer expiry (Iteration 102)
+    const legacyFreezer = await db.getAllAsync<any>(`
+      SELECT inv.id, inv.entry_month, inv.entry_year, it.freeze_months 
+      FROM Inventory inv
+      JOIN ItemTypes it ON inv.item_type_id = it.id
+      JOIN Cabinets cab ON inv.cabinet_id = cab.id
+      WHERE cab.cabinet_type = 'freezer' AND inv.expiry_month IS NULL
+    `);
+    for (const row of legacyFreezer) {
+      if (row.entry_month && row.entry_year) {
+        const limit = row.freeze_months ?? 6;
+        let m = row.entry_month + limit;
+        let y = row.entry_year;
+        while (m > 12) { m -= 12; y += 1; }
+        await db.runAsync('UPDATE Inventory SET expiry_month = ?, expiry_year = ? WHERE id = ?', [m, y, row.id]);
+      }
     }
 
   } catch(e) {

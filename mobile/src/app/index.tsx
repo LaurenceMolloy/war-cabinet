@@ -72,6 +72,10 @@ export default function HomeScreen() {
 
   // BARCODE LOGISTICS TEST STATE
   const [showTestScanner, setShowTestScanner] = useState(false);
+  const [pendingBarcode, setPendingBarcode] = useState<string | null>(null);
+  const [showLinkBarcodeModal, setShowLinkBarcodeModal] = useState(false);
+  const [barcodeSearchQuery, setBarcodeSearchQuery] = useState('');
+  const [allItemTypes, setAllItemTypes] = useState<any[]>([]);
   const [permission, requestCameraPermission] = useCameraPermissions();
 
   const params = useLocalSearchParams();
@@ -432,6 +436,10 @@ export default function HomeScreen() {
        ORDER BY it.interaction_count DESC, it.name ASC
     `);
     setFavorites(favRows);
+    
+    // BARCODE MAPPING: Load all item types for taxonomy linking
+    const allTypes = await db.getAllAsync<any>('SELECT id, name FROM ItemTypes ORDER BY name');
+    setAllItemTypes(allTypes);
 
     // Run auto-backup check
     await BackupService.checkAndRunAutoBackup(db);
@@ -1811,11 +1819,33 @@ export default function HomeScreen() {
                 <CameraView
                   style={{ flex: 1 }}
                   facing="back"
-                  onBarcodeScanned={(result) => {
+                  onBarcodeScanned={async (result) => {
                     setShowTestScanner(false);
-                    Alert.alert("Barcode Extracted", `Value: ${result.data}\nType: ${result.type}`, [
-                      { text: "OK", style: "default" }
-                    ]);
+                    const barcode = result.data.trim();
+
+                    // 1. SIGNATURE LOOKUP
+                    const signature = await db.getFirstAsync<any>(
+                      'SELECT * FROM BarcodeSignatures WHERE barcode = ?',
+                      [barcode]
+                    );
+
+                    if (signature) {
+                      // GHOST LOAD (Workflow B)
+                      router.push({
+                        pathname: '/add',
+                        params: {
+                          typeId: signature.item_type_id,
+                          inheritedSupplier: signature.supplier || '',
+                          inheritedSize: signature.size || '',
+                          barcode: barcode
+                        }
+                      });
+                    } else {
+                      // TAXONOMY HANDSHAKE (Workflow A)
+                      setPendingBarcode(barcode);
+                      setBarcodeSearchQuery('');
+                      setShowLinkBarcodeModal(true);
+                    }
                   }}
                 />
               ) : (
@@ -1830,6 +1860,74 @@ export default function HomeScreen() {
           </View>
         </Modal>
       )}
+
+      {/* --- LINK BARCODE MODAL (Workflow A Handshake) --- */}
+      <Modal visible={showLinkBarcodeModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '85%', width: '92%', padding: 0 }]}>
+            <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#334155' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                <MaterialCommunityIcons name="barcode-scan" size={24} color="#3b82f6" />
+                <Text style={[styles.modalTitle, { marginBottom: 0 }]}>UNKNOWN BARCODE</Text>
+              </View>
+              <Text style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>{pendingBarcode}</Text>
+              
+              <View style={[styles.commandStrip, { marginHorizontal: 0, marginBottom: 0 }]}>
+                 <MaterialCommunityIcons name="magnify" size={20} color="#64748b" />
+                 <TextInput 
+                   style={styles.stripInput} 
+                   placeholder="SEARCH ALL ITEM TYPES..." 
+                   placeholderTextColor="#475569" 
+                   value={barcodeSearchQuery} 
+                   onChangeText={setBarcodeSearchQuery} 
+                   autoFocus
+                 />
+              </View>
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: 12 }}>
+              {/* Filtered Item Types */}
+              {allItemTypes
+                .filter(t => !barcodeSearchQuery || t.name.toLowerCase().includes(barcodeSearchQuery.toLowerCase()))
+                .slice(0, 15)
+                .map(type => (
+                  <TouchableOpacity 
+                    key={type.id} 
+                    style={{ padding: 16, backgroundColor: '#0f172a', borderRadius: 12, marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#1e293b' }}
+                    onPress={() => {
+                      setShowLinkBarcodeModal(false);
+                      router.push({
+                        pathname: '/add',
+                        params: { typeId: type.id, barcode: pendingBarcode! }
+                      });
+                    }}
+                  >
+                    <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{type.name.toUpperCase()}</Text>
+                    <MaterialCommunityIcons name="plus" size={20} color="#3b82f6" />
+                  </TouchableOpacity>
+                ))}
+
+              <TouchableOpacity 
+                style={{ padding: 16, backgroundColor: 'rgba(59, 130, 246, 0.1)', borderRadius: 12, borderWidth: 1, borderColor: '#3b82f6', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 4, marginBottom: 20 }}
+                onPress={() => {
+                  setShowLinkBarcodeModal(false);
+                  router.push({
+                    pathname: '/add',
+                    params: { isNewType: '1', barcode: pendingBarcode! }
+                  });
+                }}
+              >
+                <MaterialCommunityIcons name="plus-circle" size={20} color="#3b82f6" />
+                <Text style={{ color: '#3b82f6', fontWeight: 'bold' }}>CREATE BRAND NEW ITEM TYPE</Text>
+              </TouchableOpacity>
+            </ScrollView>
+
+            <TouchableOpacity style={[styles.modalClose, { paddingBottom: 24 }]} onPress={() => setShowLinkBarcodeModal(false)}>
+              <Text style={styles.modalCloseText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
     </View>
   );
