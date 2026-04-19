@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DAL Refactor Dashboard | War Cabinet Command</title>
+    <style>
+        :root {
+            --bg-deep: #0f172a;
+            --bg-panel: #1e293b;
+            --border: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #3b82f6;
+            --sql-text: #fbbf24;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #facc15;
+            --variant-bg: #0f172a;
+        }
+
+        body {
+            background-color: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            width: 100%;
+            max-width: 1400px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 20px;
+        }
+
+        .title-group h1 {
+            margin: 0;
+            font-size: 2rem;
+            letter-spacing: -0.5px;
+            color: var(--text-primary);
+        }
+
+        .title-group p {
+            margin: 5px 0 0;
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 1px;
+        }
+
+        .progress-container {
+            width: 400px;
+            text-align: right;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 12px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--success));
+            width: 0%; 
+            transition: width 0.5s ease;
+        }
+
+        .filters {
+            width: 100%;
+            max-width: 1400px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .filter-btn {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+
+        .filter-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        table {
+            width: 100%;
+            max-width: 1400px;
+            border-collapse: collapse;
+            background: var(--bg-panel);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        thead th {
+            background: #111827;
+            text-align: left;
+            padding: 16px;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        tbody td {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .purpose-cell {
+            width: 200px;
+            font-weight: 700;
+        }
+
+        .sql-cell {
+            width: 300px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: var(--sql-text);
+            background: rgba(0,0,0,0.2);
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .usage-cell {
+            width: 120px;
+            font-family: 'Consolas', monospace;
+            color: var(--accent);
+        }
+
+        .usage-item {
+            display: block;
+            margin-bottom: 4px;
+            white-space: nowrap;
+        }
+
+        .status-cell {
+            width: 150px;
+        }
+
+        .status-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .status-check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .status-check input {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+            accent-color: var(--success);
+        }
+
+        .info-icon {
+            font-style: normal;
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--accent);
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            margin-left: auto;
+            border: 1px solid var(--accent);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .info-icon:hover {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 0 5px var(--accent);
+        }
+
+        .obs-cell {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            width: 400px;
+        }
+
+        .obs-cell p { margin-top: 0; margin-bottom: 8px; }
+
+        .variant-block {
+            background-color: var(--variant-bg);
+            border-left: 3px solid var(--accent);
+            padding: 8px 10px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        
+        .variant-title {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 0.8rem;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .variant-desc {
+            font-style: italic;
+            font-size: 0.75rem;
+        }
+
+        .tag {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: var(--bg-deep);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            margin-right: 5px;
+            display: inline-block;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .tag.reviewer-add {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        .tag.ljm-add {
+            background: rgba(168, 85, 247, 0.1);
+            color: #a855f7;
+            border-color: #a855f7;
+        }
+
+        .tag.auditor-add {
+            background: rgba(56, 189, 248, 0.1);
+            color: #38bdf8;
+            border-color: #38bdf8;
+        }
+
+
+        tr:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .sector-inventory .tag:not(.reviewer-add):not(.ljm-add):not(.auditor-add) { color: #f472b6; border-color: #f472b6; }
+        .sector-intel .tag:not(.reviewer-add):not(.ljm-add):not(.auditor-add) { color: #34d399; border-color: #34d399; }
+        .sector-pulse .tag:not(.reviewer-add):not(.ljm-add):not(.auditor-add) { color: #fbbf24; border-color: #fbbf24; }
+        .sector-infra .tag:not(.reviewer-add):not(.ljm-add):not(.auditor-add) { color: #8b5cf6; border-color: #8b5cf6; }
+
+        /* MODAL STYLES */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            z-index: 100;
+        }
+        
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            width: 500px;
+            max-width: 90vw;
+            padding: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            transform: translateY(20px);
+            transition: transform 0.3s;
+        }
+
+        .modal-overlay.active .modal-content {
+            transform: translateY(0);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 16px;
+        }
+
+        .modal-title {
+            margin: 0;
+            font-size: 1.25rem;
+            color: var(--text-primary);
+        }
+
+        .modal-subtitle {
+            font-size: 0.8rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+
+        .btn-close {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            line-height: 1;
+            padding: 0;
+        }
+
+        .btn-close:hover { color: var(--danger); }
+
+        .steps-container {
+            counter-reset: step-counter;
+            margin-bottom: 24px;
+        }
+
+        .step-item {
+            position: relative;
+            padding-left: 32px;
+            margin-bottom: 16px;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .step-item::before {
+            counter-increment: step-counter;
+            content: counter(step-counter);
+            position: absolute;
+            left: 0;
+            top: 2px;
+            background: var(--bg-deep);
+            color: var(--accent);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: bold;
+            border: 1px solid var(--border);
+        }
+
+        .assertion-box {
+            background: rgba(34, 197, 94, 0.1);
+            border-left: 4px solid var(--success);
+            padding: 16px;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .assertion-title {
+            color: var(--success);
+            font-weight: bold;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .assertion-text {
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="title-group">
+        <h1>DAL Refactor Dashboard</h1>
+        <p>Strategic Modernization Command | War Cabinet Q2 2024</p>
+    </div>
+    <div class="progress-container">
+        <div style="font-size: 0.8rem; font-weight: bold; color: var(--text-secondary);">DECOUPLING PROGRESS: <span id="progress-val">8%</span></div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-bar-fill" style="width: 8%;"></div>
+        </div>
+    </div>
+</header>
+
+<div class="filters">
+    <button class="filter-btn active" onclick="filterSector('all')">ALL SECTORS</button>
+    <button class="filter-btn" onclick="filterSector('inventory')">INVENTORY</button>
+    <button class="filter-btn" onclick="filterSector('intel')">INTELLIGENCE</button>
+    <button class="filter-btn" onclick="filterSector('pulse')">PULSE</button>
+    <button class="filter-btn" onclick="filterSector('infra')">INFRASTRUCTURE</button>
+</div>
+
+<table id="dal-table">
+    <thead>
+        <tr>
+            <th>Functional Purpose</th>
+            <th>SQL Template</th>
+            <th>Surgical Usage</th>
+            <th>Refactor Status</th>
+            <th>Variant Intent & Observations</th>
+        </tr>
+    </thead>
+    <tbody>
+        <!-- SECTOR: INVENTORY -->
+        <tr class="sector-inventory">
+            <td class="purpose-cell">
+                <span class="tag">LOGISTICS</span><br>
+                Update / Mutate Batch Operations
+            </td>
+            <td class="sql-cell">UPDATE Inventory 
+SET [variant_columns] = ?
+WHERE id = ?</td>
+            <td class="usage-cell">
+                <span class="usage-item">add:817</span>
+                <span class="usage-item">index:479</span>
+                <span class="usage-item">index:486</span>
+                <span class="usage-item">index:799</span>
+                <span class="usage-item">index:813</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED 
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('update-batch')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell">
+                <p>The "UPDATE" template fragments into semantic use cases rather than a single form save.</p>
+                
+                <div class="variant-block">
+                    <span class="variant-title">1. Form Structural Sync (add:817)</span>
+                    <span class="variant-desc">Full object rewrite: expiry, supplier, portions, quantity.</span>
+                </div>
+                
+                <div class="variant-block">
+                    <span class="variant-title">2. Quick Consume / Replenish (index:479, 486)</span>
+                    <span class="variant-desc">Rapid "quantity - 1" or "quantity + 1" for frontend buttons.</span>
+                </div>
+
+                <div class="variant-block">
+                    <span class="variant-title">3. The Decant Operation (index:799, 813)</span>
+                    <span class="variant-desc">Fractional reduction of `portions_remaining`, triggering `quantity - 1` ONLY when portions hit zero.</span>
+                </div>
+            </td>
+        </tr>
+
+        <tr class="sector-inventory">
+            <td class="purpose-cell">
+                <span class="tag">LOGISTICS</span><br>
+                <span class="tag reviewer-add">REVIEWER ADDITION</span><br>
+                Vanguard Conflict Check
+            </td>
+            <td class="sql-cell">SELECT vanguard_resolved 
+FROM ItemTypes 
+WHERE id = ?</td>
+            <td class="usage-cell">
+                <span class="usage-item">add:785</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('vanguard-check')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell">
+                <p>Special internal state check to determine if the user has resolved the "Vanguard" protocol for unit metrics (volume vs weight conflicts).</p>
+            </td>
+        </tr>
+
+        <!-- SECTOR: INTEL -->
+        <tr class="sector-intel">
+            <td class="purpose-cell">
+                <span class="tag">VOCABULARY</span><br>
+                Vocabulary Suggestions (Brands)
+            </td>
+            <td class="sql-cell">SELECT DISTINCT supplier 
+FROM Inventory 
+WHERE supplier IS NOT NULL</td>
+            <td class="usage-cell">
+                <span class="usage-item">add:347</span>
+                <span class="usage-item">catalog:88</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('brand-suggest')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell">
+                <p>Calculates dynamic auto-complete suggestions. Redundant calls in multiple files make this a prime target for a globally cached Service layer method.</p>
+            </td>
+        </tr>
+
+        <tr class="sector-intel">
+            <td class="purpose-cell">
+                <span class="tag">VOCABULARY</span><br>
+                <span class="tag ljm-add">LJM ADDITION</span><br>
+                Vocabulary Suggestions (Ranges)
+            </td>
+            <td class="sql-cell">SELECT DISTINCT product_range 
+FROM Inventory 
+WHERE product_range != ''</td>
+            <td class="usage-cell">
+                <span class="usage-item">add:379</span>
+                <span class="usage-item">catalog:200</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('range-suggest')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell">
+                <p>The "Product Range" sibling to Brand Suggestions. Both `ItemTypes.default_product_range` and `Inventory.product_range` are polled simultaneously.</p>
+            </td>
+        </tr>
+
+        <tr class="sector-intel">
+            <td class="purpose-cell">
+                <span class="tag">NOTIFICATIONS</span><br>
+                <span class="tag ljm-add">LJM ADDITION</span><br>
+                Targeted Analytics Joins
+            </td>
+            <td class="sql-cell">SELECT i.name, ... 
+FROM Inventory inv
+JOIN ItemTypes i ON ...
+WHERE [variant_condition]</td>
+            <td class="usage-cell">
+                <span class="usage-item">notifications:52</span>
+                <span class="usage-item">notifications:109</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('monthly-brief')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell">
+                <p>Heavy cross-table joins hidden within background execution blocks.</p>
+                <div class="variant-block">
+                    <span class="variant-title">1. Monthly Briefing (notifications:52)</span>
+                    <span class="variant-desc">Scans specifically for expiries triggering within the current calendar block.</span>
+                </div>
+                <div class="variant-block">
+                    <span class="variant-title">2. Critical Alert Engine (notifications:109)</span>
+                    <span class="variant-desc">Identifies items that represent severe waste metrics via the `getLevenshteinDistance` proxy.</span>
+                </div>
+            </td>
+        </tr>
+
+        <!-- [AUDITOR ADDITION] -->
+        <tr class="sector-intel">
+            <td class="purpose-cell">
+                <span class="tag">INTELLIGENCE</span><br>
+                <span class="tag auditor-add">AUDITOR ADDITION</span><br>
+                Mess Hall Core LLM Engine
+            </td>
+            <td class="sql-cell">SELECT DISTINCT i.name, ... 
+FROM Inventory inv
+JOIN Categories c ON ...
+WHERE c.is_mess_hall = 1</td>
+            <td class="usage-cell">
+                <span class="usage-item">recipes:242</span>
+                <span class="usage-item">recipes:610</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('mess-hall-generator')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell">
+                <p>The primary ingredient-gathering SQL for the Mess Hall. Duplicated logic identical to notifications, hardcoded directly inside the React component. High priority for Service abstraction.</p>
+            </td>
+        </tr>
+
+        <!-- [AUDITOR ADDITION] -->
+        <tr class="sector-inventory">
+            <td class="purpose-cell">
+                <span class="tag">LOGISTICS</span><br>
+                <span class="tag auditor-add">AUDITOR ADDITION</span><br>
+                Threshold Replenishment Logic
+            </td>
+            <td class="sql-cell">SELECT item_type_id, quantity 
+FROM Inventory
+UNION
+SELECT _ FROM ItemTypes 
+WHERE min_stock_level...</td>
+            <td class="usage-cell">
+                <span class="usage-item">logistics:23</span>
+                <span class="usage-item">logistics:39</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('threshold-engine')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell">
+                <p>Heavy cross-table comparisons mapped inside standard UI views. This should be decoupled into an isolated `LogisticsService.ts` method.</p>
+            </td>
+        </tr>
+
+
+        <!-- SECTOR: PULSE -->
+        <tr class="sector-pulse">
+            <td class="purpose-cell">
+                <span class="tag">PREFERENCES</span><br>
+                Get License Status
+            </td>
+            <td class="sql-cell">SELECT value 
+FROM Settings WHERE key = ?</td>
+            <td class="usage-cell">
+                <span class="usage-item">BillContext:158</span>
+                <span class="usage-item">BillContext:163</span>
+                <span class="usage-item">BillContext:170</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox" checked> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox" checked> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('license-status')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell"><p>Hard-license logic vs legacy IDs. Central to revenue/entitlement pipeline.</p></td>
+        </tr>
+
+        <!-- [AUDITOR ADDITION] -->
+        <tr class="sector-pulse">
+            <td class="purpose-cell">
+                <span class="tag">PREFERENCES</span><br>
+                <span class="tag auditor-add">AUDITOR ADDITION</span><br>
+                Dynamic Settings Mass Load
+            </td>
+            <td class="sql-cell">SELECT * FROM Settings 
+WHERE key LIKE ? 
+OR key IN (...)</td>
+            <td class="usage-cell">
+                <span class="usage-item">recipes:170</span>
+                <span class="usage-item">logistics:103</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('dynamic-settings')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell"><p>Bulk loading of user preferences spread across components. Prime candidate for a central `SettingsService.ts` caching layer.</p></td>
+        </tr>
+
+        <!-- SECTOR: INFRA -->
+        <tr class="sector-infra">
+            <td class="purpose-cell">
+                <span class="tag">SCHEMA</span><br>
+                <span class="tag reviewer-add">REVIEWER ADDITION</span><br>
+                Migration Introspection
+            </td>
+            <td class="sql-cell">PRAGMA table_info(...)</td>
+            <td class="usage-cell">
+                <span class="usage-item">db/sqlite:85</span>
+                <span class="usage-item">db/sqlite:146</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('migration-introspect')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell"><p>Manual schema probing. High risk if migration fails mid-way.</p></td>
+        </tr>
+
+        <tr class="sector-infra">
+            <td class="purpose-cell">
+                <span class="tag">BACKUP</span><br>
+                <span class="tag reviewer-add">REVIEWER ADDITION</span><br>
+                The "Scorched Earth" Wipe
+            </td>
+            <td class="sql-cell">DELETE FROM Inventory;
+DELETE FROM ItemTypes;
+...</td>
+            <td class="usage-cell">
+                <span class="usage-item">BackupService:284</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('scorched-earth')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell"><p>CRITICAL RISK. Non-atomic full database wipe occurs before restore sequence initializes. Failure here = total data loss.</p></td>
+        </tr>
+
+        <tr class="sector-infra">
+            <td class="purpose-cell">
+                <span class="tag">MAINTENANCE</span><br>
+                <span class="tag reviewer-add">REVIEWER ADDITION</span><br>
+                Bulk Restore Ops
+            </td>
+            <td class="sql-cell">INSERT INTO [TABLE] 
+(...) VALUES (?, ?, ...)</td>
+            <td class="usage-cell">
+                <span class="usage-item">BackupService:296</span>
+                <span class="usage-item">BackupService:305</span>
+                <span class="usage-item">BackupService:347</span>
+            </td>
+            <td class="status-cell">
+                <div class="status-group">
+                    <label class="status-check"><input type="checkbox"> EXTRACTED</label>
+                    <label class="status-check">
+                        <input type="checkbox"> TESTED
+                        <i class="info-icon" onclick="event.preventDefault(); openTestModal('bulk-restore')" title="View Test Journey">i</i>
+                    </label>
+                    <label class="status-check"><input type="checkbox"> SWAPPED</label>
+                </div>
+            </td>
+            <td class="obs-cell"><p>Manual serialization mappings. SILENT FAILURE point if schema changes without updating the array map.</p></td>
+        </tr>
+
+    </tbody>
+</table>
+
+<!-- TEST JOURNEY MODAL -->
+<div class="modal-overlay" id="test-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div>
+                <h2 class="modal-title" id="modal-title">Test Journey</h2>
+                <div class="modal-subtitle">Recon-First Verification Protocol</div>
+            </div>
+            <button class="btn-close" onclick="closeTestModal()">&times;</button>
+        </div>
+        
+        <div class="steps-container" id="modal-steps">
+            <!-- Steps injected by JS -->
+        </div>
+
+        <div class="assertion-box">
+            <div class="assertion-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                REQUIRED ASSERTION
+            </div>
+            <p class="assertion-text" id="modal-assertion">Assertion text goes here.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    const testJourneys = {
+        'update-batch': {
+            title: 'Update / Mutate Batch Operations',
+            steps: [
+                'Navigate to the Home Dashboard and locate an active batch.',
+                'Tap the Quick Consume (Minus) button to trigger Variant 2.',
+                'Tap the generic Edit button (Pencil) to open the form, modify the supplier, and Save (Variant 1).',
+                'Optional: If the batch uses portions, tap the fractional consume rail (Variant 3).'
+            ],
+            assertion: 'The UI must instantly reflect the new quantity and supplier without requiring a manual refresh, and no Redbox errors should appear on the subsequent re-render.'
+        },
+        'vanguard-check': {
+            title: 'Vanguard Conflict Check',
+            steps: [
+                'Navigate to the Add form.',
+                'Select an ItemType that has a known Vanguard conflict (e.g. legacy metric mismatch).',
+                'Observe the logic branch silently resolving the unit conflict.'
+            ],
+            assertion: 'The item must load its calculated unit_type correctly without throwing an undefined error before adding a new batch.'
+        },
+        'brand-suggest': {
+            title: 'Vocabulary Suggestions (Brands)',
+            steps: [
+                'Navigate to the Add form.',
+                'Tap the "Brand / Supplier" text input field.',
+                'Type a known letter to trigger the autocomplete suggestion list.'
+            ],
+            assertion: 'The dropdown must populate with distinct brands already present in the inventory, and it must absolutely contain zero duplicate names.'
+        },
+        'range-suggest': {
+            title: 'Vocabulary Suggestions (Ranges)',
+            steps: [
+                'Navigate to the Add form.',
+                'Tap the "Product Range" text input field.',
+                'Type a known letter to trigger the autocomplete list.'
+            ],
+            assertion: 'The dropdown must populate with correctly grouped and merged ranges from both the Inventory and ItemTypes tables.'
+        },
+        'monthly-brief': {
+            title: 'Targeted Analytics Joins',
+            steps: [
+                'Trigger the monthly briefing logic (manual trigger or E2E date offset).',
+                'Observe the generated notification payload.'
+            ],
+            assertion: 'The calculated briefing must accurately aggregate batches expiring strictly within the bounds of the current operational month.'
+        },
+        'license-status': {
+            title: 'Get License Status',
+            steps: [
+                'Perform a hard Cold Boot of the application.',
+                'Observe the initial routing and the presence of the Rank Badge in the top app header.'
+            ],
+            assertion: 'The system must synchronously load the highest valid entitlement tier (General > Sergeant > Trial) and safely enforce feature locks before UI render.'
+        },
+        'scorched-earth': {
+            title: 'The "Scorched Earth" Wipe',
+            steps: [
+                'Perform a full local database backup via Settings.',
+                'Trigger a Restore operation from the generated backup file.'
+            ],
+            assertion: 'The entire database must zero out cleanly and then fully re-hydrate from the backup JSON without skipping tables or raising foreign-key violations.'
+        },
+        'mess-hall-generator': {
+            title: 'Mess Hall Core LLM Engine',
+            steps: [
+                'Navigate to the Mess Hall UI.',
+                'Trigger the "Generate Brief", forcing the engine to compile available ingredients.'
+            ],
+            assertion: 'The engine must output an array of strings strictly filtered by "is_mess_hall = 1", cleanly structured for the LLM prompt without causing array bounds errors.'
+        },
+        'threshold-engine': {
+            title: 'Threshold Replenishment Logic',
+            steps: [
+                'Navigate to the Logistics routing map.',
+                'Ensure at least one ItemType has "quantity < min_stock_level".'
+            ],
+            assertion: 'The resulting restock sheet must accurately calculate the deficit, yielding exactly "max_stock_level - current_quantity" for that item.'
+        },
+        'dynamic-settings': {
+            title: 'Dynamic Settings Mass Load',
+            steps: [
+                'Navigate to a settings-dependent component (like Logistics Email or Fridge Staples).',
+                'Assess the initial render state parameters.'
+            ],
+            assertion: 'The component must execute the mass Settings pull gracefully via the DAL, defaulting null values to expected base strings before the UI mounts.'
+        },
+        'migration-introspect': {
+            title: 'Migration Introspection',
+            steps: [
+                'Perform a Cold Boot on a device running an outdated DB schema version.',
+                'Observe the SQLite engine execution sequence logging.'
+            ],
+            assertion: 'The system must dynamically map PRAGMA table_info and safely execute ADD COLUMN instructions without truncating existing constraints.'
+        },
+        'bulk-restore': {
+            title: 'Bulk Restore Ops',
+            steps: [
+                'Perform a restore operation using a legacy format JSON file.',
+                'Observe the execution mapping and any failure fallbacks.'
+            ],
+            assertion: 'The database engine must successfully map legacy schema fields to the newly expanded columns transparently, assigning safe defaults for unresolvable foreign keys.'
+        }
+    };
+
+    function openTestModal(key) {
+        const data = testJourneys[key];
+        if (!data) return;
+
+        document.getElementById('modal-title').innerText = data.title;
+        
+        const stepsHtml = data.steps.map(step => `<div class="step-item">${step}</div>`).join('');
+        document.getElementById('modal-steps').innerHTML = stepsHtml;
+        
+        document.getElementById('modal-assertion').innerText = data.assertion;
+
+        document.getElementById('test-modal').classList.add('active');
+    }
+
+    function closeTestModal() {
+        document.getElementById('test-modal').classList.remove('active');
+    }
+
+    // Close modal on outside click
+    document.getElementById('test-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeTestModal();
+    });
+
+    function filterSector(sector) {
+        const rows = document.querySelectorAll('tbody tr');
+        const buttons = document.querySelectorAll('.filter-btn');
+        
+        buttons.forEach(b => b.classList.remove('active'));
+        if (event && event.target && event.target.classList) {
+            event.target.classList.add('active');
+        }
+
+        rows.forEach(row => {
+            if (sector === 'all' || row.classList.contains('sector-' + sector)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+
+    document.querySelectorAll('input[type="checkbox"]').forEach(c => {
+        c.addEventListener('change', updateProgress);
+    });
+
+    function updateProgress() {
+        const checks = document.querySelectorAll('.status-check input[type="checkbox"]');
+        if (checks.length === 0) return;
+        
+        const checked = Array.from(checks).filter(c => c.checked).length;
+        const pct = Math.round((checked / checks.length) * 100);
+        
+        // Update both the text and the width of the bar
+        const valElem = document.getElementById('progress-val');
+        const fillElem = document.getElementById('progress-bar-fill');
+        
+        if (valElem) valElem.innerText = pct + '%';
+        if (fillElem) fillElem.style.width = pct + '%';
+    }
+
+    updateProgress();
+</script>
+
+</body>
+</html>

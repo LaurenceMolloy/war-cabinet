@@ -176,11 +176,11 @@ export default function RecipesScreen() {
             const parsed = JSON.parse(r.value);
             setHistoryExp(Array.isArray(parsed) ? parsed : []);
           } catch (e) {
-            // Fallback for legacy CSV format
             setHistoryExp(r.value.split(',').filter(Boolean));
           }
         }
-        if (r.key === 'dietary_pref') setDietary(r.value);
+        if (r.key === 'dietary_pref' && r.value) setSelectedDietary([r.value]);
+        if (r.key === 'recipe_dietary') setSelectedDietary(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_preferred') setPreferred(r.value);
         if (r.key === 'recipe_avoided') setAvoid(r.value);
         if (r.key === 'recipe_extra') setExtraRequests(r.value);
@@ -194,24 +194,11 @@ export default function RecipesScreen() {
           tempCustomChefs = r.value.split(',').filter(Boolean);
           setLastCustomChef(tempCustomChefs[tempCustomChefs.length - 1] || null);
         }
-        if (r.key === 'recipe_fridge_staples_selected') setSelectedStaples(r.value.split(',').filter(Boolean));
-        if (r.key === 'recipe_fridge_staples_persistent') setPersistentStaples(r.value.split(',').filter(Boolean));
-        if (r.key === 'recipe_active_accordion' && r.value !== 'none') {
-           setActiveAccordion(r.value as AccordionSection);
-           if (r.value === 'mode') modeAnim.setValue(1);
-           if (r.value === 'core') coreAnim.setValue(1);
-           if (r.value === 'optional') optionalAnim.setValue(1);
-           if (r.value === 'protocols') protocolsAnim.setValue(1);
-           if (r.value === 'deploy') deployAnim.setValue(1);
-        }
-        if (r.key === 'recipe_dietary') setSelectedDietary(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_allergens') setSelectedAllergens(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_expiring') setExcludedExpiring(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_pantry') setExcludedPantry(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_freezer') setExcludedFreezer(r.value ? r.value.split(',') : []);
-        if (r.key === 'recipe_item_usage_stats') {
-           try { setUsageStats(JSON.parse(r.value)); } catch(e) {}
-        }
+        
         if (r.key === 'recipe_fridge_staples_selected') setSelectedStaples(r.value ? r.value.split(',').filter(x => x) : []);
         if (r.key === 'recipe_fridge_staples_persistent') {
           const loaded = r.value ? r.value.split(',').filter(x => x) : [];
