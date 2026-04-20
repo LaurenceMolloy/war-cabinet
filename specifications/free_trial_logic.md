@@ -88,25 +88,25 @@ To empower user agency, Cadets may choose to "Graduate Early" within the Promoti
 
 ## Rank-Specific Feature Anchors (Proposed)
 
-### RANK: CADET (Trial - Day 1-7)
-- [✓] **Scale**: 2 Cabinets / 3 Categories / 12 Item Types.
+### RANK: CADET (Trial - Day 1-30)
+- [✓] **Scale**: 2 Cabinets / 4 Categories / 16 batches and 16 item types.
 - [✓] **Full Intel**: Full access to AI Suggestions & Alerts.
-- [✓] **Experimental Protocol**: Limited Freezer Mode (1 Cabinet / 3 Item Specs).
+- [✓] **Experimental Protocol**: Limited Freezer Mode (1 Cabinet / 4 Item Types and Batches).
 
 ### RANK: PRIVATE (Post-Trial Free)
-- [✓] **Earned Scale**: 6 Cabinets / 6 Categories / 24 Item Types.
-- [✓] **Core Ops**: Basic stock tracking only. No Freezer mode intelligence, AI, or Alerts.
+- [✓] **Earned Scale**: 8 Cabinets / 8 Categories / 32 batches and 32 item types.
+- [✓] **Core Ops**: Basic stock tracking only. No Freezer mode intelligence, AI, data integrity engine, batch consolidation, partial consumption or Alerts.
 
-### RANK: SERGEANT (£2.99 One-Time)
-- [✓] **Unlimited Logistics Net**: Unlimited cabinets, categories, and items.
+### RANK: SERGEANT (£4.99 One-Time)
+- [✓] **Unlimited Logistics Net**: Unlimited cabinets, categories, batches and item types.
 - [✓] **Freezer Intelligence**: Full visibility of "frozen-since" age data.
 - [✓] **Tactical Consolidation**: Quality-of-life tools (Batch Consolidation).
 - [✓] **Portion Tracking**: Fractional pip deductions and bulk decanting support.
-- [TODO] **Barcode Logistics**: Lightning-fast data entry via memory-mapped physical scanner.
-- [✓] **Data Integrity Engine**: Advanced noise cancellation and interactive reconciliation to keep your usage metrics clean.
+- [✓] **Barcode Logistics**: Lightning-fast data entry via memory-mapped physical scanner.
+- [✓] **Data Integrity Engine**: Advanced noise cancellation and interactive reconciliation to keep your usage metrics clean. (this includes capturing and correcting all types of user error)
 - [✓] **The Quartermaster Hub**: Tactical reports and sharing.
 
-### RANK: GENERAL (£4.99 One-Time)
+### RANK: GENERAL (£1.49 / month or £12.99 / year)
 - [TODO] **Strategic Command**: Automated alerts
     - [TODO] weekly low-stock (predictive)
     - [TODO] monthly overstock (predictive)
@@ -116,6 +116,10 @@ To empower user agency, Cadets may choose to "Graduate Early" within the Promoti
 - [PARKED] **Market & Cost Intelligence**: Personalised inflation tracking, proxy batches, and recon-only (no stock) items.
 - [✓] **The Mess Hall**: Full AI-powered recipe suggestions from inventory.
 - [✓] **Tactical Backups**: Automated rolling snapshots and disaster recovery.
+
+### RANK: FIELD MARSHALL (Pricing TBD)
+- [TODO] **Platoon-Level P2P Mesh**: True offline-first multi-device synchronization over local WiFi. Maintain a synchronized "common operational picture" across up to 3 devices—no cloud server required. Your data stays entirely within your perimeter.
+- [TODO] **Joint Action Logs**: Decentralized tracking to see which operative consumed, restocked, or relocated tactical assets recently.
 
 ---
 

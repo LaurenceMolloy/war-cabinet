@@ -407,8 +407,8 @@ export default function AddInventoryScreen() {
       // Fetch Sensible Defaults for item type
       let typeRes: any = null;
       if (typeId) {
-        typeRes = await db.getFirstAsync<{name: string, category_name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null}>(
-          `SELECT i.name, c.name as category_name, i.unit_type, i.default_size, i.default_cabinet_id, i.freeze_months, i.default_supplier, i.default_product_range 
+        typeRes = await db.getFirstAsync<{name: string, category_name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null, category_id: number}>(
+          `SELECT i.name, c.name as category_name, i.category_id, i.unit_type, i.default_size, i.default_cabinet_id, i.freeze_months, i.default_supplier, i.default_product_range 
            FROM ItemTypes i 
            JOIN Categories c ON c.id = i.category_id
            WHERE i.id = ?`, 
@@ -417,6 +417,7 @@ export default function AddInventoryScreen() {
         if (typeRes) {
           setUnitType(typeRes.unit_type || 'weight');
           setTypeName(typeRes.name);
+          if (typeRes.category_id) setSelectedQuickAddCat(typeRes.category_id);
           if (typeRes.default_cabinet_id) setSelectedCabinetId(typeRes.default_cabinet_id);
           if (typeRes.freeze_months) setFreezeLimit(typeRes.freeze_months.toString());
         }
@@ -556,8 +557,6 @@ export default function AddInventoryScreen() {
       setCategories(catRows);
       if (!selectedQuickAddCat && catRows.length > 0 && categoryId) {
         setSelectedQuickAddCat(Number(categoryId));
-      } else if (!selectedQuickAddCat && catRows.length > 0) {
-        setSelectedQuickAddCat(catRows[0].id);
       }
       if (isNewType === '1' && !editBatchId) {
         setShowQuickAddType(true);
@@ -838,6 +837,10 @@ export default function AddInventoryScreen() {
         await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['last_used_cabinet_id', data.selectedCabinetId.toString()]);
       }
 
+      if (editBatchId && typeId && selectedQuickAddCat) {
+        await db.runAsync('UPDATE ItemTypes SET category_id = ? WHERE id = ?', [selectedQuickAddCat, Number(typeId)]);
+      }
+
       // --- BARCODE SIGNATURE DOUBLE-COMMIT (Workflow A & Correction Logic) ---
       if (barcodeStr) {
         await db.runAsync(
@@ -864,7 +867,14 @@ export default function AddInventoryScreen() {
   };
 
   const handleQuickAddType = async () => {
-    if (!quickAddName.trim() || !selectedQuickAddCat) return;
+    if (!quickAddName.trim()) {
+      Alert.alert('Validation Error', 'Item Name is required.');
+      return;
+    }
+    if (!selectedQuickAddCat) {
+      Alert.alert('Validation Error', 'You must select a Category for this new Item Type.');
+      return;
+    }
     try {
       const res = await db.runAsync(
         'INSERT INTO ItemTypes (name, category_id, unit_type, min_stock_level, max_stock_level, default_size, freeze_months, default_supplier, default_product_range, default_cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -1340,6 +1350,31 @@ export default function AddInventoryScreen() {
         </View>
         {errorField === 'size' && <Text style={styles.errorText}>{errorMsg}</Text>}
       </View>
+
+      {editBatchId ? (
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Item Category</Text>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8}}>
+            {categories.map(cat => (
+              <TouchableOpacity 
+                key={cat.id} 
+                style={[styles.chip, selectedQuickAddCat === cat.id && styles.chipActive]} 
+                onPress={() => setSelectedQuickAddCat(cat.id)}
+              >
+                <Text style={[styles.chipText, selectedQuickAddCat === cat.id && styles.chipTextActive]}>
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity 
+              style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: 'rgba(59, 130, 246, 0.1)' }]} 
+              onPress={() => setShowAddCategory(true)}
+            >
+              <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CATEGORY</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.formGroup}>
         <Text style={styles.label}>Storage Cabinet</Text>
@@ -2265,6 +2300,29 @@ export default function AddInventoryScreen() {
         </View>
       )}
 
+      {/* --- ADD NEW CABINET / CATEGORY MODALS FOR PHASE 2 --- */}
+      {showAddCabinet && (
+        <View style={styles.modalOverlay}><View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>DEPLOY CABINET</Text>
+          <View style={{ marginBottom: 16 }}>
+            <Text style={styles.miniLabel}>CABINET NAME</Text>
+            <TextInput style={styles.inputSmall} value={newCabName} onChangeText={setNewCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
+          </View>
+          <TouchableOpacity style={styles.saveButton} onPress={handleCreateCabinet}><Text style={styles.saveText}>CREATE CABINET</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCabinet(false)}><Text style={styles.modalCloseText}>CANCEL</Text></TouchableOpacity>
+        </View></View>
+      )}
+      {showAddCategory && (
+        <View style={styles.modalOverlay}><View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>DEPLOY CATEGORY</Text>
+          <View style={{ marginBottom: 16 }}>
+             <Text style={styles.miniLabel}>CATEGORY NAME</Text>
+             <TextInput style={styles.inputSmall} value={newCatName} onChangeText={setNewCatName} placeholder="e.g. Spices" placeholderTextColor="#64748b" autoFocus />
+          </View>
+          <TouchableOpacity style={styles.saveButton} onPress={handleCreateCategory}><Text style={styles.saveText}>CREATE CATEGORY</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCategory(false)}><Text style={styles.modalCloseText}>CANCEL</Text></TouchableOpacity>
+        </View></View>
+      )}
 
     </View>
   );

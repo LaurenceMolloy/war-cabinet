@@ -79,3 +79,4 @@ MOBILE TESTING FEEDBACK
 6. confirmation for user suggestion delete - items affected by it + do you just want to change or actually delete?
 7. weekly or monthly reminder that manual backup hasn't been done - would they like to do one?
 8. we might need a way to automate the sending of an email (free service?)
+9. I can't re-classify an item once I've attached it to a category
