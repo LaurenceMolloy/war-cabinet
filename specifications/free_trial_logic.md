@@ -106,7 +106,7 @@ To empower user agency, Cadets may choose to "Graduate Early" within the Promoti
 - [✓] **Data Integrity Engine**: Advanced noise cancellation and interactive reconciliation to keep your usage metrics clean. (this includes capturing and correcting all types of user error)
 - [✓] **The Quartermaster Hub**: Tactical reports and sharing.
 
-### RANK: GENERAL (£1.49 / month or £12.99 / year)
+### RANK: GENERAL (£2.49 / month or £19.99 / year)
 - [TODO] **Strategic Command**: Automated alerts
     - [TODO] weekly low-stock (predictive)
     - [TODO] monthly overstock (predictive)
@@ -115,7 +115,7 @@ To empower user agency, Cadets may choose to "Graduate Early" within the Promoti
 - [TODO] **Predictive Waste Analysis**: The Intersection Model (Expiry vs. Consumption conflicts).
 - [PARKED] **Market & Cost Intelligence**: Personalised inflation tracking, proxy batches, and recon-only (no stock) items.
 - [✓] **The Mess Hall**: Full AI-powered recipe suggestions from inventory.
-- [✓] **Tactical Backups**: Automated rolling snapshots and disaster recovery.
+- [✓] **Tactical Backups**: Automated rolling snapshots, friction-free device migration and disaster recovery.
 
 ### RANK: FIELD MARSHALL (Pricing TBD)
 - [TODO] **Platoon-Level P2P Mesh**: True offline-first multi-device synchronization over local WiFi. Maintain a synchronized "common operational picture" across up to 3 devices—no cloud server required. Your data stays entirely within your perimeter.
