@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform, ScrollView, Linking, Modal } from 'react-native';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -12,6 +12,7 @@ import BRANDS_DATA from '../data/brands.json';
 export default function CatalogScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
+  const flatListRef = useRef<FlatList>(null);
   const { isPremium, hasFullAccess, checkEntitlement, isTrialActive, trialLabel, requestPurchase, isSergeanOrAbove, isGeneralOrAbove, isCadet, isPrivate, graduateEarly, limits, isSergeant, isGeneral } = useBilling();
   const [categories, setCategories] = useState<any[]>([]);
   const [newCatName, setNewCatName] = useState('');
@@ -31,6 +32,7 @@ export default function CatalogScreen() {
   const [editingTypeMaxStock, setEditingTypeMaxStock] = useState('');
   const [editingTypeSupplier, setEditingTypeSupplier] = useState('');
   const [editingTypeRange, setEditingTypeRange] = useState('');
+  const [editingTypeCategoryId, setEditingTypeCategoryId] = useState<number | null>(null);
   const [newItemSupplier, setNewItemSupplier] = useState('');
   const [newItemRange, setNewItemRange] = useState('');
 
@@ -593,8 +595,8 @@ export default function CatalogScreen() {
       }
     }
 
-    await db.runAsync('UPDATE ItemTypes SET name = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ?, freeze_months = ?, default_supplier = ?, default_product_range = ? WHERE id = ?', [
-        editingTypeName, editingTypeUnit, finalDefaultSize, editingTypeDefaultCabinet, 
+    await db.runAsync('UPDATE ItemTypes SET name = ?, category_id = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ?, freeze_months = ?, default_supplier = ?, default_product_range = ? WHERE id = ?', [
+        editingTypeName, editingTypeCategoryId, editingTypeUnit, finalDefaultSize, editingTypeDefaultCabinet,
         editingTypeMinStock ? parseInt(editingTypeMinStock) : null,
         editingTypeMaxStock ? parseInt(editingTypeMaxStock) : null,
         editingTypeFreezeMonths ? parseInt(editingTypeFreezeMonths) : null,
@@ -602,6 +604,15 @@ export default function CatalogScreen() {
         editingTypeRange || null,
         typeId
     ]);
+    if (editingTypeCategoryId) {
+      setExpandedCatId(editingTypeCategoryId);
+      const index = categories.findIndex(c => c.id === editingTypeCategoryId);
+      if (index !== -1) {
+        setTimeout(() => {
+          flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+        }, 150);
+      }
+    }
     setEditingTypeId(null);
     setEditingTypeFreezeMonths('');
     setEditingTypeSupplier('');
@@ -628,6 +639,14 @@ export default function CatalogScreen() {
 
   const toggleCategory = (id: number) => {
     setExpandedCatId(prev => (prev === id ? null : id));
+    if (expandedCatId !== id) {
+      const index = categories.findIndex(c => c.id === id);
+      if (index !== -1) {
+        setTimeout(() => {
+          flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+        }, 150);
+      }
+    }
   };
 
   const renderCategory = ({ item: cat }: any) => {
@@ -731,6 +750,21 @@ export default function CatalogScreen() {
                     <View style={styles.formSection}>
                       <Text style={styles.miniLabel}>NAME <Text style={{color: '#f43f5e'}}>*</Text></Text>
                       <TextInput style={styles.inputSmall} value={editingTypeName} onChangeText={setEditingTypeName} placeholder="Item Name" placeholderTextColor="#64748b" />
+                    </View>
+
+                    <View style={styles.formSection}>
+                      <Text style={styles.miniLabel}>CATEGORY <Text style={{color: '#f43f5e'}}>*</Text></Text>
+                      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+                        {categories.map(c => (
+                          <TouchableOpacity
+                            key={c.id}
+                            style={[styles.chip, editingTypeCategoryId === c.id && styles.chipActive]}
+                            onPress={() => setEditingTypeCategoryId(c.id)}
+                          >
+                            <Text style={[styles.chipText, editingTypeCategoryId === c.id && styles.chipTextActive]}>{c.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
                     </View>
 
                     <View style={styles.formSection}>
@@ -901,7 +935,7 @@ export default function CatalogScreen() {
                       </TouchableOpacity>
                       <Text style={styles.typeText}>{type.name}</Text>
                       <View style={styles.catActions}>
-                        <TouchableOpacity onPress={async () => { setEditingTypeId(type.id); setEditingTypeName(type.name); setEditingTypeUnit(type.unit_type || 'weight'); setEditingTypeDefaultSize(type.default_size || ''); setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : ''); setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : ''); setEditingTypeFreezeMonths(type.freeze_months !== null && type.freeze_months !== undefined ? type.freeze_months.toString() : ''); setEditingTypeDefaultCabinet(type.default_cabinet_id || null); setEditingTypeSupplier(type.default_supplier || ''); setEditingTypeRange(type.default_product_range || ''); }} style={{marginRight: 10, marginTop: 4}} testID={`edit-type-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
+                        <TouchableOpacity onPress={async () => { setEditingTypeId(type.id); setEditingTypeName(type.name); setEditingTypeUnit(type.unit_type || 'weight'); setEditingTypeDefaultSize(type.default_size || ''); setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : ''); setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : ''); setEditingTypeFreezeMonths(type.freeze_months !== null && type.freeze_months !== undefined ? type.freeze_months.toString() : ''); setEditingTypeDefaultCabinet(type.default_cabinet_id || null); setEditingTypeSupplier(type.default_supplier || ''); setEditingTypeRange(type.default_product_range || ''); setEditingTypeCategoryId(cat.id); }} style={{marginRight: 10, marginTop: 4}} testID={`edit-type-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
                         <TouchableOpacity disabled={type.stock_count > 0} onPress={() => handleDeleteItemType(type.id)} style={{marginTop: 4}}><MaterialCommunityIcons name="delete" size={20} color={type.stock_count > 0 ? "#334155" : "#ef4444"} /></TouchableOpacity>
                       </View>
                     </View>
@@ -1187,7 +1221,18 @@ export default function CatalogScreen() {
       </View>
 
       {activeTab === 'catalog' ? (
-        <FlatList data={categories} keyExtractor={i => i.id.toString()} renderItem={renderCategory} ListHeaderComponent={(
+        <FlatList 
+          ref={flatListRef}
+          data={categories} 
+          keyExtractor={i => i.id.toString()} 
+          renderItem={renderCategory} 
+          onScrollToIndexFailed={info => {
+            const wait = new Promise(resolve => setTimeout(resolve, 500));
+            wait.then(() => {
+              flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0 });
+            });
+          }}
+          ListHeaderComponent={(
             <View>
               {/* Metrics Panel */}
               <View style={styles.metricsPanel}>

@@ -89,3 +89,12 @@ This document tracks items that were strictly specified in the `requirements.md`
         - **[SET EXPIRY DATE]**: Triggers an orchestrated UI transition—closing the modal, auto-scrolling the form to the pinned date badge, and opening the month picker.
         - **[SAVE ANYWAY]**: Explicitly confirms the user's intent to record a "near-expiry" item, preventing future prompts for that specific save attempt.
     4.  **UX Polish**: Added a prominent **Pinned Date Badge** (MM/YYYY) that remains visible at the top of the expiry section during interaction to maintain temporal context.
+
+---
+
+## Iteration 99: Category Reclassification
+*   **Tactical Goal**: Allow users to correct misclassified items and fluidly move item types between categories directly from the edit modal.
+*   **Implementation**: 
+    1.  **Context Extraction**: Implemented cross-category selection within the `catalog.tsx` item edit UI.
+    2.  **State Fluidity**: Enabled the `category_id` attribute to be mutable via an interactive chip row, allowing seamless reassignment in the database.
+    3.  **UI Integrity**: Maintains proper list rendering behavior where updated items instantly vanish from their old category block and populate their new designated category.
