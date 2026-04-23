@@ -71,6 +71,7 @@ export default function CatalogScreen() {
   const [logisticsEmail, setLogisticsEmail] = useState('');
   const [mirrorUri, setMirrorUri] = useState<string | null>(null);
   const [backups, setBackups] = useState<BackupMetadata[]>([]);
+  const [bunker, setBunker] = useState<BackupMetadata | null>(null);
   const [totalItemCount, setTotalItemCount] = useState(0);
   const [schemaVersion, setSchemaVersion] = useState('0');
   const [minReqCount, setMinReqCount] = useState(0);
@@ -171,6 +172,7 @@ export default function CatalogScreen() {
   const [currentActivity, setCurrentActivity] = useState('');
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState('');
+  const [selectedBackup, setSelectedBackup] = useState<BackupMetadata | null>(null);
 
   const handleManualBackup = async () => {
     if (!checkEntitlement('BACKUPS')) return;
@@ -399,8 +401,9 @@ export default function CatalogScreen() {
     const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['logistics_email']);
     setLogisticsEmail(emailRes?.value || '');
 
-    const backupList = await BackupService.getBackupsList();
-    setBackups(backupList);
+    const { backups: bList, bunker: bnk } = await BackupService.loadBackups();
+    setBackups(bList);
+    setBunker(bnk);
 
     // Load Vocabulary
     try {
@@ -756,6 +759,15 @@ export default function CatalogScreen() {
             setCloudAccount('');
             setCloudBackupEnabled(false);
             setCloudLastStatus('Disconnected');
+            
+            if (Platform.OS !== 'web') {
+              try {
+                await GoogleSignin.signOut();
+                await GoogleSignin.revokeAccess();
+              } catch (e) {
+                console.log('[DRIVE] SignOut error:', e);
+              }
+            }
             
             await GoogleDriveService.logout();
             await db.runAsync("UPDATE Settings SET value = '0' WHERE key = 'cloud_backup_enabled'");
@@ -1755,6 +1767,39 @@ export default function CatalogScreen() {
              </View>
           )}
 
+          {bunker && (
+            <View style={{marginBottom: 24}}>
+              <Text style={[styles.label, {color: '#fbbf24'}]}>🛡️ THE BUNKER</Text>
+              <Text style={{color: '#64748b', fontSize: 11, marginTop: -8, marginBottom: 12, lineHeight: 16}}>
+                Your strategic reserve. This state is immune to automatic rotation. Tap the <MaterialCommunityIcons name="pin" size={12} color="#fbbf24" /> icon on any archive below to fortify it.
+              </Text>
+              <View style={[styles.backupItem, {backgroundColor: '#0f2744', borderColor: '#fbbf24', borderWidth: 2}]}>
+                <View style={{flex: 1}}>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4}}>
+                    <Text style={[styles.backupName, {color: '#f8fafc'}]}>{new Date(bunker.timestamp).toLocaleDateString()}</Text>
+                    <View style={{backgroundColor: '#fbbf24', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4}}>
+                      <Text style={{color: '#0f172a', fontSize: 10, fontWeight: 'bold'}}>{new Date(bunker.timestamp).toLocaleTimeString()}</Text>
+                    </View>
+                  </View>
+                  
+                  {bunker.note ? (
+                    <Text style={{color: '#fbbf24', fontSize: 13, fontWeight: 'bold', marginBottom: 2}}>{bunker.note.toUpperCase()}</Text>
+                  ) : null}
+                  
+                  <Text style={[styles.backupMeta, {color: '#94a3b8'}]}>{bunker.summary || 'Census data unavailable'}</Text>
+                </View>
+                <View style={{flexDirection: 'row', gap: 8, alignItems: 'center'}}>
+                  <TouchableOpacity 
+                    onPress={() => { setSelectedActivity(bunker.lastAction || ''); setSelectedBackup(bunker); setShowActivityModal(true); }}
+                    style={{backgroundColor: '#1e293b', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#fbbf24'}}
+                  >
+                    <MaterialCommunityIcons name="information-outline" size={20} color="#fbbf24" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+
           <Text style={styles.label}>Local Snapshot Archive (Rolling 5)</Text>
           {backups.length === 0 ? (
             <Text style={{color: '#64748b', textAlign: 'center', marginTop: 20}}>No backups recorded yet.</Text>
@@ -1776,19 +1821,20 @@ export default function CatalogScreen() {
                   <Text style={styles.backupMeta}>{item.summary || 'Census data unavailable'}</Text>
                 </View>
                 <View style={{flexDirection: 'row', gap: 8, alignItems: 'center'}}>
-                  {item.lastAction ? (
-                    <TouchableOpacity 
-                      onPress={() => { setSelectedActivity(item.lastAction || ''); setShowActivityModal(true); }}
-                      style={{backgroundColor: '#1e293b', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#334155'}}
-                    >
-                      <MaterialCommunityIcons name="history" size={20} color="#3b82f6" />
-                    </TouchableOpacity>
-                  ) : null}
-                  <TouchableOpacity onPress={() => handleLocalRestore(item)} style={[styles.shareBtn, {backgroundColor: '#ef4444'}]}>
-                    <MaterialCommunityIcons name="backup-restore" size={20} color="white" />
+                  <TouchableOpacity 
+                    onPress={() => { setSelectedActivity(item.lastAction || ''); setSelectedBackup(item); setShowActivityModal(true); }}
+                    style={{backgroundColor: '#1e293b', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#334155'}}
+                  >
+                    <MaterialCommunityIcons name="information-outline" size={20} color="#3b82f6" />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => BackupService.shareBackup(item.uri)} style={styles.shareBtn}>
-                    <MaterialCommunityIcons name="share-variant" size={20} color="#3b82f6" />
+                  <TouchableOpacity 
+                    onPress={async () => {
+                      const success = await BackupService.fortifyToBunker(item);
+                      if (success) load();
+                    }}
+                    style={[styles.shareBtn, {backgroundColor: '#1e293b', borderColor: '#fbbf24', borderWidth: 1}]}
+                  >
+                    <MaterialCommunityIcons name="pin" size={20} color="#fbbf24" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -2148,6 +2194,23 @@ export default function CatalogScreen() {
               <Text style={{color: '#64748b', fontSize: 11, fontStyle: 'italic', textAlign: 'center', marginBottom: 24, paddingHorizontal: 10}}>
                 This event represents the final operational activity recorded on the database prior to the creation of this archive.
               </Text>
+
+              <View style={{flexDirection: 'row', gap: 12, marginBottom: 16}}>
+                <TouchableOpacity 
+                  style={{flex: 1, backgroundColor: '#ef4444', padding: 14, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8}} 
+                  onPress={() => { setShowActivityModal(false); if (selectedBackup) handleLocalRestore(selectedBackup); }}
+                >
+                  <MaterialCommunityIcons name="backup-restore" size={18} color="white" />
+                  <Text style={{color: 'white', fontWeight: 'bold', fontSize: 13}}>RESTORE</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={{flex: 1, backgroundColor: '#1e293b', padding: 14, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: '#334155'}} 
+                  onPress={() => { if (selectedBackup) BackupService.shareBackup(selectedBackup.uri); }}
+                >
+                  <MaterialCommunityIcons name="share-variant" size={18} color="#3b82f6" />
+                  <Text style={{color: '#3b82f6', fontWeight: 'bold', fontSize: 13}}>SHARE</Text>
+                </TouchableOpacity>
+              </View>
 
               <TouchableOpacity 
                 style={{backgroundColor: '#3b82f6', padding: 16, borderRadius: 12, alignItems: 'center'}} 

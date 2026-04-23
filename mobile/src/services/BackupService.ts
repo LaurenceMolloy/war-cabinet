@@ -59,7 +59,7 @@ export const BackupService = {
       try {
         const files = await FileSystem.readDirectoryAsync(backupDir);
         const latestBackupFile = files
-          .filter(f => f.endsWith('.json'))
+          .filter(f => f.endsWith('.json') && !f.startsWith('bunker_'))
           .sort((a, b) => b.localeCompare(a))[0];
           
         if (latestBackupFile) {
@@ -76,9 +76,15 @@ export const BackupService = {
       const totalUnits = inventory.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
       const summary = `${totalUnits} Units | ${inventory.length} Batches`;
 
+      const ts = Date.now();
+      const fileName = `backup_${ts}.json`;
+      const csvFileName = `backup_${ts}.csv`;
+      const uri = `${backupDir}${fileName}`;
+      const csvUri = `${backupDir}${csvFileName}`;
+
       const backupData = {
         version: BACKUP_MANIFEST_VERSION.toString(),
-        timestamp,
+        timestamp: ts,
         note: isManual ? (typeof isManual === 'string' ? isManual : 'Manual Snapshot') : 'System Archive',
         summary,
         lastAction,
@@ -92,9 +98,7 @@ export const BackupService = {
         }
       };
 
-      const jsonUri = `${backupDir}war-cabinet-backup-${dateStr}.json`;
-      const jsonContent = JSON.stringify(backupData, null, 2);
-      await FileSystem.writeAsStringAsync(jsonUri, jsonContent);
+      await FileSystem.writeAsStringAsync(uri, JSON.stringify(backupData, null, 2));
 
       // 2. SPREADSHEET GENERATION (CSV)
       let csvContent = "";
@@ -124,81 +128,16 @@ export const BackupService = {
           Object.values(row).map(val => `"${val}"`).join(',')
         ).join('\n');
         csvContent = `${headers}\n${rows}`;
-        
-        const csvUri = `${backupDir}war-cabinet-inventory-${dateStr}.csv`;
         await FileSystem.writeAsStringAsync(csvUri, csvContent);
       }
 
-      // 2.5 PERSISTENT MIRRORING (ANDROID ONLY - WATERFALL SHIFT PROTOCOL)
-      if (Platform.OS === 'android') {
-        const settingsRes = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'persistence_mirror_uri'");
-        if (settingsRes?.value) {
-          try {
-            const mirrorUri = settingsRes.value;
-            const mirrorFiles = await FileSystem.StorageAccessFramework.readDirectoryAsync(mirrorUri);
-
-            // A. CASCADING SHIFT (04->05, 03->04, 02->03, 01->02)
-            // We work backwards to avoid overwriting slots before they are shifted
-            for (let i = 4; i >= 1; i--) {
-              const currS = i.toString().padStart(2, '0');
-              const nextS = (i + 1).toString().padStart(2, '0');
-              
-              const currJSONs = mirrorFiles.filter(f => f.includes(`${currS}-WC-BACKUP`));
-              const currCSVs = mirrorFiles.filter(f => f.includes(`${currS}-WC-REPORT`));
-
-              if (currJSONs.length > 0) {
-                // Delete existing targets to prevent (1) suffix pileup
-                const targetJSONs = mirrorFiles.filter(f => f.includes(`${nextS}-WC-BACKUP`));
-                for (const tgt of targetJSONs) await FileSystem.StorageAccessFramework.deleteAsync(tgt).catch(()=>{});
-                
-                const content = await FileSystem.readAsStringAsync(currJSONs[0]);
-                const nextFile = await FileSystem.StorageAccessFramework.createFileAsync(mirrorUri, `${nextS}-WC-BACKUP`, 'application/json');
-                await FileSystem.writeAsStringAsync(nextFile, content);
-              }
-              
-              if (currCSVs.length > 0) {
-                const targetCSVs = mirrorFiles.filter(f => f.includes(`${nextS}-WC-REPORT`));
-                for (const tgt of targetCSVs) await FileSystem.StorageAccessFramework.deleteAsync(tgt).catch(()=>{});
-
-                const content = await FileSystem.readAsStringAsync(currCSVs[0]);
-                const nextFile = await FileSystem.StorageAccessFramework.createFileAsync(mirrorUri, `${nextS}-WC-REPORT`, 'text/csv');
-                await FileSystem.writeAsStringAsync(nextFile, content);
-              }
-            }
-
-            // B. INSERT NEW DATA AT 01 (Clears previous 01 entries as part of write/create cycle)
-            // We MUST delete ALL existing slot 01 files to prevent '01 (1)' behavior
-            const p1JSONs = mirrorFiles.filter(f => f.includes(`01-WC-BACKUP`));
-            const p1CSVs = mirrorFiles.filter(f => f.includes(`01-WC-REPORT`));
-            for (const tgt of p1JSONs) await FileSystem.StorageAccessFramework.deleteAsync(tgt).catch(()=>{});
-            for (const tgt of p1CSVs) await FileSystem.StorageAccessFramework.deleteAsync(tgt).catch(()=>{});
-
-            const bFile = await FileSystem.StorageAccessFramework.createFileAsync(mirrorUri, `01-WC-BACKUP`, 'application/json');
-            await FileSystem.writeAsStringAsync(bFile, jsonContent);
-            if (csvContent) {
-              const rFile = await FileSystem.StorageAccessFramework.createFileAsync(mirrorUri, `01-WC-REPORT`, 'text/csv');
-              await FileSystem.writeAsStringAsync(rFile, csvContent);
-            }
-
-            // C. STRATEGIC CLEANUP (Remove legacy 'war-cabinet-backup-' naming convention)
-            const legacies = mirrorFiles.filter(f => f.includes('war-cabinet-backup-') || f.includes('war-cabinet-inventory-'));
-            for (const leg of legacies) {
-              await FileSystem.StorageAccessFramework.deleteAsync(leg).catch(() => {});
-            }
-
-          } catch (e) {
-            console.warn("Mirroring failed (Waterfall):", e);
-          }
-        }
-      }
-
       // 3. UPDATE METADATA
-      await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", "last_backup_time", timestamp.toString());
+      await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", "last_backup_time", ts.toString());
 
       // 4. ROTATION
       await this.rotateBackups();
 
-      return { jsonUri, timestamp };
+      return { jsonUri: uri, timestamp: ts };
     } catch (error) {
       console.error('Backup generation failed:', error);
       throw error;
@@ -213,17 +152,100 @@ export const BackupService = {
     if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
     const files = await FileSystem.readDirectoryAsync(backupDir);
     const backups = files
-      .filter(f => f.endsWith('.json'))
-      .sort((a,b) => b.localeCompare(a)); // ISO string sort works fine
+      .filter(f => f.endsWith('.json') && !f.startsWith('bunker_'))
+      .sort((a,b) => b.localeCompare(a));
 
     if (backups.length > MAX_BACKUPS) {
-      // Backups[0] is newest, we keep 0-4
       for (let i = MAX_BACKUPS; i < backups.length; i++) {
         const base = backups[i].replace('.json', '');
         await FileSystem.deleteAsync(`${backupDir}${backups[i]}`, { idempotent: true });
-        const csvName = base.replace('backup', 'inventory') + '.csv';
+        const csvName = base.replace('backup', 'backup') + '.csv';
         await FileSystem.deleteAsync(`${backupDir}${csvName}`, { idempotent: true });
       }
+    }
+  },
+
+  loadBackups: async (): Promise<{backups: BackupMetadata[], bunker: BackupMetadata | null}> => {
+    try {
+      const backupDir = getBackupDir();
+      const exists = await FileSystem.getInfoAsync(backupDir);
+      if (!exists.exists) return {backups: [], bunker: null};
+
+      const files = await FileSystem.readDirectoryAsync(backupDir);
+      const jsonFiles = files.filter(f => f.endsWith('.json'));
+      
+      const allBackups: BackupMetadata[] = [];
+      let bunker: BackupMetadata | null = null;
+
+      for (const f of jsonFiles) {
+        const content = await FileSystem.readAsStringAsync(`${backupDir}${f}`);
+        const data = JSON.parse(content);
+        const meta = {
+          name: f,
+          uri: `${backupDir}${f}`,
+          timestamp: data.timestamp,
+          summary: data.summary,
+          lastAction: data.lastAction,
+          note: data.note
+        };
+
+        if (f.startsWith('bunker_')) {
+          bunker = meta;
+        } else {
+          allBackups.push(meta);
+        }
+      }
+
+      return {
+        backups: allBackups.sort((a, b) => b.timestamp - a.timestamp),
+        bunker
+      };
+    } catch (e) {
+      console.error('Failed to load backups:', e);
+      return {backups: [], bunker: null};
+    }
+  },
+
+  fortifyToBunker: async (backup: BackupMetadata) => {
+    try {
+      const backupDir = getBackupDir();
+      const files = await FileSystem.readDirectoryAsync(backupDir);
+      
+      // 1. Demote current bunker if exists
+      const currentBunkerJson = files.find(f => f.startsWith('bunker_') && f.endsWith('.json'));
+      const currentBunkerCsv = files.find(f => f.startsWith('bunker_') && f.endsWith('.csv'));
+      
+      if (currentBunkerJson) {
+        const newName = currentBunkerJson.replace('bunker_', 'backup_');
+        // Delete target if exists to prevent move error
+        await FileSystem.deleteAsync(`${backupDir}${newName}`, { idempotent: true });
+        await FileSystem.moveAsync({ from: `${backupDir}${currentBunkerJson}`, to: `${backupDir}${newName}` });
+      }
+      if (currentBunkerCsv) {
+        const newName = currentBunkerCsv.replace('bunker_', 'backup_');
+        await FileSystem.deleteAsync(`${backupDir}${newName}`, { idempotent: true });
+        await FileSystem.moveAsync({ from: `${backupDir}${currentBunkerCsv}`, to: `${backupDir}${newName}` });
+      }
+
+      // 2. Fortify new backup
+      const newBunkerJson = `bunker_${backup.timestamp}.json`;
+      const newBunkerCsv = `bunker_${backup.timestamp}.csv`;
+      
+      const oldCsv = backup.name.replace('.json', '.csv');
+
+      // Delete target if exists
+      await FileSystem.deleteAsync(`${backupDir}${newBunkerJson}`, { idempotent: true });
+      await FileSystem.moveAsync({ from: backup.uri, to: `${backupDir}${newBunkerJson}` });
+      
+      if (files.includes(oldCsv)) {
+        await FileSystem.deleteAsync(`${backupDir}${newBunkerCsv}`, { idempotent: true });
+        await FileSystem.moveAsync({ from: `${backupDir}${oldCsv}`, to: `${backupDir}${newBunkerCsv}` });
+      }
+
+      return true;
+    } catch (e) {
+      console.error('Failed to fortify bunker:', e);
+      return false;
     }
   },
 
@@ -251,42 +273,8 @@ export const BackupService = {
    * Lists available local snapshots.
    */
   async getBackupsList(): Promise<BackupMetadata[]> {
-    const backupDir = getBackupDir();
-    if (Platform.OS === 'web' || !FileSystem.documentDirectory) return [];
-    if (!(await FileSystem.getInfoAsync(backupDir)).exists) return [];
-    const files = await FileSystem.readDirectoryAsync(backupDir);
-    return await Promise.all(files
-      .filter(f => f.endsWith('.json'))
-      .map(async f => {
-        const match = f.match(/backup-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/);
-        let timestamp = 0;
-        if (match) {
-          const [_, date, h, m, s, ms] = match;
-          timestamp = Date.parse(`${date}T${h}:${m}:${s}.${ms}Z`) || 0;
-        }
-
-        // Try to read metadata from the file without loading the whole thing? 
-        // Actually for 5 files, reading is fast enough.
-        let note = "";
-        let summary = "";
-        let lastAction = "";
-        try {
-          const content = await FileSystem.readAsStringAsync(`${backupDir}${f}`);
-          const parsed = JSON.parse(content);
-          note = parsed.note || "";
-          summary = parsed.summary || "";
-          lastAction = parsed.lastAction || "";
-        } catch (e) {}
-
-        return {
-           name: f,
-           timestamp: timestamp,
-           uri: `${backupDir}${f}`,
-           note,
-           summary,
-           lastAction
-        };
-      })).then(results => results.sort((a,b) => b.timestamp - a.timestamp));
+    const { backups } = await this.loadBackups();
+    return backups;
   },
 
   /**
