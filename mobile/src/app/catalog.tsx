@@ -1,12 +1,12 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform, ScrollView, Linking, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform, ScrollView, Linking, Modal, KeyboardAvoidingView } from 'react-native';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { BackupService, BackupMetadata, BACKUP_MANIFEST_VERSION } from '../services/BackupService';
 import { GoogleDriveService, GOOGLE_AUTH_CONFIG } from '../services/GoogleDriveService';
-import { CURRENT_SCHEMA_VERSION, markModified } from '../db/sqlite';
+import { CURRENT_SCHEMA_VERSION, markModified, logTacticalAction } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
 import SUPPLIERS_DATA from '../data/suppliers.json';
 import BRANDS_DATA from '../data/brands.json';
@@ -88,6 +88,10 @@ export default function CatalogScreen() {
   const [inlineCabName, setInlineCabName] = useState('');
   const [inlineCabLoc, setInlineCabLoc] = useState('');
   const [inlineCabType, setInlineCabType] = useState<'standard' | 'freezer'>('standard');
+  const [editingCabRotationInterval, setEditingCabRotationInterval] = useState<number>(0);
+  const [editingCabRotDestId, setEditingCabRotDestId] = useState<number | null>(null);
+  const [newCabRotationInterval, setNewCabRotationInterval] = useState<number>(0);
+  const [newCabRotDestId, setNewCabRotDestId] = useState<number | null>(null);
 
   const [cloudBackupEnabled, setCloudBackupEnabled] = useState(false);
   const [cloudSchedule, setCloudSchedule] = useState('Daily');
@@ -96,6 +100,17 @@ export default function CatalogScreen() {
   const [cloudLastStatus, setCloudLastStatus] = useState('');
   const [showCloudConsentModal, setShowCloudConsentModal] = useState(false);
   const [showRestoreSourceModal, setShowRestoreSourceModal] = useState(false);
+  const [showMissionLogs, setShowMissionLogs] = useState(false);
+  const [missionLogs, setMissionLogs] = useState<any[]>([]);
+  const [missionDelta, setMissionDelta] = useState<{units: number, batches: number, types: number, categories: number, cabinets: number} | null>(null);
+  const [isBunkerLedger, setIsBunkerLedger] = useState(false);
+  const [currentCensus, setCurrentCensus] = useState<{
+    units: number;
+    batches: number;
+    types: number;
+    categories: number;
+    cabinets: number;
+  } | null>(null);
   
   
   /**
@@ -187,6 +202,7 @@ export default function CatalogScreen() {
       setCloudLastStatus('Mirroring...');
       const backup = await BackupService.createBackup(db, note || 'Manual Snapshot');
       if (backup) {
+        await db.runAsync('DELETE FROM TacticalLogs');
         await load();
         
         // Mirror to cloud if enabled
@@ -248,6 +264,8 @@ export default function CatalogScreen() {
       // 1. Create a fresh JSON snapshot
       const backup = await BackupService.createBackup(db, true);
       if (!backup) throw new Error('Failed to create local snapshot');
+      
+      await db.runAsync('DELETE FROM TacticalLogs');
 
       // 2. Read the snapshot content
       const content = await BackupService.readLocalBackup(backup.jsonUri);
@@ -313,6 +331,28 @@ export default function CatalogScreen() {
     } finally {
       setCloudLastStatus('Success (Connected)');
     }
+  };
+
+  const fetchMissionLogs = async () => {
+    setIsBunkerLedger(false);
+    const logs = await db.getAllAsync('SELECT * FROM TacticalLogs ORDER BY timestamp DESC LIMIT 100');
+    setMissionLogs(logs);
+
+    if (currentCensus && backups.length > 0 && backups[0].counts) {
+      const b = backups[0].counts;
+      setMissionDelta({
+        units: currentCensus.units - b.units,
+        batches: currentCensus.batches - b.batches,
+        types: currentCensus.types - b.types,
+        categories: currentCensus.categories - b.categories,
+        cabinets: currentCensus.cabinets - b.cabinets
+      });
+    } else {
+      // If no baseline backup exists, we cannot calculate drift. Do not diff from empty.
+      setMissionDelta(null);
+    }
+
+    setShowMissionLogs(true);
   };
 
   const load = async () => {
@@ -404,6 +444,16 @@ export default function CatalogScreen() {
     const { backups: bList, bunker: bnk } = await BackupService.loadBackups();
     setBackups(bList);
     setBunker(bnk);
+
+    // Compute Current Census
+    const invCountRes = await db.getAllAsync<{q: number}>('SELECT quantity as q FROM Inventory');
+    setCurrentCensus({
+      units: invCountRes.reduce((sum, r) => sum + (r.q || 0), 0),
+      batches: invCountRes.length,
+      types: uniqueItemCount,
+      categories: grouped.length,
+      cabinets: cabRows.length
+    });
 
     // Load Vocabulary
     try {
@@ -563,7 +613,8 @@ export default function CatalogScreen() {
       return;
     }
 
-    await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', [newCatName, 'box', 1]);
+    const res = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', [newCatName, 'box', 1]);
+    await logTacticalAction(db, 'ADD', 'CATEGORY', Number(res.lastInsertRowId), newCatName);
     setNewCatName('');
     load();
   };
@@ -592,7 +643,7 @@ export default function CatalogScreen() {
       }
     }
 
-    await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size, min_stock_level, max_stock_level, freeze_months, default_cabinet_id, default_supplier, default_product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+    const res = await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size, min_stock_level, max_stock_level, freeze_months, default_cabinet_id, default_supplier, default_product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
         catId, newItemName, newItemUnit, finalDefaultSize, 
         newItemMinStock ? parseInt(newItemMinStock) : null,
         newItemMaxStock ? parseInt(newItemMaxStock) : null,
@@ -601,6 +652,7 @@ export default function CatalogScreen() {
         newItemSupplier || null,
         newItemRange || null
     ]);
+    await logTacticalAction(db, 'ADD', 'ITEM_TYPE', Number(res.lastInsertRowId), newItemName);
     setNewItemName('');
     setNewItemDefaultSize('');
     setSelectedCat(null);
@@ -620,7 +672,9 @@ export default function CatalogScreen() {
       Alert.alert('Cannot Delete', 'This item type has stock. Please delete the stock first.');
       return;
     }
+    const typeNameRes = await db.getFirstAsync<{name: string}>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]);
     await db.runAsync('DELETE FROM ItemTypes WHERE id = ?', [typeId]);
+    await logTacticalAction(db, 'DELETE', 'ITEM_TYPE', typeId, typeNameRes?.name || 'Unknown');
     load();
   };
 
@@ -630,6 +684,7 @@ export default function CatalogScreen() {
       return;
     }
     await db.runAsync('UPDATE Categories SET name = ?, is_mess_hall = ? WHERE id = ?', [editingCatName, editingCatIsMessHall ? 1 : 0, catId]);
+    await logTacticalAction(db, 'UPDATE', 'CATEGORY', catId, editingCatName);
     setEditingCatId(null);
     load();
   };
@@ -653,10 +708,13 @@ export default function CatalogScreen() {
       return;
     }
 
-    await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', [newCabName, newCabLocation, newCabType]);
+    const res = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type, rotation_interval_months, default_rotation_cabinet_id) VALUES (?, ?, ?, ?, ?)', [newCabName, newCabLocation, newCabType, newCabRotationInterval === 0 ? null : newCabRotationInterval, newCabRotDestId]);
+    await logTacticalAction(db, 'ADD', 'CABINET', Number(res.lastInsertRowId), newCabName);
     setNewCabName('');
     setNewCabLocation('');
     setNewCabType('standard');
+    setNewCabRotationInterval(0);
+    setNewCabRotDestId(null);
     load();
   };
 
@@ -677,14 +735,17 @@ export default function CatalogScreen() {
       }
     }
 
-    await db.runAsync('UPDATE Cabinets SET name = ?, location = ?, cabinet_type = ? WHERE id = ?', [editingCabName, editingCabLocation, editingCabType, cabId]);
+    await db.runAsync('UPDATE Cabinets SET name = ?, location = ?, cabinet_type = ?, rotation_interval_months = ?, default_rotation_cabinet_id = ? WHERE id = ?', [editingCabName, editingCabLocation, editingCabType, editingCabRotationInterval === 0 ? null : editingCabRotationInterval, editingCabRotDestId, cabId]);
+    await logTacticalAction(db, 'UPDATE', 'CABINET', cabId, editingCabName);
     setEditingCabId(null);
     load();
   };
 
   const handleDeleteCabinet = async (cabId: number, hasStock: boolean) => {
     if (hasStock) return;
+    const cabNameRes = await db.getFirstAsync<{name: string}>('SELECT name FROM Cabinets WHERE id = ?', [cabId]);
     await db.runAsync('DELETE FROM Cabinets WHERE id = ?', [cabId]);
+    await logTacticalAction(db, 'DELETE', 'CABINET', cabId, cabNameRes?.name || 'Unknown');
     load();
   };
 
@@ -701,6 +762,7 @@ export default function CatalogScreen() {
     }
     const res = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', [inlineCabName.trim(), inlineCabLoc.trim(), inlineCabType]);
     const newCabId = res.lastInsertRowId;
+    await logTacticalAction(db, 'ADD', 'CABINET', Number(newCabId), inlineCabName.trim());
     
     setShowInlineAddCabinet(false);
     setInlineCabName('');
@@ -1442,58 +1504,132 @@ export default function CatalogScreen() {
     );
   };
 
-  const renderCabinet = ({ item: cab }: any) => (
-    <View style={styles.catCard}>
-      <View style={styles.catHeader}>
-        {editingCabId === cab.id ? (
-          <View style={{flexDirection: 'column', flex: 1, backgroundColor: '#0f172a', padding: 10, borderRadius: 8, gap: 8}}>
-            <Text style={[styles.formLabel, { marginTop: 10, marginBottom: 10, marginHorizontal: 0 }]}>Edit Cabinet</Text>
-            <View>
-              <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET NAME</Text>
-              <TextInput
-                style={[styles.inputSmall, editingCabError ? { borderColor: '#ef4444', borderWidth: 1 } : {}]}
-                value={editingCabName}
-                onChangeText={(v) => { setEditingCabName(v); setEditingCabError(null); }}
-                placeholder="e.g. Spare Supplies, Spice Cupboard"
-                placeholderTextColor="#64748b"
-              />
-              {editingCabError && <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginTop: 4, paddingLeft: 4 }}>{editingCabError}</Text>}
+  const renderCabinet = ({ item: cab }: any) => {
+    const isEditing = editingCabId === cab.id;
+    
+    return (
+      <View style={styles.catCard}>
+        <View style={styles.catHeader}>
+          {isEditing ? (
+            <View style={{flexDirection: 'column', flex: 1, backgroundColor: '#0f172a', padding: 10, borderRadius: 8, gap: 8}}>
+              <Text style={[styles.formLabel, { marginTop: 10, marginBottom: 10, marginHorizontal: 0 }]}>Edit Cabinet</Text>
+              
+              <View>
+                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET NAME</Text>
+                <TextInput
+                  style={[styles.inputSmall, editingCabError ? { borderColor: '#ef4444', borderWidth: 1 } : {}]}
+                  value={editingCabName}
+                  onChangeText={(v) => { setEditingCabName(v); setEditingCabError(null); }}
+                  placeholder="e.g. Spare Supplies, Spice Cupboard"
+                  placeholderTextColor="#64748b"
+                />
+                {editingCabError && <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginTop: 4, paddingLeft: 4 }}>{editingCabError}</Text>}
+              </View>
+
+              <View style={{marginTop: 8}}>
+                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>PHYSICAL LOCATION</Text>
+                <TextInput style={styles.inputSmall} value={editingCabLocation} onChangeText={setEditingCabLocation} placeholder="e.g. Kitchen, Garage" placeholderTextColor="#64748b" />
+              </View>
+
+              <View style={{marginTop: 8}}>
+                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET TYPE</Text>
+                <View style={styles.unitChipRowMini}>
+                  <TouchableOpacity style={[styles.unitChip, editingCabType === 'standard' && styles.unitChipActive]} onPress={() => setEditingCabType('standard')}>
+                    <Text style={[styles.unitChipText, editingCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.unitChip, {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}, editingCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
+                    onPress={() => { if (editingCabType === 'freezer') { setEditingCabType('standard'); } else { if (checkEntitlement('FREEZER')) setEditingCabType('freezer'); } }}
+                  >
+                    <MaterialCommunityIcons name="snowflake" size={12} color={editingCabType === 'freezer' ? '#60a5fa' : '#64748b'} />
+                    <Text style={[styles.unitChipText, editingCabType === 'freezer' && {color: '#60a5fa'}]}>Freezer</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={{marginTop: 8}}>
+                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>ROTATION CYCLE</Text>
+                <View style={styles.unitChipRowMini}>
+                  {[0, 1, 3, 6, 12].map(m => (
+                    <TouchableOpacity key={m} style={[styles.unitChip, editingCabRotationInterval === m && styles.unitChipActive]} onPress={() => setEditingCabRotationInterval(m)}>
+                      <Text style={[styles.unitChipText, editingCabRotationInterval === m && styles.unitChipTextActive]}>{m === 0 ? 'NONE' : `${m}m`}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {editingCabRotationInterval > 0 && (
+                <View style={{marginTop: 8}}>
+                  <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>ROTATION DESTINATION</Text>
+                  <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+                    <TouchableOpacity 
+                      style={[styles.chip, !editingCabRotDestId && styles.chipActive]} 
+                      onPress={() => setEditingCabRotDestId(null)}
+                    >
+                      <Text style={[styles.chipText, !editingCabRotDestId && styles.chipTextActive]}>None (Stay)</Text>
+                    </TouchableOpacity>
+                    {cabinets.filter(c => c.id !== cab.id).map(c => (
+                      <TouchableOpacity 
+                        key={c.id} 
+                        style={[styles.chip, editingCabRotDestId === c.id && styles.chipActive]} 
+                        onPress={() => setEditingCabRotDestId(c.id)}
+                      >
+                        <Text style={[styles.chipText, editingCabRotDestId === c.id && styles.chipTextActive]}>{c.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              <TouchableOpacity onPress={() => handleUpdateCabinet(cab.id)} style={[styles.addSaveBtnFull, { marginTop: 12 }]} testID="save-cabinet-btn"><Text style={styles.addSaveText}>SAVE CHANGES</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setEditingCabId(null)} style={{ marginTop: 10, alignItems: 'center' }} testID="close-edit-cab-btn"><Text style={{ color: '#64748b', fontSize: 12, fontWeight: 'bold' }}>CANCEL</Text></TouchableOpacity>
             </View>
-            <View style={{marginTop: 8}}>
-              <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>PHYSICAL LOCATION</Text>
-              <TextInput style={styles.inputSmall} value={editingCabLocation} onChangeText={setEditingCabLocation} placeholder="e.g. Kitchen, Garage" placeholderTextColor="#64748b" />
-            </View>
-            <View style={{marginTop: 8}}>
-              <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET TYPE</Text>
-              <View style={styles.unitChipRowMini}>
-                <TouchableOpacity style={[styles.unitChip, editingCabType === 'standard' && styles.unitChipActive]} onPress={() => setEditingCabType('standard')}>
-                  <Text style={[styles.unitChipText, editingCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.unitChip, {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}, editingCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
-                  onPress={() => { if (editingCabType === 'freezer') { setEditingCabType('standard'); } else { if (checkEntitlement('FREEZER')) setEditingCabType('freezer'); } }}
-                  testID="edit-cab-type-freezer"
+          ) : (
+            <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-between'}}>
+              <View>
+                <View style={{flexDirection:'row',alignItems:'center',gap:8}}>
+                  <Text style={styles.catTitle}>{cab.name}</Text>
+                  {!!cab.rotation_interval_months && (
+                    <View style={{backgroundColor: '#fbbf2433', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, borderWidth: 1, borderColor: '#fbbf2466'}}>
+                      <Text style={{color: '#fbbf24', fontSize: 8, fontWeight: 'bold'}}>{cab.rotation_interval_months}M CYCLE</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={{color: '#64748b', fontSize: 13}}>{cab.location || 'No Location'}</Text>
+                <View style={{flexDirection:'row',alignItems:'center',gap:8,marginTop:3}}>
+                  {cab.cabinet_type === 'freezer' && (
+                    <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
+                      <MaterialCommunityIcons name="snowflake" size={11} color="#60a5fa" />
+                      <Text style={{color:'#60a5fa',fontSize:11,fontWeight:'bold'}}>FREEZER</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+              <View style={styles.catActions}>
+                <TouchableOpacity 
+                  onPress={() => { 
+                    setEditingCabId(cab.id); 
+                    setEditingCabName(cab.name); 
+                    setEditingCabLocation(cab.location || ''); 
+                    setEditingCabType(cab.cabinet_type || 'standard'); 
+                    setEditingCabRotationInterval(cab.rotation_interval_months || 0); 
+                    setEditingCabRotDestId(cab.default_rotation_cabinet_id); 
+                  }} 
+                  style={{marginRight: 10}} 
+                  testID={`edit-cab-btn-${cab.name.toLowerCase().replace(/\s+/g, '-')}`}
                 >
-                  <MaterialCommunityIcons name="snowflake" size={12} color={editingCabType === 'freezer' ? '#60a5fa' : '#64748b'} />
-                  <Text style={[styles.unitChipText, editingCabType === 'freezer' && {color: '#60a5fa'}]}>Freezer</Text>
+                  <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
+                </TouchableOpacity>
+                <TouchableOpacity disabled={cab.stock_count > 0} onPress={() => handleDeleteCabinet(cab.id, cab.stock_count > 0)}>
+                  <MaterialCommunityIcons name="delete" size={20} color={cab.stock_count > 0 ? "#334155" : "#ef4444"} />
                 </TouchableOpacity>
               </View>
             </View>
-            <TouchableOpacity onPress={() => handleUpdateCabinet(cab.id)} style={[styles.addSaveBtnFull, { marginTop: 12 }]} testID="save-cabinet-btn"><Text style={styles.addSaveText}>SAVE CHANGES</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => setEditingCabId(null)} style={{ marginTop: 10, alignItems: 'center' }} testID="close-edit-cab-btn"><Text style={{ color: '#64748b', fontSize: 12, fontWeight: 'bold' }}>CANCEL</Text></TouchableOpacity>
-          </View>
-        ) : (
-          <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-between'}}>
-            <View><Text style={styles.catTitle}>{cab.name}</Text><Text style={{color: '#64748b', fontSize: 13}}>{cab.location || 'No Location'}</Text>{cab.cabinet_type === 'freezer' && (<View style={{flexDirection:'row',alignItems:'center',gap:4,marginTop:3}}><MaterialCommunityIcons name="snowflake" size={11} color="#60a5fa" /><Text style={{color:'#60a5fa',fontSize:11,fontWeight:'bold'}}>FREEZER</Text></View>)}</View>
-            <View style={styles.catActions}>
-              <TouchableOpacity onPress={() => { setEditingCabId(cab.id); setEditingCabName(cab.name); setEditingCabLocation(cab.location || ''); setEditingCabType(cab.cabinet_type || 'standard'); }} style={{marginRight: 10}} testID={`edit-cab-btn-${cab.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
-                <TouchableOpacity disabled={cab.stock_count > 0} onPress={() => handleDeleteCabinet(cab.id, cab.stock_count > 0)}><MaterialCommunityIcons name="delete" size={20} color={cab.stock_count > 0 ? "#334155" : "#ef4444"} /></TouchableOpacity>
-            </View>
-          </View>
-        )}
+          )}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -1601,7 +1737,39 @@ export default function CatalogScreen() {
                       </TouchableOpacity>
                     </View>
                   </View>
-                  <TouchableOpacity onPress={handleAddCabinet} style={styles.addSaveBtnFull} testID="create-cab-btn"><Text style={styles.addSaveText}>DEPLOY CABINET</Text></TouchableOpacity>
+                  <View style={{ marginBottom: 10 }}>
+                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>ROTATION CYCLE</Text>
+                    <View style={styles.unitChipRowMini}>
+                      {[0, 1, 3, 6, 12].map(m => (
+                        <TouchableOpacity key={m} style={[styles.unitChip, newCabRotationInterval === m && styles.unitChipActive]} onPress={() => setNewCabRotationInterval(m)}>
+                          <Text style={[styles.unitChipText, newCabRotationInterval === m && styles.unitChipTextActive]}>{m === 0 ? 'NONE' : `${m}m`}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                  {newCabRotationInterval > 0 && (
+                    <View style={{ marginBottom: 10 }}>
+                      <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>ROTATION DESTINATION</Text>
+                      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+                        <TouchableOpacity 
+                          style={[styles.chip, !newCabRotDestId && styles.chipActive]} 
+                          onPress={() => setNewCabRotDestId(null)}
+                        >
+                          <Text style={[styles.chipText, !newCabRotDestId && styles.chipTextActive]}>None (Stay)</Text>
+                        </TouchableOpacity>
+                        {cabinets.map(c => (
+                          <TouchableOpacity 
+                            key={c.id} 
+                            style={[styles.chip, newCabRotDestId === c.id && styles.chipActive]} 
+                            onPress={() => setNewCabRotDestId(c.id)}
+                          >
+                            <Text style={[styles.chipText, newCabRotDestId === c.id && styles.chipTextActive]}>{c.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                  <TouchableOpacity onPress={handleAddCabinet} style={styles.addSaveBtnFull} testID="create-cabinet-btn"><Text style={styles.addSaveText}>COMMISSION CABINET</Text></TouchableOpacity>
               </View>
             )} />
       ) : activeTab === 'system' ? (
@@ -1715,12 +1883,15 @@ export default function CatalogScreen() {
             </View>
 
             {/* MANUAL CONTROLS */}
-            <View style={{flexDirection: 'row', gap: 10}}>
-              <TouchableOpacity style={[styles.actionBtn, {flex: 1, backgroundColor: '#3b82f6'}]} onPress={handleManualBackup}>
-                <Text style={styles.actionBtnText}>SNAPSHOT NOW</Text>
+            <View style={{flexDirection: 'row', gap: 8}}>
+              <TouchableOpacity style={[styles.actionBtn, {flex: 1, backgroundColor: '#3b82f6', paddingHorizontal: 4}]} onPress={handleManualBackup}>
+                <Text style={[styles.actionBtnText, {fontSize: 11}]} numberOfLines={1} adjustsFontSizeToFit>SNAPSHOT</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.actionBtn, {flex: 1, backgroundColor: '#ef4444'}]} onPress={() => setShowRestoreSourceModal(true)}>
-                <Text style={styles.actionBtnText}>SYSTEM RECOVERY</Text>
+              <TouchableOpacity style={[styles.actionBtn, {flex: 1, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#3b82f6', paddingHorizontal: 4}]} onPress={fetchMissionLogs}>
+                <Text style={[styles.actionBtnText, {color: '#3b82f6', fontSize: 11}]} numberOfLines={1} adjustsFontSizeToFit>MISSION LOGS</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, {flex: 1, backgroundColor: '#ef4444', paddingHorizontal: 4}]} onPress={() => setShowRestoreSourceModal(true)}>
+                <Text style={[styles.actionBtnText, {fontSize: 11}]} numberOfLines={1} adjustsFontSizeToFit>RECOVERY</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1780,6 +1951,11 @@ export default function CatalogScreen() {
                     <View style={{backgroundColor: '#fbbf24', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4}}>
                       <Text style={{color: '#0f172a', fontSize: 10, fontWeight: 'bold'}}>{new Date(bunker.timestamp).toLocaleTimeString()}</Text>
                     </View>
+                    {bunker.version && (
+                      <View style={{backgroundColor: '#0f2744', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#fbbf24'}}>
+                        <Text style={{color: '#fbbf24', fontSize: 10, fontWeight: 'bold'}}>v{bunker.version}</Text>
+                      </View>
+                    )}
                   </View>
                   
                   {bunker.note ? (
@@ -1787,6 +1963,15 @@ export default function CatalogScreen() {
                   ) : null}
                   
                   <Text style={[styles.backupMeta, {color: '#94a3b8'}]}>{bunker.summary || 'Census data unavailable'}</Text>
+                  
+                  {bunker.logCount !== undefined ? (
+                    <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 4}}>
+                      <MaterialCommunityIcons name="delta" size={12} color={bunker.logCount > 0 ? "#fbbf24" : "#94a3b8"} />
+                      <Text style={{color: bunker.logCount > 0 ? '#fbbf24' : '#94a3b8', fontSize: 11, fontWeight: 'bold'}}>
+                        {bunker.logCount > 0 ? `${bunker.logCount} OPERATIONS CAPTURED` : `0 CHANGES CAPTURED`}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
                 <View style={{flexDirection: 'row', gap: 8, alignItems: 'center'}}>
                   <TouchableOpacity 
@@ -1801,6 +1986,62 @@ export default function CatalogScreen() {
           )}
 
           <Text style={styles.label}>Local Snapshot Archive (Rolling 5)</Text>
+          
+          {/* ─── TACTICAL DELTA BRIEFING ─── */}
+          {currentCensus && backups.length > 0 && backups[0].counts && (
+            <View style={{ marginBottom: 20, backgroundColor: '#000', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#1e293b' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <MaterialCommunityIcons name="delta" size={18} color="#3b82f6" />
+                <Text style={{ color: '#f8fafc', fontSize: 13, fontWeight: 'bold', letterSpacing: 1 }}>DELTA (SINCE LAST SNAPSHOT)</Text>
+              </View>
+              
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {[
+                  { label: 'UNITS', val: currentCensus.units - backups[0].counts.units },
+                  { label: 'BATCHES', val: currentCensus.batches - backups[0].counts.batches },
+                  { label: 'TYPES', val: currentCensus.types - backups[0].counts.types },
+                  { label: 'CATEGORIES', val: currentCensus.categories - backups[0].counts.categories },
+                  { label: 'CABINETS', val: currentCensus.cabinets - backups[0].counts.cabinets },
+                ].map((d, idx) => {
+                  if (d.val === 0) return null;
+                  return (
+                    <View key={idx} style={{ backgroundColor: '#0f172a', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: d.val > 0 ? '#22c55e44' : '#ef444444', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <MaterialCommunityIcons 
+                        name={d.val > 0 ? "plus-circle" : "minus-circle"} 
+                        size={12} 
+                        color={d.val > 0 ? "#22c55e" : "#ef4444"} 
+                      />
+                      <Text style={{ color: d.val > 0 ? "#22c55e" : "#ef4444", fontSize: 11, fontWeight: 'bold' }}>
+                        {Math.abs(d.val)} {d.label}
+                      </Text>
+                    </View>
+                  );
+                })}
+                {/* Check for general updates if counts are identical */}
+                {(() => {
+                   const hasNumericChange = (currentCensus.units - backups[0].counts.units) !== 0 ||
+                                            (currentCensus.batches - backups[0].counts.batches) !== 0 ||
+                                            (currentCensus.types - backups[0].counts.types) !== 0 ||
+                                            (currentCensus.categories - backups[0].counts.categories) !== 0 ||
+                                            (currentCensus.cabinets - backups[0].counts.cabinets) !== 0;
+                   
+                   // Fallback: If no numeric change but "last modified" is newer than backup
+                   // We don't have the exact mod time easily here without another DB call, 
+                   // but we can assume if no numeric changes, it's either "UNCHANGED" or "UPDATED (CONTENT)"
+                   if (!hasNumericChange) {
+                     return (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 }}>
+                          <MaterialCommunityIcons name="check-decagram" size={14} color="#64748b" />
+                          <Text style={{ color: '#64748b', fontSize: 12, fontStyle: 'italic' }}>NO LOGISTICAL DRIFT DETECTED</Text>
+                        </View>
+                     );
+                   }
+                   return null;
+                })()}
+              </View>
+            </View>
+          )}
+
           {backups.length === 0 ? (
             <Text style={{color: '#64748b', textAlign: 'center', marginTop: 20}}>No backups recorded yet.</Text>
           ) : (
@@ -1812,6 +2053,11 @@ export default function CatalogScreen() {
                     <View style={{backgroundColor: '#0f172a', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#334155'}}>
                       <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{new Date(item.timestamp).toLocaleTimeString()}</Text>
                     </View>
+                    {item.version && (
+                      <View style={{backgroundColor: '#1e293b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#64748b'}}>
+                        <Text style={{color: '#cbd5e1', fontSize: 10, fontWeight: 'bold'}}>v{item.version}</Text>
+                      </View>
+                    )}
                   </View>
                   
                   {item.note ? (
@@ -1819,6 +2065,15 @@ export default function CatalogScreen() {
                   ) : null}
                   
                   <Text style={styles.backupMeta}>{item.summary || 'Census data unavailable'}</Text>
+                  
+                  {item.logCount !== undefined ? (
+                    <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 4}}>
+                      <MaterialCommunityIcons name="delta" size={12} color={item.logCount > 0 ? "#3b82f6" : "#94a3b8"} />
+                      <Text style={{color: item.logCount > 0 ? '#3b82f6' : '#94a3b8', fontSize: 11, fontWeight: 'bold'}}>
+                        {item.logCount > 0 ? `${item.logCount} OPERATIONS CAPTURED` : `0 CHANGES CAPTURED`}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
                 <View style={{flexDirection: 'row', gap: 8, alignItems: 'center'}}>
                   <TouchableOpacity 
@@ -2095,45 +2350,58 @@ export default function CatalogScreen() {
 
         {/* TACTICAL NOTE MODAL */}
         <Modal visible={showNoteModal} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, {backgroundColor: '#0f172a', borderColor: '#3b82f6', borderWidth: 2}]}>
-              <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 12}}>
-                <View style={{backgroundColor: '#1e293b', padding: 10, borderRadius: 12}}>
-                  <MaterialCommunityIcons name="tag-text-outline" size={28} color="#3b82f6" />
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+            <View style={styles.modalOverlay}>
+              <View style={[styles.modalContent, {backgroundColor: '#0f172a', borderColor: '#3b82f6', borderWidth: 2}]}>
+                <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 12}}>
+                  <View style={{backgroundColor: '#1e293b', padding: 10, borderRadius: 12}}>
+                    <MaterialCommunityIcons name="tag-text-outline" size={28} color="#3b82f6" />
+                  </View>
+                  <View style={{flex: 1}}>
+                    <Text style={[styles.modalTitle, {marginBottom: 0, textAlign: 'left', fontSize: 18}]}>Archive Metadata</Text>
+                    <Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>MARK THIS TACTICAL SNAPSHOT</Text>
+                  </View>
                 </View>
-                <View style={{flex: 1}}>
-                  <Text style={[styles.modalTitle, {marginBottom: 0, textAlign: 'left', fontSize: 18}]}>Archive Metadata</Text>
-                  <Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>MARK THIS TACTICAL SNAPSHOT</Text>
+                
+                <View style={{backgroundColor: '#1e293b', padding: 12, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#334155'}}>
+                  <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, letterSpacing: 1}}>FINAL PRE-SNAPSHOT EVENT</Text>
+                  <Text style={{color: '#3b82f6', fontSize: 13, fontStyle: 'italic'}}>{currentActivity}</Text>
                 </View>
-              </View>
-              <View style={{backgroundColor: '#1e293b', padding: 12, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#334155'}}>
-                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, letterSpacing: 1}}>FINAL PRE-SNAPSHOT EVENT</Text>
-                <Text style={{color: '#3b82f6', fontSize: 13, fontStyle: 'italic'}}>{currentActivity}</Text>
-              </View>
 
-              <View style={{marginBottom: 20}}>
-                <Text style={styles.miniLabel}>TACTICAL NOTE</Text>
-                <TextInput 
-                  style={[styles.inputSmall, {backgroundColor: '#1e293b', minHeight: 80, textAlignVertical: 'top', paddingTop: 12}]}
-                  placeholder="e.g. Pre-Experiment / Shopping Trip"
-                  placeholderTextColor="#64748b"
-                  value={tacticalNote}
-                  onChangeText={setTacticalNote}
-                  multiline
-                  autoFocus
-                />
-              </View>
+                <View style={{marginBottom: 20}}>
+                  <Text style={styles.miniLabel}>TACTICAL NOTE</Text>
+                  <TextInput 
+                    style={{
+                      backgroundColor: '#0f172a', 
+                      color: '#f8fafc', 
+                      borderRadius: 8, 
+                      padding: 12, 
+                      fontSize: 15, 
+                      borderWidth: 1, 
+                      borderColor: '#3b82f6',
+                      minHeight: 100, 
+                      textAlignVertical: 'top'
+                    }}
+                    placeholder="e.g. Pre-Experiment / Shopping Trip"
+                    placeholderTextColor="#64748b"
+                    value={tacticalNote}
+                    onChangeText={setTacticalNote}
+                    multiline
+                    autoFocus
+                  />
+                </View>
 
-              <View style={{flexDirection: 'row', gap: 12}}>
-                <TouchableOpacity style={{flex: 1, backgroundColor: '#1e293b', padding: 14, borderRadius: 10, alignItems: 'center'}} onPress={() => setShowNoteModal(false)}>
-                  <Text style={{color: '#94a3b8', fontWeight: 'bold', fontSize: 13}}>CANCEL</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={{flex: 2, backgroundColor: '#3b82f6', padding: 14, borderRadius: 10, alignItems: 'center'}} onPress={() => executeManualSnapshot(tacticalNote)}>
-                  <Text style={{color: 'white', fontWeight: 'bold', fontSize: 13}}>CAPTURE SNAPSHOT</Text>
-                </TouchableOpacity>
+                <View style={{flexDirection: 'row', gap: 12}}>
+                  <TouchableOpacity style={{flex: 1, backgroundColor: '#1e293b', padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#334155'}} onPress={() => setShowNoteModal(false)}>
+                    <Text style={{color: '#94a3b8', fontWeight: 'bold', fontSize: 13}}>CANCEL</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={{flex: 2, backgroundColor: '#3b82f6', padding: 14, borderRadius: 10, alignItems: 'center'}} onPress={() => executeManualSnapshot(tacticalNote)}>
+                    <Text style={{color: 'white', fontWeight: 'bold', fontSize: 13}}>CAPTURE SNAPSHOT</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* INLINE ADD CABINET MODAL */}
@@ -2195,6 +2463,60 @@ export default function CatalogScreen() {
                 This event represents the final operational activity recorded on the database prior to the creation of this archive.
               </Text>
 
+              <TouchableOpacity 
+                style={{backgroundColor: '#1e293b', padding: 14, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: '#fbbf24', marginBottom: 16}} 
+                onPress={async () => {
+                   if (selectedBackup && selectedBackup.uri) {
+                     try {
+                       const content = await BackupService.readLocalBackup(selectedBackup.uri);
+                       const parsed = JSON.parse(content);
+                       if (parsed.tables && parsed.tables.TacticalLogs && parsed.tables.TacticalLogs.length > 0) {
+                         setShowActivityModal(false);
+                          const idx = backups.findIndex(b => b.uri === selectedBackup.uri);
+                          const c = selectedBackup.counts;
+                          const isBunker = idx === -1;
+                          setIsBunkerLedger(isBunker);
+
+                          if (idx >= 0 && idx + 1 < backups.length && backups[idx+1].counts && c) {
+                            // Regular snapshot: diff against the one that came before it
+                            const prev = backups[idx+1].counts;
+                            setMissionDelta({
+                              units: c.units - prev.units,
+                              batches: c.batches - prev.batches,
+                              types: c.types - prev.types,
+                              categories: c.categories - prev.categories,
+                              cabinets: c.cabinets - prev.cabinets
+                            });
+                          } else if (isBunker && c && backups.length > 0 && backups[0].counts) {
+                            // Bunker: flip direction - drift FROM pinned baseline
+                            const latest = backups[0].counts;
+                            setMissionDelta({
+                              units: latest.units - c.units,
+                              batches: latest.batches - c.batches,
+                              types: latest.types - c.types,
+                              categories: latest.categories - c.categories,
+                              cabinets: latest.cabinets - c.cabinets
+                            });
+                          } else {
+                            // No valid prior baseline at all
+                            setMissionDelta(null);
+                          }
+
+                         setMissionLogs(parsed.tables.TacticalLogs);
+                         setShowMissionLogs(true);
+                       } else {
+                         Alert.alert("No Logs", "This archive predates the tactical logging engine or has no logs.");
+                       }
+                     } catch (e) {
+                       Alert.alert("Error", "Could not read archive data.");
+                     }
+                   }
+                }}
+              >
+                <MaterialCommunityIcons name="text-box-search-outline" size={18} color="#fbbf24" />
+                <Text style={{color: '#fbbf24', fontWeight: 'bold', fontSize: 13}}>VIEW ARCHIVED LOGS</Text>
+              </TouchableOpacity>
+
               <View style={{flexDirection: 'row', gap: 12, marginBottom: 16}}>
                 <TouchableOpacity 
                   style={{flex: 1, backgroundColor: '#ef4444', padding: 14, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8}} 
@@ -2223,6 +2545,167 @@ export default function CatalogScreen() {
         </Modal>
       </>
 
+      {/* ─── MISSION LOGS MODAL ─── */}
+      <Modal visible={showMissionLogs} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%', padding: 0 }]}>
+            <View style={{ padding: 20, backgroundColor: '#1e293b', borderBottomWidth: 1, borderBottomColor: '#334155' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <MaterialCommunityIcons name="clipboard-pulse-outline" size={24} color="#3b82f6" />
+                  <Text style={{ color: '#f8fafc', fontSize: 18, fontWeight: 'bold' }}>Command Ledger</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowMissionLogs(false)}>
+                  <MaterialCommunityIcons name="close" size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              {isBunkerLedger ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 12, lineHeight: 18 }}>
+                    Operations below were captured when this snapshot was pinned.
+                  </Text>
+                  <Text style={{ color: '#fbbf24', fontSize: 11, lineHeight: 16 }}>
+                    Entity counts show how far the current system has drifted from this pinned baseline.
+                  </Text>
+                </View>
+              ) : (
+                <Text style={{ color: '#94a3b8', fontSize: 12, lineHeight: 18 }}>
+                  A record of everything that changed since the last snapshot — what was added, used up, or removed.
+                </Text>
+              )}
+
+              {/* TACTICAL METRICS PANEL */}
+              <View style={{ marginTop: 16 }}>
+                <View style={{ width: '100%', backgroundColor: '#0f172a', paddingVertical: 10, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#3b82f6', marginBottom: 6 }}>
+                  <Text style={{ color: '#f8fafc', fontSize: 18, fontWeight: 'bold' }}>{missionLogs.length}</Text>
+                  <Text style={{ color: '#64748b', fontSize: 8.5, fontWeight: 'bold', marginTop: 4, letterSpacing: 1 }}>TOTAL OPERATIONS</Text>
+                </View>
+
+                {/* STRUCTURAL ENTITIES */}
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
+                  {[
+                    { label: 'CABINETS', key: 'cabinets' },
+                    { label: 'CATEGORIES', key: 'categories' },
+                    { label: 'ITEM TYPES', key: 'types' }
+                  ].map((metric, idx) => {
+                    let displayVal = '-';
+                    let color = '#64748b'; // default slate
+                    
+                    if (missionDelta) {
+                      const net = (missionDelta as any)[metric.key] || 0;
+                      if (net > 0) {
+                        displayVal = `+${net}`;
+                        color = '#34d399'; // green for growth
+                      } else if (net < 0) {
+                        displayVal = `${net}`;
+                        color = '#f87171'; // red for depletion
+                      } else {
+                        displayVal = '0';
+                        color = '#64748b';
+                      }
+                    }
+
+                    return (
+                      <View key={idx} style={{ 
+                        flex: 1, 
+                        backgroundColor: '#0f172a', 
+                        paddingVertical: 10, 
+                        borderRadius: 8, 
+                        alignItems: 'center', 
+                        borderWidth: 1, 
+                        borderColor: '#334155' 
+                      }}>
+                        <Text style={{ color: color, fontSize: 16, fontWeight: 'bold' }}>{displayVal}</Text>
+                        <Text style={{ color: '#94a3b8', fontSize: 8, fontWeight: 'bold', marginTop: 4, letterSpacing: 0.5 }}>{metric.label}</Text>
+                      </View>
+                    )
+                  })}
+                </View>
+
+                {/* PHYSICAL ENTITIES */}
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {[
+                    { label: 'BATCHES', key: 'batches' },
+                    { label: 'UNITS', key: 'units' }
+                  ].map((metric, idx) => {
+                    let displayVal = '-';
+                    let color = '#64748b';
+                    
+                    if (missionDelta) {
+                      const net = (missionDelta as any)[metric.key] || 0;
+                      if (net > 0) {
+                        displayVal = `+${net}`;
+                        color = '#34d399';
+                      } else if (net < 0) {
+                        displayVal = `${net}`;
+                        color = '#f87171';
+                      } else {
+                        displayVal = '0';
+                        color = '#64748b';
+                      }
+                    }
+
+                    return (
+                      <View key={idx} style={{ 
+                        flex: 1, 
+                        backgroundColor: '#0f172a', 
+                        paddingVertical: 10, 
+                        borderRadius: 8, 
+                        alignItems: 'center', 
+                        borderWidth: 1, 
+                        borderColor: '#334155' 
+                      }}>
+                        <Text style={{ color: color, fontSize: 16, fontWeight: 'bold' }}>{displayVal}</Text>
+                        <Text style={{ color: '#94a3b8', fontSize: 8, fontWeight: 'bold', marginTop: 4, letterSpacing: 0.5 }}>{metric.label}</Text>
+                      </View>
+                    )
+                  })}
+                </View>
+              </View>
+            </View>
+            
+            <FlatList
+              data={missionLogs}
+              keyExtractor={item => item.id.toString()}
+              contentContainerStyle={{ padding: 16 }}
+              renderItem={({ item }) => (
+                <View style={{ marginBottom: 12, backgroundColor: '#0f172a', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#1e293b' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ 
+                        backgroundColor: 
+                          item.action_type === 'ADD' ? '#065f46' : 
+                          item.action_type === 'DELETE' ? '#7f1d1d' : 
+                          item.action_type === 'MOVE' ? '#1e3a8a' : 
+                          '#1e293b', 
+                        paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 
+                      }}>
+                        <Text style={{ color: 'white', fontSize: 9, fontWeight: 'bold' }}>{item.action_type}</Text>
+                      </View>
+                      <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: 'bold' }}>{item.entity_type}</Text>
+                    </View>
+                    <Text style={{ color: '#64748b', fontSize: 10 }}>{new Date(item.timestamp).toLocaleString()}</Text>
+                  </View>
+                  <Text style={{ color: '#f8fafc', fontSize: 14, fontWeight: 'bold' }}>{item.entity_name}</Text>
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={{ padding: 40, alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="clipboard-off-outline" size={48} color="#1e293b" />
+                  <Text style={{ color: '#64748b', marginTop: 12, textAlign: 'center' }}>No tactical actions recorded in this deployment.</Text>
+                </View>
+              }
+            />
+            
+            <TouchableOpacity 
+              style={{ padding: 16, backgroundColor: '#0f172a', borderTopWidth: 1, borderTopColor: '#1e293b' }} 
+              onPress={() => setShowMissionLogs(false)}
+            >
+              <Text style={{ color: '#3b82f6', fontWeight: 'bold', textAlign: 'center' }}>CLOSE COMMAND LEDGER</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2302,7 +2785,7 @@ const styles = StyleSheet.create({
   actionBtnText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
   backupItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', padding: 16, borderRadius: 10, marginBottom: 8 },
   backupName: { color: '#f8fafc', fontSize: 14, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontWeight: 'bold' },
-  backupMeta: { color: '#64748b', fontSize: 11, marginTop: 2 },
+  backupMeta: { color: '#94a3b8', fontSize: 11, marginTop: 2 },
   shareBtn: { backgroundColor: '#334155', padding: 10, borderRadius: 8 },
   statBadgeRow: { flexDirection: 'row', marginLeft: 36, marginTop: 4, flexWrap: 'wrap', gap: 5 },
   statBadge: { 
@@ -2374,7 +2857,7 @@ const styles = StyleSheet.create({
   doctrineText: {
     fontSize: 9,
     fontWeight: '900',
-    color: '#64748b',
+    color: '#94a3b8',
     letterSpacing: 0.5,
   },
   doctrineTextActive: {

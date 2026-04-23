@@ -82,6 +82,8 @@ export const FEATURE_TIER: Record<string, 'SERGEANT' | 'GENERAL'> = {
   VANGUARD_INTEGRITY: 'SERGEANT',
   ERROR_DETECTION:  'SERGEANT',
   CABINET_AUDIT:    'GENERAL',
+  STOCK_ROTATION:   'SERGEANT',
+  ROTATION_ALERTS:  'GENERAL',
 };
 
 // Feature lock descriptions
@@ -101,6 +103,8 @@ const FEATURE_COPY: Record<string, { title: string; desc: string; tier: 'SERGEAN
   VANGUARD_INTEGRITY: { title: 'Vanguard Integrity',    desc: 'Automated active-silence checks for inventory drift.',                  tier: 'SERGEANT' },
   ERROR_DETECTION:  { title: 'Smart Error Detection',   desc: 'Fuzzy-logic validation for entry errors and near-misses.',               tier: 'SERGEANT' },
   CABINET_AUDIT:    { title: 'Cabinet Audit Mode',      desc: 'High-speed physical inventory reconciliation flow.',                    tier: 'GENERAL'  },
+  STOCK_ROTATION:   { title: 'Tactical Stock Rotation', desc: 'Manage periodic stock movement cycles for deep storage zones.',         tier: 'SERGEANT' },
+  ROTATION_ALERTS:  { title: 'Rotation Reminders',      desc: 'Monthly alerts for cabinets overdue for a logistical rotation sweep.',  tier: 'GENERAL'  },
 };
 
 const TIER_PRICE: Record<'SERGEANT' | 'GENERAL', string> = {
@@ -411,8 +415,8 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 <Text style={styles.welcomeRowText}>Full freezer logistics — age-based tracking</Text>
               </View>
               <View style={styles.welcomeRow}>
-                <MaterialCommunityIcons name="truck-delivery" size={16} color="#60a5fa" />
-                <Text style={styles.welcomeRowText}>The Quartermaster — low-stock reports &amp; sharing</Text>
+                <MaterialCommunityIcons name="cached" size={16} color="#60a5fa" />
+                <Text style={styles.welcomeRowText}>Stock Rotation — periodic movement cycles</Text>
               </View>
               <View style={styles.welcomeDivider} />
               <View style={styles.tierHeader}>
@@ -422,7 +426,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               <Text style={styles.tierInheritNote}>Everything in Sergeant, plus:</Text>
               <View style={styles.welcomeRow}>
                 <MaterialCommunityIcons name="bell-ring" size={16} color="#fbbf24" />
-                <Text style={styles.welcomeRowText}>Automated low-stock &amp; expiry alerts</Text>
+                <Text style={styles.welcomeRowText}>Automated rotation & expiry alerts</Text>
               </View>
               <View style={styles.welcomeRow}>
                 <MaterialCommunityIcons name="chef-hat" size={16} color="#fbbf24" />
@@ -626,8 +630,8 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     <Text style={styles.benefitSub}>Freezer cabinet mode — age-based tracking</Text>
                   </View>
                   <View style={styles.benefitRow}>
-                    <MaterialCommunityIcons name="truck-delivery" size={18} color="#60a5fa" />
-                    <Text style={styles.benefitSub}>The Quartermaster — low-stock reports & sharing</Text>
+                    <MaterialCommunityIcons name="cached" size={18} color="#60a5fa" />
+                    <Text style={styles.benefitSub}>Tactical Stock Rotation — audit secondary storage</Text>
                   </View>
                 </View>
                 <TouchableOpacity testID="paywall-buy-sergeant-btn" style={styles.buyBtnSergeant} onPress={() => handleSimulatedPurchase('SERGEANT')}>
@@ -654,8 +658,8 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     <Text style={styles.benefitSub}>Low stock & expiry alerts</Text>
                   </View>
                   <View style={styles.benefitRow}>
-                    <MaterialCommunityIcons name="chef-hat" size={18} color="#fbbf24" />
-                    <Text style={styles.benefitSub}>The Mess Hall — AI-powered recipe suggestions</Text>
+                    <MaterialCommunityIcons name="bell-ring" size={18} color="#fbbf24" />
+                    <Text style={styles.benefitSub}>Automated rotation & expiry alerts</Text>
                   </View>
 
                 </View>

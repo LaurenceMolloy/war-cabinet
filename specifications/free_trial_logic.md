@@ -95,22 +95,24 @@ To empower user agency, Cadets may choose to "Graduate Early" within the Promoti
 
 ### RANK: PRIVATE (Post-Trial Free)
 - [✓] **Earned Scale**: 8 Cabinets / 8 Categories / 32 batches and 32 item types.
-- [✓] **Core Ops**: Basic stock tracking only. No Freezer mode intelligence, AI, data integrity engine, batch consolidation, partial consumption or Alerts.
+- [✓] **Core Ops**: Basic MANUAL stock tracking only, incl. freezer mode intelligence
+- [✓] No AI, data integrity engine, batch consolidation, partial consumption or Alerts.
 
 ### RANK: SERGEANT (£4.99 One-Time)
 - [✓] **Unlimited Logistics Net**: Unlimited cabinets, categories, batches and item types.
-- [✓] **Freezer Intelligence**: Full visibility of "frozen-since" age data.
 - [✓] **Tactical Consolidation**: Quality-of-life tools (Batch Consolidation).
 - [✓] **Portion Tracking**: Fractional pip deductions and bulk decanting support.
 - [✓] **Barcode Logistics**: Lightning-fast data entry via memory-mapped physical scanner.
 - [✓] **Data Integrity Engine**: Advanced noise cancellation and interactive reconciliation to keep your usage metrics clean. (this includes capturing and correcting all types of user error)
-- [✓] **The Quartermaster Hub**: Tactical reports and sharing.
+- [✓] **The Quartermaster Hub**: Tactical resupply reports and sharing.
+- [✓] **Tactical Stock Rotation**: Manual movement-audit roster for secondary storage zones.
 
 ### RANK: GENERAL (£2.49 / month or £19.99 / year)
 - [TODO] **Strategic Command**: Automated alerts
     - [TODO] weekly low-stock (predictive)
     - [TODO] monthly overstock (predictive)
     - [✓] expiry (based on actual expiry dates)
+    - [✓] stock rotation (alerts for overdue cabinet sweeps)
 - [TODO] **SITREP Intelligence**: 90-day BurnRate and "Days of Cover" forecasting.
 - [TODO] **Predictive Waste Analysis**: The Intersection Model (Expiry vs. Consumption conflicts).
 - [PARKED] **Market & Cost Intelligence**: Personalised inflation tracking, proxy batches, and recon-only (no stock) items.

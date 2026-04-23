@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
  *    script is lagging and requires an audit.
  * 4. Only after auditing BackupService.ts should the versions be re-aligned.
  */
-export const CURRENT_SCHEMA_VERSION = 104;
+export const CURRENT_SCHEMA_VERSION = 107;
 
 // Helper to record last action for backup context
 export const recordActivity = async (db: any, description: string) => {
@@ -21,6 +21,22 @@ export const recordActivity = async (db: any, description: string) => {
     await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['last_activity_log', fullDesc]);
   } catch (e) {
     console.error('[DB] Failed to record activity:', e);
+  }
+};
+
+export const logTacticalAction = async (db: any, action: string, type: string, id: number | null, name: string, details?: string) => {
+  try {
+    const ts = Date.now();
+    await db.runAsync(
+      'INSERT INTO TacticalLogs (timestamp, action_type, entity_type, entity_id, entity_name, details) VALUES (?, ?, ?, ?, ?, ?)',
+      [ts, action, type, id, name, details || null]
+    );
+    // Legacy support for backup summary
+    const dateStr = new Date(ts).toLocaleString();
+    await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['last_activity_log', `${action} ${type}: ${name} (${dateStr})`]);
+    await db.runAsync("UPDATE Settings SET value = ? WHERE key = 'last_modified_time'", [ts.toString()]);
+  } catch (e) {
+    console.error('[LOG] Failed to record tactical action:', e);
   }
 };
 
@@ -68,19 +84,35 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       expiry_year INTEGER,
       entry_month INTEGER NOT NULL,
       entry_year INTEGER NOT NULL,
+      entry_day INTEGER NOT NULL DEFAULT 1,
       cabinet_id INTEGER,
       batch_intel TEXT,
       supplier TEXT,
       product_range TEXT,
       portions_total INTEGER,
       portions_remaining INTEGER,
+      last_rotated_at INTEGER,
       FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id)
     );
 
     CREATE TABLE IF NOT EXISTS Cabinets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
-      location TEXT
+      location TEXT,
+      rotation_interval_months INTEGER,
+      default_rotation_cabinet_id INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS RotationLogs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_type_id INTEGER,
+      source_cabinet_id INTEGER,
+      target_cabinet_id INTEGER,
+      quantity REAL,
+      size TEXT,
+      expiry_month INTEGER,
+      expiry_year INTEGER,
+      rotated_at INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS Settings (
@@ -94,6 +126,16 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       supplier TEXT,
       size TEXT,
       FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS TacticalLogs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp INTEGER NOT NULL,
+      action_type TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER,
+      entity_name TEXT,
+      details TEXT
     );
   `);
 
@@ -170,6 +212,19 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     const hasCabinetType = cabColsRes.some(col => col.name === 'cabinet_type');
     if (!hasCabinetType) {
       await db.execAsync('ALTER TABLE Cabinets ADD COLUMN cabinet_type TEXT DEFAULT "standard"');
+      // Intelligence: Auto-classify existing cabinets based on name patterns
+      await db.execAsync("UPDATE Cabinets SET cabinet_type = 'freezer' WHERE name LIKE '%Freezer%' OR name LIKE '%Ice%'");
+      await db.execAsync('UPDATE Cabinets SET cabinet_type = "standard" WHERE cabinet_type IS NULL');
+    }
+    const hasRotInterval = cabColsRes.some(col => col.name === 'rotation_interval_months');
+    if (!hasRotInterval) {
+      await db.execAsync('ALTER TABLE Cabinets ADD COLUMN rotation_interval_months INTEGER');
+    }
+    const hasRotDest = cabColsRes.some(col => col.name === 'default_rotation_cabinet_id');
+    if (!hasRotDest) {
+      await db.execAsync('ALTER TABLE Cabinets ADD COLUMN default_rotation_cabinet_id INTEGER');
+      // Cleanup: Accidental '3' default from previous turn's schema migration
+      await db.execAsync('UPDATE Cabinets SET rotation_interval_months = NULL WHERE rotation_interval_months = 3');
     }
 
     const iInv = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
@@ -179,6 +234,27 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     if (!iInv.some(col => col.name === 'product_range')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN product_range TEXT');
     if (!iInv.some(col => col.name === 'portions_total')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN portions_total INTEGER');
     if (!iInv.some(col => col.name === 'portions_remaining')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN portions_remaining INTEGER');
+    if (!iInv.some(col => col.name === 'last_rotated_at')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN last_rotated_at INTEGER');
+    
+    const hasEntryDay = iInv.some(col => col.name === 'entry_day');
+    if (!hasEntryDay) {
+      await db.execAsync('ALTER TABLE Inventory ADD COLUMN entry_day INTEGER NOT NULL DEFAULT 1');
+      // Migration: Convert 6-digit last_rotated_at (YYYYMM) to 8-digit (YYYYMM01)
+      await db.runAsync("UPDATE Inventory SET last_rotated_at = last_rotated_at * 100 + 1 WHERE last_rotated_at IS NOT NULL AND last_rotated_at < 1000000");
+    }
+
+    // Iteration 107: Add TacticalLogs table migration
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS TacticalLogs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        action_type TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id INTEGER,
+        entity_name TEXT,
+        details TEXT
+      );
+    `);
 
     // Iteration 73: Size Standardization - Robust Cross-Platform Cleanup
     if (Platform.OS !== 'web') {

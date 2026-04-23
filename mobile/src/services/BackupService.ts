@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
  * createBackup and restore methods to account for all structural 
  * changes in sqlite.ts.
  */
-export const BACKUP_MANIFEST_VERSION = 104; // SYNCED TO ITERATION 104
+export const BACKUP_MANIFEST_VERSION = 107; // SYNCED TO ITERATION 107
 
 const getBackupDir = () => (FileSystem.documentDirectory || "") + 'backups/';
 const MAX_BACKUPS = 5;
@@ -23,6 +23,15 @@ export interface BackupMetadata {
   note?: string;
   summary?: string; // e.g. "54 Batches | 8 Types"
   lastAction?: string; // e.g. "Consumed 500g Flour (2026-04-23 00:50)"
+  logCount?: number;
+  version?: string;
+  counts?: {
+    units: number;
+    batches: number;
+    types: number;
+    categories: number;
+    cabinets: number;
+  };
 }
 
 export const BackupService = {
@@ -51,6 +60,7 @@ export const BackupService = {
       const cabinets = await db.getAllAsync<any>('SELECT * FROM Cabinets');
       const settings = await db.getAllAsync<any>('SELECT * FROM Settings');
       const barcodeSignatures = await db.getAllAsync<any>('SELECT * FROM BarcodeSignatures');
+      const tacticalLogs = await db.getAllAsync<any>('SELECT * FROM TacticalLogs');
 
       const lastActionRes = settings.find((s: any) => s.key === 'last_activity_log');
       let lastAction = lastActionRes ? lastActionRes.value : 'No operational changes recorded';
@@ -75,6 +85,13 @@ export const BackupService = {
 
       const totalUnits = inventory.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
       const summary = `${totalUnits} Units | ${inventory.length} Batches`;
+      const counts = {
+        units: totalUnits,
+        batches: inventory.length,
+        types: itemTypes.length,
+        categories: categories.length,
+        cabinets: cabinets.length
+      };
 
       const ts = Date.now();
       const fileName = `backup_${ts}.json`;
@@ -87,14 +104,17 @@ export const BackupService = {
         timestamp: ts,
         note: isManual ? (typeof isManual === 'string' ? isManual : 'Manual Snapshot') : 'System Archive',
         summary,
+        counts,
         lastAction,
+        logCount: tacticalLogs.length,
         tables: {
           Categories: categories,
           ItemTypes: itemTypes,
           Inventory: inventory,
           Cabinets: cabinets,
           Settings: settings,
-          BarcodeSignatures: barcodeSignatures
+          BarcodeSignatures: barcodeSignatures,
+          TacticalLogs: tacticalLogs
         }
       };
 
@@ -185,8 +205,11 @@ export const BackupService = {
           uri: `${backupDir}${f}`,
           timestamp: data.timestamp,
           summary: data.summary,
+          counts: data.counts,
           lastAction: data.lastAction,
-          note: data.note
+          note: data.note,
+          version: data.version,
+          logCount: data.logCount !== undefined ? data.logCount : (data.tables && data.tables.TacticalLogs ? data.tables.TacticalLogs.length : undefined)
         };
 
         if (f.startsWith('bunker_')) {
@@ -324,6 +347,7 @@ export const BackupService = {
         await db.runAsync("DELETE FROM Cabinets");
         await db.runAsync("DELETE FROM Settings");
         await db.runAsync("DELETE FROM BarcodeSignatures");
+        await db.runAsync("DELETE FROM TacticalLogs");
 
         const { tables } = jsonData;
         if (!tables) throw new Error("Invalid tactical data packet: Missing tables.");
@@ -390,6 +414,14 @@ export const BackupService = {
         const barcodeSigs = tables.BarcodeSignatures || [];
         for (const bs of barcodeSigs) {
           await db.runAsync("INSERT INTO BarcodeSignatures (barcode, item_type_id, supplier, size) VALUES (?, ?, ?, ?)", bs.barcode, bs.item_type_id, bs.supplier || null, bs.size || null);
+        }
+
+        const tacticalLogs = tables.TacticalLogs || [];
+        for (const log of tacticalLogs) {
+          await db.runAsync(
+            "INSERT INTO TacticalLogs (id, timestamp, action_type, entity_type, entity_id, entity_name, details) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            log.id, log.timestamp, log.action_type, log.entity_type, log.entity_id, log.entity_name, log.details || null
+          );
         }
       });
       return true;

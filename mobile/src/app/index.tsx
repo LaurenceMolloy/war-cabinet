@@ -6,7 +6,7 @@ import { Link, useFocusEffect, useRouter, useLocalSearchParams } from 'expo-rout
 import * as Notifications from 'expo-notifications';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { requestPermissions, scheduleMonthlyBriefing } from '../services/notifications';
-import { initializeDatabase, markModified, recordActivity } from '../db/sqlite';
+import { initializeDatabase, logTacticalAction } from '../db/sqlite';
 import { BackupService } from '../services/BackupService';
 import { useBilling } from '../context/BillingContext';
 
@@ -476,16 +476,18 @@ export default function HomeScreen() {
 
   const deductQuantity = async (invId: number, currentQty: number, typeId?: number, forceDelete = false) => {
     const isDeletion = currentQty <= 1 || forceDelete;
+    const type = typeId ? await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]) : null;
+    const inv = await db.getFirstAsync<any>('SELECT size, supplier FROM Inventory WHERE id = ?', [invId]);
+
     if (isDeletion) await db.runAsync('DELETE FROM Inventory WHERE id = ?', invId);
     else await db.runAsync('UPDATE Inventory SET quantity = quantity - 1 WHERE id = ?', invId);
     
     if (typeId) {
-      const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]);
       await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
-      await recordActivity(db, `${isDeletion ? 'Depleted batch' : 'Consumed unit'} of ${type?.name || 'Item'}`);
+      await logTacticalAction(db, isDeletion ? 'DELETE' : 'CONSUME', isDeletion ? 'BATCH' : 'UNIT', invId, type?.name || 'Item', 
+        JSON.stringify({ size: inv?.size, supplier: inv?.supplier }));
     }
     
-    await markModified(db);
     load();
   };
 
@@ -493,10 +495,11 @@ export default function HomeScreen() {
     await db.runAsync('UPDATE Inventory SET quantity = quantity + 1 WHERE id = ?', invId);
     if (typeId) {
       const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]);
+      const inv = await db.getFirstAsync<any>('SELECT size, supplier FROM Inventory WHERE id = ?', [invId]);
       await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
-      await recordActivity(db, `Added unit of ${type?.name || 'Item'}`);
+      await logTacticalAction(db, 'ADD', 'UNIT', invId, type?.name || 'Item', 
+        JSON.stringify({ size: inv?.size, supplier: inv?.supplier }));
     }
-    await markModified(db);
     load();
   };
 
@@ -529,7 +532,8 @@ export default function HomeScreen() {
       return;
     }
 
-    await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', [inlineCabName.trim(), inlineCabLoc.trim(), inlineCabType]);
+    const res = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', [inlineCabName.trim(), inlineCabLoc.trim(), inlineCabType]);
+    await logTacticalAction(db, 'ADD', 'CABINET', Number(res.lastInsertRowId), inlineCabName.trim());
     
     setShowInlineAddCabinet(false);
     setInlineCabName('');
@@ -545,7 +549,8 @@ export default function HomeScreen() {
       checkEntitlement('CATEGORY_LIMIT');
       return;
     }
-    await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', [inlineCatName.trim(), 'box', inlineCatIsMessHall ? 1 : 0]);
+    const res = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', [inlineCatName.trim(), 'box', inlineCatIsMessHall ? 1 : 0]);
+    await logTacticalAction(db, 'ADD', 'CATEGORY', Number(res.lastInsertRowId), inlineCatName.trim());
     setShowInlineAddCategory(false);
     setInlineCatName('');
     setInlineCatIsMessHall(true);
@@ -589,9 +594,10 @@ export default function HomeScreen() {
       );
     }
 
-    await markModified(db);
     const destName = moveDestCabinets.find(c => c.id === moveDestCabId)?.name ?? 'DESTINATION';
-    await recordActivity(db, `Transferred ${moveQty}x ${moveType.name} to ${destName}`);
+    await logTacticalAction(db, 'MOVE', 'BATCH', moveBatch.id, moveType.name, 
+      JSON.stringify({ from: moveBatch.cab_name, to: destName, qty: moveQty }));
+    
     triggerFeedback(`${moveQty} × ${moveType.name} → ${destName.toUpperCase()}`);
     load();
   };
@@ -663,7 +669,7 @@ export default function HomeScreen() {
         // Deduct at peak of glow — number drops while badge is still green
         await db.runAsync('UPDATE Inventory SET quantity = quantity - 1 WHERE id = ?', batchId);
         await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
-        await markModified(db);
+        await logTacticalAction(db, 'CONSUME', 'BATCH', batchId, confirmTarget.name);
         await load(cabId);
 
         // Hold glow briefly then fade
@@ -809,8 +815,7 @@ export default function HomeScreen() {
       setOptimisticRemainders(prev => ({ ...prev, [inv.id]: current - 1 }));
 
       await db.runAsync('UPDATE Inventory SET portions_remaining = ? WHERE id = ?', [current - 1, inv.id]);
-      await recordActivity(db, `Consumed portion of ${type.name}`);
-      await markModified(db);
+      await logTacticalAction(db, 'CONSUME_PORTION', 'BATCH', inv.id, type.name);
     } else {
       // Hard reload required for whole unit deduction
       setOptimisticRemainders(prev => {
@@ -826,7 +831,7 @@ export default function HomeScreen() {
         await db.runAsync('UPDATE Inventory SET quantity = quantity - 1, portions_remaining = portions_total WHERE id = ?', [inv.id]);
         triggerFeedback(`WHOLE UNIT CONSUMED`);
       }
-      await markModified(db);
+      await logTacticalAction(db, inv.quantity <= 1 ? 'DELETE' : 'CONSUME', 'BATCH', inv.id, type.name, 'PORTION_DEPLETION');
       load();
     }
   };

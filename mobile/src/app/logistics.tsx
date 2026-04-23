@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Share, ActivityIndicator, SafeAreaView, Platform, Alert, TextInput } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Share, ActivityIndicator, Platform, Alert, TextInput, Modal } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -12,8 +13,18 @@ export default function LogisticsScreen() {
   const db = useSQLiteContext();
   const { checkEntitlement } = useBilling();
   const [data, setData] = useState<any[]>([]);
+  const [rotationData, setRotationData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [logisticsEmail, setLogisticsEmail] = useState('');
+  const [collapsedCabinets, setCollapsedCabinets] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<'resupply' | 'rotation'>('resupply');
+  const [rotationFilter, setRotationFilter] = useState<'3m' | '1m'>('3m');
+  const [selectedBatches, setSelectedBatches] = useState<Map<number, number | null>>(new Map());
+  const [showTargetModal, setShowTargetModal] = useState<number | null>(null);
+  const [showDailyLog, setShowDailyLog] = useState(false);
+  const [dailyLog, setDailyLog] = useState<any[]>([]);
+  const [targetCabinetId, setTargetCabinetId] = useState<number | null>(null);
+  const [cabinets, setCabinets] = useState<any[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -98,13 +109,270 @@ export default function LogisticsScreen() {
 
 
     setData(grouped);
+    
+    // 6. Fetch Rotation Data
+    const rotationRows = await db.getAllAsync<any>(`
+      SELECT 
+        i.id,
+        t.name as type_name,
+        c.name as cab_name,
+        c.rotation_interval_months,
+        i.last_rotated_at,
+        i.quantity,
+        i.size,
+        i.entry_year,
+        i.entry_month,
+        i.entry_day,
+        i.expiry_year,
+        i.expiry_month,
+        t.unit_type,
+        c.default_rotation_cabinet_id,
+        c.id as cabinet_id
+      FROM Inventory i
+      JOIN ItemTypes t ON i.item_type_id = t.id
+      JOIN Cabinets c ON i.cabinet_id = c.id
+      WHERE c.cabinet_type = 'standard' AND c.rotation_interval_months IS NOT NULL AND c.rotation_interval_months > 0
+    `);
+
+    const now = new Date();
+    const currentTS = now.getFullYear() * 100 + (now.getMonth() + 1);
+    
+    const rotResults: any[] = [];
+    rotationRows.forEach(row => {
+      const lastRot = row.last_rotated_at;
+      let lastDate;
+      if (lastRot && lastRot > 1000000) { // 8-digit YYYYMMDD
+        const y = Math.floor(lastRot / 10000);
+        const m = Math.floor((lastRot % 10000) / 100);
+        const d = lastRot % 100;
+        lastDate = new Date(y, m - 1, d);
+      } else if (lastRot) { // Legacy 6-digit YYYYMM
+        const y = Math.floor(lastRot / 100);
+        const m = lastRot % 100;
+        lastDate = new Date(y, m - 1, 1);
+      } else {
+        lastDate = new Date(row.entry_year, row.entry_month - 1, row.entry_day || 1);
+      }
+      
+      const interval = row.rotation_interval_months || 3;
+      const monthsDiff = (now.getFullYear() - lastDate.getFullYear()) * 12 + (now.getMonth() - lastDate.getMonth());
+      
+      // Precision Adjustment: If today's day is less than the rotation day, the full month hasn't passed yet
+      let adjustedMonthsSince = monthsDiff;
+      if (now.getDate() < lastDate.getDate()) {
+        adjustedMonthsSince--;
+      }
+      
+      const targetDate = new Date(lastDate);
+      targetDate.setMonth(targetDate.getMonth() + interval);
+      const diffTime = targetDate.getTime() - now.getTime();
+      const remainingDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      const remaining = interval - adjustedMonthsSince;
+      // Calculate sortable expiry value (nulls last)
+      const expVal = row.expiry_year ? row.expiry_year * 100 + row.expiry_month : 999999;
+      
+      const item = { ...row, monthsSince: adjustedMonthsSince, remaining, remainingDays, expVal };
+      if (item.remaining <= (rotationFilter === '3m' ? 3 : 1)) {
+        rotResults.push(item);
+      }
+    });
+
+    // Strategy: Only show the SOONEST EXPIRING batch for each item type in each cabinet
+    const consolidatedRot: any[] = [];
+    rotResults.forEach(row => {
+      const existing = consolidatedRot.find(r => r.type_name === row.type_name && r.cab_name === row.cab_name);
+      if (!existing) {
+        consolidatedRot.push(row);
+      } else if (row.expVal < existing.expVal) {
+        // Swap for earlier expiry
+        const idx = consolidatedRot.indexOf(existing);
+        consolidatedRot[idx] = row;
+      }
+    });
+
+    const rotGrouped = consolidatedRot.reduce((acc: any[], row: any) => {
+      let cab = acc.find((c: any) => c.title === row.cab_name);
+      if (!cab) {
+        const targetCab = cabinets.find(c => c.id === row.default_rotation_cabinet_id);
+        cab = { 
+          title: row.cab_name, 
+          data: [], 
+          metrics: { 
+            count: 0, 
+            minDays: 999999, 
+            interval: row.rotation_interval_months,
+            targetName: targetCab?.name || null
+          } 
+        };
+        acc.push(cab);
+      }
+      cab.data.push(row);
+      cab.metrics.count++;
+      if (row.remainingDays < cab.metrics.minDays) cab.metrics.minDays = row.remainingDays;
+      return acc;
+    }, [] as any[]);
+
+    // Sort batches within each cabinet by remainingDays (soonest first)
+    rotGrouped.forEach(cab => {
+      cab.data.sort((a: any, b: any) => a.remainingDays - b.remainingDays);
+    });
+
+    // Sort cabinets by their soonest deadline (minDays)
+    rotGrouped.sort((a: any, b: any) => a.metrics.minDays - b.metrics.minDays);
+
+    setRotationData(rotGrouped);
     setLoading(false);
 
     const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'logistics_email');
     setLogisticsEmail(emailRes?.value || '');
+
+    const cabList = await db.getAllAsync<any>('SELECT * FROM Cabinets ORDER BY name');
+    setCabinets(cabList);
   };
 
-  useFocusEffect(useCallback(() => { load(); }, []));
+  const handleMarkRotated = async () => {
+    const ids = Array.from(selectedBatches.keys());
+    if (ids.length === 0) return;
+    
+    // Oversight Check: Ensure ALL selected items have a valid destination other than current cabinet
+    const deficientItems = [];
+    const now = new Date();
+    const ts = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+    
+    try {
+      const batchInfos = await db.getAllAsync<any>(`SELECT id, item_type_id, cabinet_id FROM Inventory WHERE id IN (${ids.join(',')})`);
+      
+      const commitActions = [];
+      for (const info of batchInfos) {
+        let finalTarget = selectedBatches.get(info.id);
+        
+        // If not explicitly set via override, use cabinet default
+        if (finalTarget === null || finalTarget === undefined) {
+          const sourceCab = cabinets.find(c => c.id === info.cabinet_id);
+          finalTarget = sourceCab?.default_rotation_cabinet_id || info.cabinet_id;
+        }
+
+        // Final verification: Is it actually moving?
+        if (Number(finalTarget) === Number(info.cabinet_id)) {
+          const type = rotationData.flatMap(g => g.data).find(i => i.id === info.id);
+          deficientItems.push(type?.type_name || 'Unknown Item');
+          continue; 
+        }
+        commitActions.push({ ts, finalTarget, sourceCabId: info.cabinet_id, typeId: info.item_type_id });
+      }
+
+      if (deficientItems.length > 0) {
+        Alert.alert(
+          'Strategic Oversight', 
+          `${deficientItems.length} items require a new destination. Rotation is only permitted when stock is moved to a new storage zone.\n\nDeficient: ${deficientItems.slice(0, 3).join(', ')}${deficientItems.length > 3 ? '...' : ''}`
+        );
+        return;
+      }
+
+      for (const action of commitActions) {
+        // Capture batch states before movement for the log
+        const movingBatches = await db.getAllAsync<any>(
+          'SELECT quantity, size, expiry_month, expiry_year FROM Inventory WHERE cabinet_id = ? AND item_type_id = ?', 
+          [action.sourceCabId, action.typeId]
+        );
+
+        for (const b of movingBatches) {
+          await db.runAsync(
+            'INSERT INTO RotationLogs (item_type_id, source_cabinet_id, target_cabinet_id, quantity, size, expiry_month, expiry_year, rotated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [action.typeId, action.sourceCabId, action.finalTarget, b.quantity, b.size, b.expiry_month, b.expiry_year, action.ts]
+          );
+        }
+
+        await db.runAsync(
+          'UPDATE Inventory SET last_rotated_at = ?, cabinet_id = ? WHERE cabinet_id = ? AND item_type_id = ?', 
+          [action.ts, action.finalTarget, action.sourceCabId, action.typeId]
+        );
+      }
+      
+      setSelectedBatches(new Map());
+      setTargetCabinetId(null);
+      load();
+      Alert.alert('Rotation Complete', `All batches for ${batchInfos.length} items have been rotated and relocated.`);
+    } catch (e) {
+      console.error('Failed to rotate batches:', e);
+    }
+  };
+
+  const fetchDailyLog = async () => {
+    const now = new Date();
+    const todayTS = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+    
+    try {
+      const logs = await db.getAllAsync<any>(`
+        SELECT 
+          l.item_type_id,
+          l.source_cabinet_id,
+          l.target_cabinet_id,
+          l.quantity,
+          l.size,
+          l.expiry_month,
+          l.expiry_year,
+          t.name as type_name,
+          t.unit_type,
+          c1.name as source_name,
+          c2.name as target_name
+        FROM RotationLogs l
+        JOIN ItemTypes t ON l.item_type_id = t.id
+        JOIN Cabinets c1 ON l.source_cabinet_id = c1.id
+        JOIN Cabinets c2 ON l.target_cabinet_id = c2.id
+        WHERE l.rotated_at = ?
+        ORDER BY l.id ASC
+      `, [todayTS]);
+      
+      // Squash logic: Group by batch identity and find net movement (Initial -> Final)
+      const cabinetMap = new Map<number, string>();
+      const allCabs = await db.getAllAsync<any>('SELECT id, name FROM Cabinets');
+      allCabs.forEach(c => cabinetMap.set(c.id, c.name));
+
+      const squashedMap = new Map<string, any>();
+      
+      for (const log of logs) {
+        const key = `${log.item_type_id}-${log.quantity}-${log.size}-${log.expiry_month}-${log.expiry_year}`;
+        
+        if (!squashedMap.has(key)) {
+          squashedMap.set(key, {
+            ...log,
+            initialSourceId: log.source_cabinet_id,
+            finalTargetId: log.target_cabinet_id,
+            initialSourceName: log.source_name,
+            finalTargetName: log.target_name
+          });
+        } else {
+          const existing = squashedMap.get(key);
+          // Update final target to the latest log's target
+          existing.finalTargetId = log.target_cabinet_id;
+          existing.finalTargetName = log.target_name;
+        }
+      }
+
+      // Filter out net-zero movements and format for display
+      const finalRows = Array.from(squashedMap.values())
+        .filter(row => row.initialSourceId !== row.finalTargetId)
+        .map(row => ({
+          type_name: row.type_name,
+          source_name: row.initialSourceName,
+          target_name: row.finalTargetName,
+          quantity: row.quantity,
+          size: row.size,
+          expiry_month: row.expiry_month,
+          expiry_year: row.expiry_year,
+          unit_type: row.unit_type
+        }));
+      
+      setDailyLog(finalRows.reverse()); // Latest movements first in UI
+      setShowDailyLog(true);
+    } catch (err) {
+      console.error('Failed to fetch daily log:', err);
+    }
+  };
+
+  useFocusEffect(useCallback(() => { load(); }, [rotationFilter, activeTab]));
 
   const formatQtyStr = (qty: number, unit: string) => {
     if (unit === 'weight') {
@@ -252,6 +520,136 @@ export default function LogisticsScreen() {
     </View>
   );
 
+  const renderRotationItem = ({ item: cab }: any) => {
+    const isCollapsed = collapsedCabinets.has(cab.title);
+    
+    // Format minDays metric for collapsed view
+    let minDaysLabel = "";
+    if (cab.metrics.minDays < 0) {
+       const absDays = Math.abs(cab.metrics.minDays);
+       const val = Math.ceil((absDays/30.44)*2)/2;
+       minDaysLabel = absDays >= 30 
+         ? `OVERDUE ${val} ${val === 1 ? 'MONTH' : 'MONTHS'}` 
+         : `OVERDUE ${absDays} ${absDays === 1 ? 'DAY' : 'DAYS'}`;
+    } else if (cab.metrics.minDays === 0) {
+       minDaysLabel = "DUE TODAY";
+    } else {
+       const val = Math.ceil((cab.metrics.minDays/30.44)*2)/2;
+       minDaysLabel = cab.metrics.minDays < 30 
+         ? `DUE ${cab.metrics.minDays} ${cab.metrics.minDays === 1 ? 'DAY' : 'DAYS'}` 
+         : `DUE ${val} ${val === 1 ? 'MONTH' : 'MONTHS'}`;
+    }
+
+    return (
+      <View style={styles.catGroup}>
+        <TouchableOpacity 
+          style={[styles.catHeader, {borderBottomColor: '#fbbf2433', justifyContent: 'space-between'}]}
+          onPress={() => {
+             const next = new Set(collapsedCabinets);
+             if (next.has(cab.title)) next.delete(cab.title);
+             else next.add(cab.title);
+             setCollapsedCabinets(next);
+          }}
+        >
+          <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
+            <MaterialCommunityIcons name={isCollapsed ? "chevron-right" : "chevron-down"} size={18} color="#fbbf24" style={{marginRight: 6}} />
+            <Text style={[styles.catTitle, {color: '#fbbf24'}]}>{cab.title.toUpperCase()}</Text>
+            {cab.metrics.targetName && (
+              <View style={{flexDirection: 'row', alignItems: 'center', marginLeft: 8}}>
+                <MaterialCommunityIcons name="arrow-right" size={12} color="#fbbf24" style={{opacity: 0.7}} />
+                <Text style={{color: '#fbbf24', fontSize: 10, fontWeight: 'bold', marginLeft: 4, opacity: 0.8}}>{cab.metrics.targetName.toUpperCase()}</Text>
+              </View>
+            )}
+            {isCollapsed && (
+              <Text style={{color: '#94a3b8', fontSize: 10, marginLeft: 12, fontWeight: 'bold'}}>
+                {cab.metrics.count} {cab.metrics.count === 1 ? 'ITEM' : 'ITEMS'} · {minDaysLabel}
+              </Text>
+            )}
+          </View>
+          <View style={{backgroundColor: '#fbbf2433', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, borderWidth: 1, borderColor: '#fbbf2466'}}>
+            <Text style={{color: '#fbbf24', fontSize: 8, fontWeight: 'bold'}}>{cab.metrics.interval}M CYCLE</Text>
+          </View>
+        </TouchableOpacity>
+
+        {!isCollapsed && cab.data.map((item: any) => {
+          const isSelected = selectedBatches.has(item.id);
+          const overrideId = selectedBatches.get(item.id);
+          const targetId = overrideId || item.default_rotation_cabinet_id;
+          const targetCab = cabinets.find(c => c.id === targetId);
+          
+          return (
+            <TouchableOpacity 
+              key={`rot-${item.id}`} 
+              style={[styles.resupplyRow, isSelected && {backgroundColor: '#1e293b', borderColor: '#fbbf24', borderWidth: 1}]}
+              onPress={() => {
+                const next = new Map(selectedBatches);
+                if (next.has(item.id)) next.delete(item.id);
+                else next.set(item.id, item.default_rotation_cabinet_id || null);
+                setSelectedBatches(next);
+              }}
+            >
+              <View style={{flex: 1}}>
+                <Text style={[styles.itemName, item.remainingDays <= 0 && {color: '#ef4444'}]}>{item.type_name}</Text>
+                <Text style={styles.itemMeta}>
+                  {item.quantity} × {formatQtyStr(parseFloat(item.size) || 0, item.unit_type)}
+                  {item.expiry_month && ` · Exp: ${item.expiry_month.toString().padStart(2, '0')}/${item.expiry_year}`}
+                </Text>
+                <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4}}>
+                  <Text style={{color: '#94a3b8', fontSize: 11}}>
+                    Last Rotated: {item.last_rotated_at 
+                      ? `${item.last_rotated_at % 100}/${Math.floor((item.last_rotated_at % 10000) / 100).toString().padStart(2, '0')}/${Math.floor(item.last_rotated_at / 10000)}` 
+                      : 'NEVER'}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.deficitCol}>
+                {isSelected ? (
+                  <TouchableOpacity 
+                    onPress={() => setShowTargetModal(item.id)}
+                    style={{backgroundColor: '#fbbf2433', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: targetId === item.cabinet_id ? '#ef4444' : '#fbbf2466', flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 28}}
+                  >
+                    <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 4}}>
+                      <Text style={{color: targetId === item.cabinet_id ? '#ef4444' : '#fbbf24', fontSize: 10, fontWeight: 'bold'}}>ROTATE TO:</Text>
+                      <Text style={{color: targetId === item.cabinet_id ? '#ef4444' : '#fbbf24', fontSize: targetId === item.cabinet_id ? 9 : 11, fontWeight: 'bold'}} numberOfLines={1}>
+                        {targetId === item.cabinet_id ? 'PICK DESTINATION' : targetCab?.name || 'PICK DESTINATION'}
+                      </Text>
+                    </View>
+                    <MaterialCommunityIcons name="chevron-down" size={14} color={targetId === item.cabinet_id ? '#ef4444' : '#fbbf24'} />
+                  </TouchableOpacity>
+                ) : (
+                  <View style={[styles.badge, {borderColor: item.remainingDays <= 0 ? '#ef4444' : '#fbbf24', minHeight: 28, justifyContent: 'center'}]}>
+                    <Text style={[styles.badgeText, {color: item.remainingDays <= 0 ? '#ef4444' : '#fbbf24'}]}>
+                      {item.remainingDays < 0 ? (() => {
+                        const absDays = Math.abs(item.remainingDays);
+                        const val = Math.ceil((absDays/30.44)*2)/2;
+                        return absDays >= 30 
+                          ? `OVERDUE ${val} ${val === 1 ? 'MONTH' : 'MONTHS'}`
+                          : `OVERDUE ${absDays} ${absDays === 1 ? 'DAY' : 'DAYS'}`;
+                      })() : item.remainingDays === 0 ? (
+                        "DUE TODAY"
+                      ) : (() => {
+                        const val = Math.ceil((item.remainingDays/30.44)*2)/2;
+                        return item.remainingDays < 30 
+                          ? `DUE ${item.remainingDays} ${item.remainingDays === 1 ? 'DAY' : 'DAYS'}` 
+                          : `DUE ${val} ${val === 1 ? 'MONTH' : 'MONTHS'}`;
+                      })()}
+                    </Text>
+                  </View>
+                )}
+                <MaterialCommunityIcons 
+                  name={isSelected ? "checkbox-marked-circle" : "checkbox-blank-circle-outline"} 
+                  size={22} 
+                  color={isSelected ? "#fbbf24" : "#334155"} 
+                  style={{marginTop: 8}} 
+                />
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerColumn}>
@@ -269,10 +667,18 @@ export default function LogisticsScreen() {
             </View>
           </View>
 
-          <View style={[styles.headerSideCol, { alignItems: 'flex-end', width: 60 }]}>
-            {data.length > 0 && (
+          <View style={[styles.headerSideCol, { alignItems: 'flex-end', width: 100 }]}>
+            {activeTab === 'resupply' && data.length > 0 && (
               <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
                 <Text style={styles.shareBtnText}>SHARE</Text>
+              </TouchableOpacity>
+            )}
+            {activeTab === 'rotation' && (
+              <TouchableOpacity 
+                style={[styles.shareBtn, {backgroundColor: '#fbbf24'}]} 
+                onPress={fetchDailyLog}
+              >
+                <Text style={[styles.shareBtnText, {color: '#0f172a'}]}>SUMMARY</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -283,10 +689,28 @@ export default function LogisticsScreen() {
           <View style={styles.headerSideCol} />
           <View style={styles.headerCenterCol}>
             <View style={{ paddingLeft: 12 }}>
-              <Text style={styles.subtitle}>Low stocks shopping list</Text>
+              <Text style={styles.subtitle}>{activeTab === 'resupply' ? 'Low stocks shopping list' : 'Tactical movement roster'}</Text>
             </View>
           </View>
           <View style={[styles.headerSideCol, { width: 60 }]} />
+        </View>
+
+        <View style={{flexDirection: 'row', backgroundColor: '#0f172a', padding: 4, marginHorizontal: 16, marginBottom: 12, borderRadius: 10}}>
+          <TouchableOpacity 
+            style={[{flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8}, activeTab === 'resupply' && {backgroundColor: '#1e293b'}]}
+            onPress={() => setActiveTab('resupply')}
+          >
+            <Text style={{color: activeTab === 'resupply' ? '#3b82f6' : '#64748b', fontSize: 11, fontWeight: 'bold'}}>RESUPPLY</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[{flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8}, activeTab === 'rotation' && {backgroundColor: '#1e293b'}]}
+            onPress={() => { if (checkEntitlement('STOCK_ROTATION')) setActiveTab('rotation'); }}
+          >
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+              <MaterialCommunityIcons name="cached" size={14} color={activeTab === 'rotation' ? '#fbbf24' : '#64748b'} />
+              <Text style={{color: activeTab === 'rotation' ? '#fbbf24' : '#64748b', fontSize: 11, fontWeight: 'bold'}}>ROTATION</Text>
+            </View>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -295,16 +719,39 @@ export default function LogisticsScreen() {
           <ActivityIndicator size="large" color="#3b82f6" />
         </View>
       ) : (
-        <FlatList
-          data={data}
-          keyExtractor={item => item.title}
-          renderItem={renderItem}
-          contentContainerStyle={{padding: 16}}
+        <View style={{flex: 1}}>
+          {activeTab === 'rotation' && (
+            <View style={{flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, gap: 8, alignItems: 'center'}}>
+              <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold'}}>URGENCY:</Text>
+              <TouchableOpacity 
+                style={[{paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#334155'}, rotationFilter === '3m' && {backgroundColor: '#fbbf24', borderColor: '#fbbf24'}]}
+                onPress={() => setRotationFilter('3m')}
+              >
+                <Text style={{color: rotationFilter === '3m' ? '#0f172a' : '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>3 MONTHS</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[{paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#334155'}, rotationFilter === '1m' && {backgroundColor: '#ef4444', borderColor: '#ef4444'}]}
+                onPress={() => setRotationFilter('1m')}
+              >
+                <Text style={{color: rotationFilter === '1m' ? '#f8fafc' : '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>THIS MONTH</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <FlatList
+            data={activeTab === 'resupply' ? data : rotationData}
+            keyExtractor={item => item.title}
+            renderItem={activeTab === 'resupply' ? renderItem : renderRotationItem}
+            contentContainerStyle={{padding: 16, paddingBottom: 100}}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <MaterialCommunityIcons name="check-decagram" size={64} color="#1e293b" />
               <Text style={styles.emptyTitle}>War-Footing Maintained</Text>
-              <Text style={styles.emptyText}>All tracked stockpiles are at or above their designated thresholds.</Text>
+              <Text style={styles.emptyText}>
+                {activeTab === 'resupply' 
+                  ? 'All tracked stockpiles are at or above their designated thresholds.' 
+                  : 'No items currently require tactical rotation in this cycle.'}
+              </Text>
             </View>
           }
           ListHeaderComponent={
@@ -326,8 +773,131 @@ export default function LogisticsScreen() {
           }
 
         />
-      )}
-    </SafeAreaView>
+
+        {activeTab === 'rotation' && selectedBatches.size > 0 && (() => {
+          // Check for any deficient items in the selection
+          const allItems = rotationData.flatMap(g => g.data);
+          let hasDeficiency = false;
+          for (const [id, targetId] of selectedBatches.entries()) {
+            const item = allItems.find(i => i.id === id);
+            if (!item) continue;
+            const finalT = targetId || item.default_rotation_cabinet_id;
+            if (!finalT || finalT === item.cabinet_id) {
+              hasDeficiency = true;
+              break;
+            }
+          }
+
+          return (
+            <View style={{position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#0f172a', borderTopWidth: 2, borderTopColor: hasDeficiency ? '#ef444433' : '#fbbf2433', padding: 16, paddingBottom: Platform.OS === 'ios' ? 36 : 20, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.5, shadowRadius: 15, elevation: 25}}>
+              <TouchableOpacity 
+                style={{backgroundColor: hasDeficiency ? '#334155' : '#fbbf24', paddingVertical: 16, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', shadowColor: hasDeficiency ? '#000' : '#fbbf24', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8}}
+                onPress={handleMarkRotated}
+                disabled={hasDeficiency}
+              >
+                <MaterialCommunityIcons name={hasDeficiency ? "alert-circle-outline" : "cached"} size={24} color={hasDeficiency ? "#94a3b8" : "#0f172a"} />
+                <Text style={{color: hasDeficiency ? "#94a3b8" : "#0f172a", fontWeight: 'bold', fontSize: 17, marginLeft: 10}}>
+                  {hasDeficiency ? 'DESTINATION REQUIRED' : `COMPLETE ROTATION (${selectedBatches.size})`}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })()}
+
+        <Modal visible={showTargetModal !== null} transparent animationType="fade">
+          <View style={{flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20}}>
+            <View style={{backgroundColor: '#1e293b', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#334155'}}>
+              <Text style={{color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 20}}>SELECT DESTINATION</Text>
+              {cabinets.filter(c => {
+                const currentGroup = rotationData.find(g => g.data.some((i: any) => i.id === showTargetModal));
+                const currentItem = currentGroup?.data.find((i: any) => i.id === showTargetModal);
+                return c.id !== currentItem?.cabinet_id;
+              }).map(cab => {
+                const currentGroup = rotationData.find(g => g.data.some((i: any) => i.id === showTargetModal));
+                const currentItem = currentGroup?.data.find((i: any) => i.id === showTargetModal);
+                const isDefault = cab.id === currentItem?.default_rotation_cabinet_id;
+                
+                return (
+                  <TouchableOpacity 
+                    key={cab.id}
+                    style={{paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#334155', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}
+                    onPress={() => {
+                      const next = new Map(selectedBatches);
+                      next.set(showTargetModal!, cab.id);
+                      setSelectedBatches(next);
+                      setShowTargetModal(null);
+                    }}
+                  >
+                    <Text style={{color: isDefault ? '#fbbf24' : 'white', fontWeight: isDefault ? 'bold' : 'normal'}}>{cab.name}</Text>
+                    {isDefault && <Text style={{color: '#fbbf24', fontSize: 8, fontWeight: 'bold'}}>DEFAULT</Text>}
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity 
+                style={{marginTop: 20, paddingVertical: 12, backgroundColor: '#334155', borderRadius: 8, alignItems: 'center'}}
+                onPress={() => setShowTargetModal(null)}
+              >
+                <Text style={{color: 'white', fontWeight: 'bold'}}>CANCEL</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* DAILY LOG MODAL */}
+        <Modal visible={showDailyLog} transparent animationType="slide">
+          <View style={{flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', padding: 20}}>
+            <View style={{backgroundColor: '#1e293b', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#fbbf2433', maxHeight: '80%'}}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+                <View>
+                  <Text style={{color: 'white', fontSize: 18, fontWeight: 'bold'}}>MISSION SUMMARY</Text>
+                  <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>ROTATIONS COMPLETED TODAY</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowDailyLog(false)}>
+                  <MaterialCommunityIcons name="close" size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+
+              <FlatList
+                data={dailyLog}
+                keyExtractor={(_, index) => `log-${index}`}
+                renderItem={({ item }) => (
+                  <View style={{paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#334155'}}>
+                    <Text style={{color: 'white', fontWeight: 'bold'}}>{item.type_name}</Text>
+                    <Text style={{color: '#94a3b8', fontSize: 10, marginTop: 2}}>
+                      {item.quantity} × {formatQtyStr(parseFloat(item.size) || 0, item.unit_type)}
+                      {item.expiry_month && ` · Exp: ${item.expiry_month.toString().padStart(2, '0')}/${item.expiry_year}`}
+                    </Text>
+                    <View style={{flexDirection: 'row', marginTop: 8, alignItems: 'center', gap: 6}}>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#334155'}}>
+                        <Text style={{color: '#64748b', fontSize: 9, fontWeight: 'bold'}}>{item.source_name.toUpperCase()}</Text>
+                      </View>
+                      <MaterialCommunityIcons name="arrow-right" size={12} color="#fbbf24" />
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#fbbf241a', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#fbbf2433'}}>
+                        <Text style={{color: '#fbbf24', fontSize: 9, fontWeight: 'bold'}}>{item.target_name.toUpperCase()}</Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+                ListEmptyComponent={
+                  <View style={{padding: 40, alignItems: 'center'}}>
+                    <MaterialCommunityIcons name="clipboard-text-outline" size={48} color="#334155" />
+                    <Text style={{color: '#64748b', textAlign: 'center', marginTop: 12}}>No rotations have been logged today.</Text>
+                  </View>
+                }
+              />
+
+              <TouchableOpacity 
+                style={{marginTop: 20, paddingVertical: 16, backgroundColor: '#fbbf24', borderRadius: 12, alignItems: 'center'}}
+                onPress={() => setShowDailyLog(false)}
+              >
+                <Text style={{color: '#0f172a', fontWeight: 'bold'}}>DISMISS</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    )}
+  </SafeAreaView>
   );
 }
 
@@ -373,4 +943,24 @@ const styles = StyleSheet.create({
   emailFooter: { marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   emailFooterLabel: { color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 6, paddingLeft: 4 },
   emailInput: { backgroundColor: '#1e293b', color: '#f8fafc', borderRadius: 8, padding: 12, fontSize: 14, borderWidth: 1, borderColor: '#334155' },
+  miniChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#1e293b',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  miniChipActive: {
+    backgroundColor: '#fbbf2422',
+    borderColor: '#fbbf24',
+  },
+  miniChipText: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  miniChipTextActive: {
+    color: '#fbbf24',
+  },
 });
