@@ -44,3 +44,5 @@ app-example
 
 # separate project - exclude temporary files
 /solar_calcs
+
+/node_modules/*

@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { Platform } from 'react-native';
 
 /**
  * STRATEGIC SCHEMA MANIFEST
@@ -10,11 +11,27 @@ import * as SQLite from 'expo-sqlite';
  *    script is lagging and requires an audit.
  * 4. Only after auditing BackupService.ts should the versions be re-aligned.
  */
-export const CURRENT_SCHEMA_VERSION = 103; 
+export const CURRENT_SCHEMA_VERSION = 104;
+
+// Helper to record last action for backup context
+export const recordActivity = async (db: any, description: string) => {
+  try {
+    const ts = new Date().toLocaleString();
+    const fullDesc = `${description} (${ts})`;
+    await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['last_activity_log', fullDesc]);
+  } catch (e) {
+    console.error('[DB] Failed to record activity:', e);
+  }
+};
 
 export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
-  
-  await db.execAsync('PRAGMA foreign_keys = ON;');
+  try {
+    console.log('[DB] Initializing Cabinet Intelligence...');
+    
+    // Guard PRAGMA for Web to prevent NoModificationAllowedError
+    if (Platform.OS !== 'web') {
+      await db.execAsync('PRAGMA foreign_keys = ON;');
+    }
   
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS Categories (
@@ -164,13 +181,15 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     if (!iInv.some(col => col.name === 'portions_remaining')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN portions_remaining INTEGER');
 
     // Iteration 73: Size Standardization - Robust Cross-Platform Cleanup
-    const dirtyRows = await db.getAllAsync<{id: number, size: string}>(
-      "SELECT id, size FROM Inventory WHERE size IS NOT NULL"
-    );
-    for (const row of dirtyRows) {
-      if (/[^0-9.]/.test(row.size)) {
-        const cleanSize = row.size.replace(/[^0-9.]/g, '');
-        await db.runAsync("UPDATE Inventory SET size = ? WHERE id = ?", [cleanSize, row.id]);
+    if (Platform.OS !== 'web') {
+      const dirtyRows = await db.getAllAsync<{id: number, size: string}>(
+        "SELECT id, size FROM Inventory WHERE size IS NOT NULL"
+      );
+      for (const row of dirtyRows) {
+        if (/[^0-9.]/.test(row.size)) {
+          const cleanSize = row.size.replace(/[^0-9.]/g, '');
+          await db.runAsync("UPDATE Inventory SET size = ? WHERE id = ?", [cleanSize, row.id]);
+        }
       }
     }
 
@@ -178,22 +197,22 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     const cabRes = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Cabinets');
     const shouldSkipSeeds = typeof window !== 'undefined' && (window as any).__E2E_SKIP_SEEDS__;
     if (cabRes && cabRes.count === 0 && !shouldSkipSeeds) {
-      const res = await db.runAsync('INSERT INTO Cabinets (name, location) VALUES (?, ?)', 'Main Cabinet', 'Kitchen');
+      const res = await db.runAsync('INSERT INTO Cabinets (name, location) VALUES (?, ?)', ['Main Cabinet', 'Kitchen']);
       const mainCabId = res.lastInsertRowId;
       // Assign existing inventory to main
-      await db.runAsync('UPDATE Inventory SET cabinet_id = ? WHERE cabinet_id IS NULL', mainCabId);
+      await db.runAsync('UPDATE Inventory SET cabinet_id = ? WHERE cabinet_id IS NULL', [mainCabId]);
     }
 
     // Seed Settings
     const setRes = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'month_brief_enabled');
     if (!setRes || (setRes as any).count === 0) {
-      await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'month_brief_enabled', '1');
+      await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', ['month_brief_enabled', '1']);
     }
     
     // Backup settings
-    await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'auto_backup_enabled', '1');
-    await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'last_modified_time', Date.now().toString());
-    await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', 'last_backup_time', '0');
+    await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', ['auto_backup_enabled', '1']);
+    await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', ['last_modified_time', Date.now().toString()]);
+    await db.runAsync('INSERT OR IGNORE INTO Settings (key, value) VALUES (?, ?)', ['last_backup_time', '0']);
     
     /*
     ## Sixty-Fifth Iteration Feedback
@@ -206,13 +225,13 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
 
     // Iteration 65: Data Sovereignty Migration (Strip units from DB)
     const i65Migrated = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'migration_v65_complete');
-    if (!i65Migrated || (i65Migrated as any).count === 0) {
+    if ((!i65Migrated || (i65Migrated as any).count === 0) && Platform.OS !== 'web') {
       // 1. Clean ItemTypes.default_size
       const types = await db.getAllAsync<{id: number, default_size: string}>('SELECT id, default_size FROM ItemTypes WHERE default_size IS NOT NULL');
       for (const t of types) {
         const clean = t.default_size.replace(/[^0-9]/g, '');
         if (clean !== t.default_size) {
-          await db.runAsync('UPDATE ItemTypes SET default_size = ? WHERE id = ?', clean, t.id);
+          await db.runAsync('UPDATE ItemTypes SET default_size = ? WHERE id = ?', [clean, t.id]);
         }
       }
 
@@ -221,11 +240,11 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       for (const i of inv) {
         const clean = i.size.replace(/[^0-9]/g, '');
         if (clean !== i.size) {
-          await db.runAsync('UPDATE Inventory SET size = ? WHERE id = ?', clean, i.id);
+          await db.runAsync('UPDATE Inventory SET size = ? WHERE id = ?', [clean, i.id]);
         }
       }
 
-      await db.runAsync('INSERT INTO Settings (key, value) VALUES (?, ?)', 'migration_v65_complete', '1');
+      await db.runAsync('INSERT INTO Settings (key, value) VALUES (?, ?)', ['migration_v65_complete', '1']);
       console.log('Migration v65 (Data Sovereignty) complete.');
     }
 
@@ -234,26 +253,28 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       const migCheck = await db.getAllAsync<{key: string}>('SELECT key FROM Settings WHERE key = ?', 'migration_v99_complete');
       if (migCheck.length === 0) {
         // Fast marker write to satisfy boot
-        await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', 'migration_v99_complete', '1');
+        await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v99_complete', '1']);
       }
     } catch (e: any) {
       console.error('v99 marker failed', e);
     }
-    // Migration: ensure BarcodeSignatures has ON DELETE CASCADE
-    const hasBarcodeCascade = await db.getAllAsync<any>("PRAGMA foreign_key_list(BarcodeSignatures)");
-    if (hasBarcodeCascade.length > 0 && !hasBarcodeCascade.some(fk => fk.on_delete === 'CASCADE')) {
-      await db.execAsync(`
-        CREATE TABLE BarcodeSignatures_new (
-          barcode TEXT PRIMARY KEY,
-          item_type_id INTEGER NOT NULL,
-          supplier TEXT,
-          size TEXT,
-          FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE
-        );
-        INSERT INTO BarcodeSignatures_new SELECT * FROM BarcodeSignatures;
-        DROP TABLE BarcodeSignatures;
-        ALTER TABLE BarcodeSignatures_new RENAME TO BarcodeSignatures;
-      `);
+    // Migration: ensure BarcodeSignatures has ON DELETE CASCADE (Native Only)
+    if (Platform.OS !== 'web') {
+      const hasBarcodeCascade = await db.getAllAsync<any>("PRAGMA foreign_key_list(BarcodeSignatures)");
+      if (hasBarcodeCascade.length > 0 && !hasBarcodeCascade.some(fk => fk.on_delete === 'CASCADE')) {
+        await db.execAsync(`
+          CREATE TABLE BarcodeSignatures_new (
+            barcode TEXT PRIMARY KEY,
+            item_type_id INTEGER NOT NULL,
+            supplier TEXT,
+            size TEXT,
+            FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE
+          );
+          INSERT INTO BarcodeSignatures_new SELECT * FROM BarcodeSignatures;
+          DROP TABLE BarcodeSignatures;
+          ALTER TABLE BarcodeSignatures_new RENAME TO BarcodeSignatures;
+        `);
+      }
     }
 
     // Migration: Silently populate freezer expiry (Iteration 102)
@@ -275,7 +296,7 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     }
 
     // Set formal schema version
-    await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', 'schema_version', CURRENT_SCHEMA_VERSION.toString());
+    await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['schema_version', CURRENT_SCHEMA_VERSION.toString()]);
 
   } catch(e) {
     console.error('Migration failed:', e);
@@ -301,28 +322,35 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     ];
 
     for (const cat of seedCategories) {
-      const res = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', cat.name, cat.icon || 'box', (cat as any).is_mess_hall !== undefined ? (cat as any).is_mess_hall : 1);
-      const catId = res.lastInsertRowId;
-      
-      let items: {name: string, unit: string}[] = [];
-      if (cat.name === 'Alcohol') items = [{name:'Red Wine', unit:'volume'}, {name:'White Wine', unit:'volume'}, {name:'Rose Wine', unit:'volume'}];
-      if (cat.name === 'Sweeteners') items = [{name:'Honey', unit:'weight'}];
-      if (cat.name === 'Carbohydrates') items = [{name:'Basmati Rice', unit:'weight'}, {name:'Tagliatelle', unit:'weight'}, {name:'Penne Pasta', unit:'weight'}, {name:'Noodles', unit:'weight'}];
-      if (cat.name === 'Seasonings') items = [{name:'Salt', unit:'weight'}, {name:'Black Pepper', unit:'weight'}, {name:'Mixed Herbs', unit:'weight'}, {name:'Oregano', unit:'weight'}, {name:'Paprika', unit:'weight'}, {name:'Coriander', unit:'weight'}, {name:'Cumin', unit:'weight'}];
-      if (cat.name === 'Canned Goods') items = [{name:'Tomatoes', unit:'weight'}, {name:'Passata', unit:'weight'}, {name:'Tomato Puree', unit:'weight'}, {name:'Sweetcorn', unit:'weight'}, {name:'Kidney Beans', unit:'weight'}, {name:'Tuna', unit:'weight'}];
-      if (cat.name === 'Chinese') items = [{name:'Soy Sauce', unit:'volume'}, {name:'Sesame Oil', unit:'volume'}, {name:'Rice Wine', unit:'volume'}];
-      if (cat.name === 'Indian') items = [{name:'Madras Curry Sauce', unit:'weight'}];
-      if (cat.name === 'Coffee/Tea') items = [{name:'Instant Coffee', unit:'weight'}, {name:'Tea bags', unit:'count'}];
+      try {
+        const res = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', [cat.name, cat.icon || 'box', (cat as any).is_mess_hall !== undefined ? (cat as any).is_mess_hall : 1]);
+        const catId = res.lastInsertRowId;
+        
+        let items: {name: string, unit: string}[] = [];
+        if (cat.name === 'Alcohol') items = [{name:'Red Wine', unit:'volume'}, {name:'White Wine', unit:'volume'}, {name:'Rose Wine', unit:'volume'}];
+        if (cat.name === 'Sweeteners') items = [{name:'Honey', unit:'weight'}];
+        if (cat.name === 'Carbohydrates') items = [{name:'Basmati Rice', unit:'weight'}, {name:'Tagliatelle', unit:'weight'}, {name:'Penne Pasta', unit:'weight'}, {name:'Noodles', unit:'weight'}];
+        if (cat.name === 'Seasonings') items = [{name:'Salt', unit:'weight'}, {name:'Black Pepper', unit:'weight'}, {name:'Mixed Herbs', unit:'weight'}, {name:'Oregano', unit:'weight'}, {name:'Paprika', unit:'weight'}, {name:'Coriander', unit:'weight'}, {name:'Cumin', unit:'weight'}];
+        if (cat.name === 'Canned Goods') items = [{name:'Tomatoes', unit:'weight'}, {name:'Passata', unit:'weight'}, {name:'Tomato Puree', unit:'weight'}, {name:'Sweetcorn', unit:'weight'}, {name:'Kidney Beans', unit:'weight'}, {name:'Tuna', unit:'weight'}];
+        if (cat.name === 'Chinese') items = [{name:'Soy Sauce', unit:'volume'}, {name:'Sesame Oil', unit:'volume'}, {name:'Rice Wine', unit:'volume'}];
+        if (cat.name === 'Indian') items = [{name:'Madras Curry Sauce', unit:'weight'}];
+        if (cat.name === 'Coffee/Tea') items = [{name:'Instant Coffee', unit:'weight'}, {name:'Tea bags', unit:'count'}];
 
-      for (const item of items) {
-        await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type) VALUES (?, ?, ?)', catId, item.name, item.unit);
+        for (const item of items) {
+          await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type) VALUES (?, ?, ?)', [catId, item.name, item.unit]);
+        }
+      } catch (seedErr) {
+        console.warn('[DB] Seeding category failed:', cat.name, seedErr);
       }
     }
   }
 
-  // Returns nothing
+    // Returns nothing
+  } catch (globalErr) {
+    console.error('[DB] CRITICAL HANDSHAKE FAILURE:', globalErr);
+  }
 }
 
 export async function markModified(db: any) {
-  await db.runAsync("UPDATE Settings SET value = ? WHERE key = 'last_modified_time'", Date.now().toString());
+  await db.runAsync("UPDATE Settings SET value = ? WHERE key = 'last_modified_time'", [Date.now().toString()]);
 }

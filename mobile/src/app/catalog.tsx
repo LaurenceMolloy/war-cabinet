@@ -3,7 +3,9 @@ import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, S
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { BackupService, BackupMetadata, BACKUP_MANIFEST_VERSION } from '../services/BackupService';
+import { GoogleDriveService, GOOGLE_AUTH_CONFIG } from '../services/GoogleDriveService';
 import { CURRENT_SCHEMA_VERSION, markModified } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
 import SUPPLIERS_DATA from '../data/suppliers.json';
@@ -86,6 +88,231 @@ export default function CatalogScreen() {
   const [inlineCabLoc, setInlineCabLoc] = useState('');
   const [inlineCabType, setInlineCabType] = useState<'standard' | 'freezer'>('standard');
 
+  const [cloudBackupEnabled, setCloudBackupEnabled] = useState(false);
+  const [cloudSchedule, setCloudSchedule] = useState('Daily');
+  const [cloudAccount, setCloudAccount] = useState('');
+  const [cloudLastSync, setCloudLastSync] = useState('');
+  const [cloudLastStatus, setCloudLastStatus] = useState('');
+  const [showCloudConsentModal, setShowCloudConsentModal] = useState(false);
+  const [showRestoreSourceModal, setShowRestoreSourceModal] = useState(false);
+  
+  
+  /**
+   * THE OAUTH POST-MORTEM (For Posterity)
+   * 
+   * We spent considerable effort attempting to use Expo's 'AuthSession' and 'Google' 
+   * browser-based hooks with the Expo Proxy (auth.expo.io). 
+   * 
+   * WHY IT FAILED:
+   * 1. Google's modern security policies for 'Web' client types often reject 
+   *    redirects to mobile browsers if they suspect the client is a native app.
+   * 2. The Expo Proxy is finicky with Dev Clients that haven't been 'Published' 
+   *    to the Expo dashboard, leading to silent 'Something went wrong' errors.
+   * 3. Case-sensitivity in Expo usernames (@DummyMolloy vs @dummymolloy) and 
+   *    dead Project IDs in app.json added layers of handshake failure.
+   * 
+   * THE SOLUTION:
+   * We migrated to the '@react-native-google-signin/google-signin' Native SDK.
+   * It bypasses the browser/proxy entirely by talking directly to Google Play 
+   * Services on the device. This is the industrial-grade standard for Android.
+   */
+  // Initialize Native Google Sign-In
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: '649377265049-br0c6diva1ng3rcqlm8dlovl392i2vmk.apps.googleusercontent.com',
+      offlineAccess: true,
+      forceCodeForRefreshToken: true,
+      scopes: GOOGLE_AUTH_CONFIG.scopes,
+    });
+
+    // Try silent sign-in to restore session (Native Only)
+    const initAuth = async () => {
+      if (Platform.OS === 'web') return;
+      try {
+        const user = await GoogleSignin.signInSilently();
+        if (user) {
+          console.log('[DRIVE] Session restored for:', user.user.email);
+          setCloudAccount(user.user.email);
+          setCloudBackupEnabled(true);
+          setCloudLastStatus('Success (Connected)');
+        }
+      } catch (e) {
+        console.log('[DRIVE] No active session found.');
+      }
+    };
+    initAuth();
+  }, []);
+
+  const handleGoogleAuth = async () => {
+    console.log('[DRIVE] Triggering Native SDK Auth...');
+    try {
+      await GoogleSignin.hasPlayServices();
+      await GoogleSignin.signIn();
+      const tokens = await GoogleSignin.getTokens();
+      
+      if (tokens.accessToken) {
+        console.log('[DRIVE] Success! Token acquired via Native SDK.');
+        await handleEnableCloudSyncWithToken(tokens.accessToken);
+      }
+    } catch (error: any) {
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        console.log('[DRIVE] Auth Cancelled by user');
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        console.log('[DRIVE] Auth already in progress');
+      } else {
+        console.error('[DRIVE] Native Auth Error:', error);
+        Alert.alert('Auth Error', 'Failed to connect to Google Drive.');
+      }
+    }
+  };
+
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [tacticalNote, setTacticalNote] = useState('');
+  const [currentActivity, setCurrentActivity] = useState('');
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState('');
+
+  const handleManualBackup = async () => {
+    if (!checkEntitlement('BACKUPS')) return;
+    const res = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'last_activity_log'");
+    setCurrentActivity(res?.value || 'No operational changes recorded');
+    setShowNoteModal(true);
+  };
+
+  const executeManualSnapshot = async (note: string = "") => {
+    try {
+      setShowNoteModal(false);
+      setCloudLastStatus('Mirroring...');
+      const backup = await BackupService.createBackup(db, note || 'Manual Snapshot');
+      if (backup) {
+        await load();
+        
+        // Mirror to cloud if enabled
+        const tokens = await GoogleSignin.getTokens();
+        if (cloudBackupEnabled && tokens.accessToken) {
+           const content = await BackupService.readLocalBackup(backup.jsonUri);
+           await BackupService.uploadToCloud(tokens.accessToken, JSON.parse(content));
+           setCloudLastStatus('Success (Mirrored)');
+        }
+        
+        setTacticalNote('');
+        Alert.alert('Snapshot Captured', note ? `Archive marked as: ${note}` : 'Tactical snapshot stored in rolling archive.');
+      }
+    } catch (error) {
+      console.error('Manual snapshot failed:', error);
+      Alert.alert('Error', 'Failed to capture tactical snapshot.');
+    }
+  };
+
+  const handleEnableCloudSyncWithToken = async (accessToken: string, refreshToken?: string) => {
+    try {
+      // Save tokens
+      await GoogleDriveService.saveTokens(accessToken, refreshToken);
+      
+      // Fetch user info
+      const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const user = await userInfoResponse.json();
+
+      setCloudAccount(user.email);
+      setCloudBackupEnabled(true);
+      setCloudLastStatus('Success (Connected)');
+      const ts = new Date().toLocaleString();
+      setCloudLastSync(ts);
+      
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['cloud_backup_enabled', '1']);
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['cloud_account', user.email]);
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['cloud_last_status', 'Success (Connected)']);
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['cloud_last_sync', ts]);
+      
+      Alert.alert('Cloud Mirroring Active', `Successfully connected as ${user.email}`);
+    } catch (error) {
+      console.error('Failed to enable cloud sync:', error);
+      Alert.alert('Error', 'Failed to connect to Google Drive');
+    }
+  };
+
+  const handleManualMirror = async () => {
+    try {
+      const tokens = await GoogleSignin.getTokens();
+      if (!tokens.accessToken) {
+        Alert.alert('Not Connected', 'Please connect to Google Drive first.');
+        return;
+      }
+
+      setCloudLastStatus('Mirroring...');
+      
+      // 1. Create a fresh JSON snapshot
+      const backup = await BackupService.createBackup(db, true);
+      if (!backup) throw new Error('Failed to create local snapshot');
+
+      // 2. Read the snapshot content
+      const content = await BackupService.readLocalBackup(backup.jsonUri);
+      const jsonData = JSON.parse(content);
+
+      // 3. Upload to cloud
+      await BackupService.uploadToCloud(tokens.accessToken, jsonData);
+      
+      const ts = new Date().toLocaleString();
+      setCloudLastSync(ts);
+      setCloudLastStatus('Success (Mirrored)');
+      await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', ['Success (Mirrored)', 'cloud_last_status']);
+      await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', [ts, 'cloud_last_sync']);
+      
+      Alert.alert('Mirror Success', 'Your inventory is now securely mirrored in the cloud.');
+    } catch (error) {
+      console.error('[DRIVE] Manual mirror failed:', error);
+      setCloudLastStatus('Mirror Failed');
+      Alert.alert('Mirror Failed', 'Could not push data to cloud. Check your connection.');
+    }
+  };
+
+  const handleCloudRestore = async () => {
+    try {
+      const tokens = await GoogleSignin.getTokens();
+      if (!tokens.accessToken) {
+        Alert.alert('Not Connected', 'Connect to Google to access cloud mirrors.');
+        return;
+      }
+
+      setCloudLastStatus('Fetching...');
+      const files = await BackupService.listCloudBackups(tokens.accessToken);
+      
+      if (files.length === 0) {
+        Alert.alert('No Mirrors Found', 'You do not have any cloud mirrors saved yet.');
+        return;
+      }
+
+      // Pick the latest
+      const latest = files[0];
+      
+      Alert.alert(
+        'Restore from Cloud',
+        `Found mirror from ${new Date(latest.createdTime).toLocaleString()}. This will replace ALL current data. Continue?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'RESTORE', 
+            style: 'destructive',
+            onPress: async () => {
+              const jsonData = await BackupService.downloadFromCloud(tokens.accessToken, latest.id);
+              await BackupService.restore(db, jsonData);
+              Alert.alert('Restored', 'Intelligence data successfully mirrored from cloud.');
+              // Trigger a refresh
+              router.replace('/catalog');
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('[DRIVE] Cloud restore failed:', error);
+      Alert.alert('Restore Failed', 'Could not retrieve data from Google Drive.');
+    } finally {
+      setCloudLastStatus('Success (Connected)');
+    }
+  };
+
   const load = async () => {
     const rows = await db.getAllAsync(`
       SELECT c.id as cat_id, c.name as cat_name, c.is_mess_hall as cat_is_mess_hall, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size,
@@ -151,6 +378,17 @@ export default function CatalogScreen() {
 
     const backupRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['auto_backup_enabled']);
     setAutoBackupEnabled(backupRes?.value === '1');
+
+    const cbeRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['cloud_backup_enabled']);
+    setCloudBackupEnabled(cbeRes?.value === '1');
+    const cschRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['cloud_schedule']);
+    setCloudSchedule(cschRes?.value || 'Daily');
+    const caccRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['cloud_account']);
+    setCloudAccount(caccRes?.value || '');
+    const clsRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['cloud_last_sync']);
+    setCloudLastSync(clsRes?.value || '');
+    const cltRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['cloud_last_status']);
+    setCloudLastStatus(cltRes?.value || '');
 
     const schemaRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['schema_version']);
     setSchemaVersion(schemaRes?.value || '0');
@@ -486,16 +724,52 @@ export default function CatalogScreen() {
     load();
   };
 
-  const handleManualBackup = async () => {
-    if (!checkEntitlement('BACKUPS')) return;
-    try {
-      await BackupService.createBackup(db, true);
-      Alert.alert('Backup Successful', 'A new tactical snapshot has been added to the rolling archive.');
-      load();
-    } catch (e) {
-      Alert.alert('Backup Failed', 'Could not generate backup file.');
+  const handleToggleCloudBackup = async (val: boolean) => {
+    if (val) {
+      if (!cloudAccount) {
+        setShowCloudConsentModal(true);
+      } else {
+        setCloudBackupEnabled(true);
+        await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', ['1', 'cloud_backup_enabled']);
+      }
+    } else {
+      setCloudBackupEnabled(false);
+      await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', ['0', 'cloud_backup_enabled']);
     }
   };
+
+  const handleEnableCloudSync = async () => {
+    setShowCloudConsentModal(false);
+    await handleGoogleAuth();
+  };
+
+  const handleDisconnectCloud = async () => {
+    Alert.alert(
+      'Disconnect Google Drive',
+      'This will stop automated cloud backups and remove your account connection from this device. Local data will remain intact.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'DISCONNECT', 
+          style: 'destructive',
+          onPress: async () => {
+            setCloudAccount('');
+            setCloudBackupEnabled(false);
+            setCloudLastStatus('Disconnected');
+            
+            await GoogleDriveService.logout();
+            await db.runAsync("UPDATE Settings SET value = '0' WHERE key = 'cloud_backup_enabled'");
+            await db.runAsync("DELETE FROM Settings WHERE key = 'cloud_account'");
+            await db.runAsync("DELETE FROM Settings WHERE key = 'cloud_last_sync'");
+            await db.runAsync("DELETE FROM Settings WHERE key = 'cloud_last_status'");
+            
+            load();
+          }
+        }
+      ]
+    );
+  };
+
 
   const handleLocalRestore = async (item: BackupMetadata) => {
     Alert.alert(
@@ -529,6 +803,15 @@ export default function CatalogScreen() {
     if (uri) {
         Alert.alert('Mirroring Active', 'Automated shadow copies will now be mirrored to your chosen folder.');
         load();
+    }
+  };
+
+  const handleToggleMirror = async (val: boolean) => {
+    if (val) {
+      await handlePersistentMirrorSetup();
+    } else {
+      await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', ['', 'persistence_mirror_uri']);
+      load();
     }
   };
 
@@ -1326,21 +1609,192 @@ export default function CatalogScreen() {
             await testStockAlert(db);
             Alert.alert('System Armed', 'A test alert has been dispatched.');
           }}><MaterialCommunityIcons name="bell-ring" size={24} color="white" /><Text style={styles.testBtnText}>TEST STOCK ALERT</Text></TouchableOpacity></View>
-          <TouchableOpacity testID="debug-purge-db" style={{ backgroundColor: '#ef4444', padding: 16, borderRadius: 12, marginTop: 40, alignItems: 'center' }} onPress={async () => {try {await db.runAsync('DELETE FROM Inventory');await db.runAsync('DELETE FROM ItemTypes');await db.runAsync('DELETE FROM Categories');await db.runAsync('DELETE FROM Settings WHERE key = ?', 'persistence_mirror_uri');await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key');await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key_sergeant');await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key_general');if (typeof window !== 'undefined') window.location.reload();} catch (e) {console.error("Purge Error:", e);}}}><Text style={{fontSize: 14, color: 'white', fontWeight: 'bold'}}>DEVELOPER: WIPE SYSTEM & LICENSE</Text></TouchableOpacity>
+<TouchableOpacity testID="debug-purge-db" style={{ backgroundColor: '#ef4444', padding: 16, borderRadius: 12, marginTop: 40, alignItems: 'center' }} onPress={async () => {try {await db.runAsync('DELETE FROM Inventory');await db.runAsync('DELETE FROM ItemTypes');await db.runAsync('DELETE FROM Categories');await db.runAsync('DELETE FROM Settings');await SecureStore.deleteItemAsync('google_access_token');await SecureStore.deleteItemAsync('google_refresh_token');if (typeof window !== 'undefined') window.location.reload();} catch (e) {console.error("Purge Error:", e);}}}><Text style={{fontSize: 14, color: 'white', fontWeight: 'bold'}}>DEVELOPER: WIPE SYSTEM & LICENSE</Text></TouchableOpacity>
         </View>
       ) : activeTab === 'backups' ? (
-        <View style={{padding: 10, flex: 1}}>
-          <View style={styles.prefRow}>
-            <View style={{flex: 1}}><Text style={styles.prefTitle}>Rolling Hourly Archive</Text><Text style={styles.prefSub}>Automatically capture a snapshot every hour if changes occur (Keeps last 5).</Text></View>
-            <Switch value={autoBackupEnabled} onValueChange={toggleAutoBackup} trackColor={{ false: "#334155", true: "#22c55e" }} thumbColor={autoBackupEnabled ? "#f8fafc" : "#94a3b8"} />
+        <ScrollView style={{padding: 10, flex: 1}} contentContainerStyle={{paddingBottom: 60}}>
+          {/* UNIFIED DATA SOVEREIGNTY COMMAND */}
+          <View style={{backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 20}}>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16}}>
+              <View style={{backgroundColor: '#1e293b', padding: 8, borderRadius: 8}}>
+                <MaterialCommunityIcons name="shield-lock" size={24} color="#fbbf24" />
+              </View>
+              <View>
+                <Text style={[styles.prefTitle, {fontSize: 16}]}>Data Sovereignty Command</Text>
+                <Text style={styles.prefSub}>Automated redundancy & recovery</Text>
+              </View>
+            </View>
+
+            {/* AUTOMATION TRIGGER (THE WHEN) */}
+            <View style={[styles.prefRow, {marginBottom: 16, backgroundColor: '#1e293b', padding: 12, borderRadius: 8}]}>
+              <View style={{flex: 1}}>
+                <Text style={[styles.prefTitle, {fontSize: 14}]}>Rolling Hourly Archive</Text>
+                <Text style={styles.prefSub}>Snapshot on change (last 5 kept)</Text>
+              </View>
+              <Switch 
+                value={autoBackupEnabled} 
+                onValueChange={toggleAutoBackup} 
+                trackColor={{ false: "#334155", true: "#22c55e" }} 
+                thumbColor={autoBackupEnabled ? "#f8fafc" : "#94a3b8"} 
+              />
+            </View>
+
+            {/* DOCTRINE DESTINATION (THE WHERE) */}
+            <Text style={{color: '#94a3b8', fontSize: 11, fontWeight: 'bold', marginBottom: 8, marginLeft: 2}}>MIRRORING DOCTRINE</Text>
+            <View style={[styles.doctrineToggle, {width: '100%', marginBottom: 16}]}>
+              <TouchableOpacity 
+                style={[
+                  styles.doctrineOption, 
+                  (!cloudBackupEnabled && !mirrorUri) && {backgroundColor: '#ef4444', borderColor: '#ef4444'}
+                ]}
+                onPress={async () => {
+                  setCloudBackupEnabled(false);
+                  setMirrorUri(null);
+                  await db.runAsync("UPDATE Settings SET value = '0' WHERE key = 'cloud_backup_enabled'");
+                  await db.runAsync("UPDATE Settings SET value = '' WHERE key = 'persistence_mirror_uri'");
+                }}
+              >
+                <Text style={[styles.doctrineText, (!cloudBackupEnabled && !mirrorUri) && {color: 'white', fontWeight: 'bold'}]}>NONE</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.doctrineOption, 
+                  (!!mirrorUri && !cloudBackupEnabled) && {backgroundColor: '#fbbf24', borderColor: '#fbbf24'}
+                ]}
+                onPress={handlePersistentMirrorSetup}
+              >
+                <Text style={[styles.doctrineText, (!!mirrorUri && !cloudBackupEnabled) && {color: '#0f172a', fontWeight: 'bold'}]}>LOCAL</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.doctrineOption, 
+                  cloudBackupEnabled && {backgroundColor: '#22c55e', borderColor: '#22c55e'}
+                ]}
+                onPress={() => setShowCloudConsentModal(true)}
+              >
+                <Text style={[styles.doctrineText, cloudBackupEnabled && {color: 'white', fontWeight: 'bold'}]}>CLOUD</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* INTELLIGENCE BRIEFING */}
+            <View style={{backgroundColor: '#1e293b', padding: 12, borderRadius: 8, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: (!cloudBackupEnabled && !mirrorUri) ? '#ef4444' : (!!mirrorUri ? '#fbbf24' : '#22c55e')}}>
+              {(!cloudBackupEnabled && !mirrorUri) && (
+                <>
+                  <Text style={{color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginBottom: 4, letterSpacing: 1}}>⚠️ DANGER: ISOLATED STATE</Text>
+                  <Text style={{color: '#94a3b8', fontSize: 12, lineHeight: 18}}>Logistical intelligence is confined to app memory. Total loss occurs if app is corrupted or deleted.</Text>
+                </>
+              )}
+              {(!!mirrorUri && !cloudBackupEnabled) && (
+                <>
+                  <Text style={{color: '#fbbf24', fontSize: 11, fontWeight: 'bold', marginBottom: 4, letterSpacing: 1}}>⚠️ CAUTION: SHADOW MIRROR</Text>
+                  <Text style={{color: '#94a3b8', fontSize: 12, lineHeight: 18}}>Data is mirrored to persistent storage. Safe from app deletion, but vulnerable to device loss or theft.</Text>
+                  <Text style={{color: '#64748b', fontSize: 10, marginTop: 6, fontStyle: 'italic'}}>Destination: {mirrorUri.split('%3A').pop()}</Text>
+                </>
+              )}
+              {cloudBackupEnabled && (
+                <>
+                  <Text style={{color: '#22c55e', fontSize: 11, fontWeight: 'bold', marginBottom: 4, letterSpacing: 1}}>🛡️ FORTIFIED: HIGH COMMAND</Text>
+                  <Text style={{color: '#94a3b8', fontSize: 12, lineHeight: 18}}>Encrypted mirrors are pushed to Google Drive. Fully redundant across all devices.</Text>
+                  <Text style={{color: '#64748b', fontSize: 10, marginTop: 6, fontStyle: 'italic'}}>Linked: {cloudAccount}</Text>
+                </>
+              )}
+            </View>
+
+            {/* MANUAL CONTROLS */}
+            <View style={{flexDirection: 'row', gap: 10}}>
+              <TouchableOpacity style={[styles.actionBtn, {flex: 1, backgroundColor: '#3b82f6'}]} onPress={handleManualBackup}>
+                <Text style={styles.actionBtnText}>SNAPSHOT NOW</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, {flex: 1, backgroundColor: '#ef4444'}]} onPress={() => setShowRestoreSourceModal(true)}>
+                <Text style={styles.actionBtnText}>SYSTEM RECOVERY</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={styles.actionRow}>
-            <TouchableOpacity style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]} onPress={handleManualBackup}><MaterialCommunityIcons name="backup-restore" size={20} color="white" /><Text style={styles.actionBtnText}>SNAPSHOT NOW</Text></TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtn, {backgroundColor: '#ef4444'}]} onPress={handleRestore}><MaterialCommunityIcons name="file-import" size={20} color="white" /><Text style={styles.actionBtnText}>IMPORT BACKUP</Text></TouchableOpacity>
-          </View>
+
+          {cloudBackupEnabled && (
+             <View style={{backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#3b82f6', marginBottom: 16, marginHorizontal: 16}}>
+               <Text style={{color: '#60a5fa', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 12}}>GOOGLE DRIVE TELEMETRY DASHBOARD</Text>
+               <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center'}}>
+                  <Text style={{color: '#94a3b8', fontSize: 13}}>Account</Text>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                    <MaterialCommunityIcons name="account-circle" size={14} color="#f8fafc" />
+                    <Text style={{color: '#f8fafc', fontSize: 13, fontWeight: 'bold'}}>{cloudAccount || 'Disconnected'}</Text>
+                  </View>
+               </View>
+               <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center'}}>
+                  <Text style={{color: '#94a3b8', fontSize: 13}}>Schedule Target</Text>
+                  <TouchableOpacity 
+                    onPress={async () => {
+                       const next = cloudSchedule === 'Daily' ? 'Weekly' : (cloudSchedule === 'Weekly' ? 'Monthly' : 'Daily');
+                       setCloudSchedule(next);
+                       await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['cloud_schedule', next]);
+                    }}
+                    style={{backgroundColor: '#1e293b', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#334155'}}
+                  >
+                    <Text style={{color: '#3b82f6', fontSize: 12, fontWeight: 'bold'}}>{cloudSchedule.toUpperCase()}</Text>
+                  </TouchableOpacity>
+               </View>
+               <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
+                  <Text style={{color: '#94a3b8', fontSize: 13}}>Last Successful Sync</Text>
+                  <Text style={{color: '#f8fafc', fontSize: 13, fontWeight: 'bold'}}>{cloudLastSync || 'Never'}</Text>
+               </View>
+               <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+                  <Text style={{color: '#94a3b8', fontSize: 13}}>Last Status</Text>
+                  <Text style={{color: cloudLastStatus.includes('Success') ? '#22c55e' : (cloudLastStatus.includes('Failed') ? '#ef4444' : '#64748b'), fontSize: 13, fontWeight: 'bold'}}>{cloudLastStatus || 'N/A'}</Text>
+               </View>
+
+               <TouchableOpacity 
+                 onPress={handleDisconnectCloud}
+                 style={{marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#1e293b', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}}
+               >
+                 <MaterialCommunityIcons name="logout" size={14} color="#ef4444" />
+                 <Text style={{color: '#ef4444', fontSize: 11, fontWeight: 'bold'}}>DISCONNECT ACCOUNT</Text>
+               </TouchableOpacity>
+             </View>
+          )}
+
           <Text style={styles.label}>Local Snapshot Archive (Rolling 5)</Text>
-          <FlatList data={backups} keyExtractor={item => item.name} renderItem={({ item }) => (<View style={styles.backupItem}><View style={{flex: 1}}><Text style={styles.backupName}>{new Date(item.timestamp).toLocaleDateString()}</Text><Text style={styles.backupMeta}>{new Date(item.timestamp).toLocaleTimeString()}</Text></View><View style={{flexDirection: 'row', gap: 8}}><TouchableOpacity onPress={() => handleLocalRestore(item)} style={[styles.shareBtn, {backgroundColor: '#ef4444'}]}><MaterialCommunityIcons name="backup-restore" size={20} color="white" /></TouchableOpacity><TouchableOpacity onPress={() => BackupService.shareBackup(item.uri)} style={styles.shareBtn}><MaterialCommunityIcons name="share-variant" size={20} color="#3b82f6" /></TouchableOpacity></View></View>)} ListEmptyComponent={<Text style={{color: '#64748b', textAlign: 'center', marginTop: 20}}>No backups recorded yet.</Text>} ListFooterComponent={Platform.OS === 'android' ? (<View style={{marginTop: 24, paddingBottom: 40}}><Text style={styles.prefTitle}>Strategic Shadow Mirroring</Text><Text style={styles.prefSub}>On Android, auto-backups are wiped if the app is uninstalled. Enable mirroring for disaster recovery.</Text><TouchableOpacity style={[styles.testBtn, {marginTop: 12, backgroundColor: mirrorUri ? '#22c55e' : '#334155'}]} onPress={handlePersistentMirrorSetup}><MaterialCommunityIcons name="folder-sync" size={24} color="white" /><Text style={styles.testBtnText}>{mirrorUri ? 'MIRROR ACTIVE' : 'SETUP MIRROR FOLDER'}</Text></TouchableOpacity></View>) : null} />
-          
+          {backups.length === 0 ? (
+            <Text style={{color: '#64748b', textAlign: 'center', marginTop: 20}}>No backups recorded yet.</Text>
+          ) : (
+            backups.map(item => (
+              <View key={item.name} style={styles.backupItem}>
+                <View style={{flex: 1}}>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4}}>
+                    <Text style={styles.backupName}>{new Date(item.timestamp).toLocaleDateString()}</Text>
+                    <View style={{backgroundColor: '#0f172a', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#334155'}}>
+                      <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>{new Date(item.timestamp).toLocaleTimeString()}</Text>
+                    </View>
+                  </View>
+                  
+                  {item.note ? (
+                    <Text style={{color: '#fbbf24', fontSize: 13, fontWeight: 'bold', marginBottom: 2}}>{item.note.toUpperCase()}</Text>
+                  ) : null}
+                  
+                  <Text style={styles.backupMeta}>{item.summary || 'Census data unavailable'}</Text>
+                </View>
+                <View style={{flexDirection: 'row', gap: 8, alignItems: 'center'}}>
+                  {item.lastAction ? (
+                    <TouchableOpacity 
+                      onPress={() => { setSelectedActivity(item.lastAction || ''); setShowActivityModal(true); }}
+                      style={{backgroundColor: '#1e293b', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#334155'}}
+                    >
+                      <MaterialCommunityIcons name="history" size={20} color="#3b82f6" />
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity onPress={() => handleLocalRestore(item)} style={[styles.shareBtn, {backgroundColor: '#ef4444'}]}>
+                    <MaterialCommunityIcons name="backup-restore" size={20} color="white" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => BackupService.shareBackup(item.uri)} style={styles.shareBtn}>
+                    <MaterialCommunityIcons name="share-variant" size={20} color="#3b82f6" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+
           <View style={{marginTop: 20, backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 20}}>
             <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 12}}>STRATEGIC BUILD MANIFEST</Text>
             <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
@@ -1352,7 +1806,7 @@ export default function CatalogScreen() {
               <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>v{BACKUP_MANIFEST_VERSION}</Text>
             </View>
           </View>
-        </View>
+        </ScrollView>
       ) : activeTab === 'rank' ? (
         <ScrollView style={{padding: 16}} contentContainerStyle={{paddingBottom: 40}}>
           <View style={[styles.promoHeader, { marginBottom: 24 }]}>
@@ -1406,9 +1860,9 @@ export default function CatalogScreen() {
               {isSergeant && <View style={[styles.activeRankBadge, { backgroundColor: '#3b82f6' }]}><Text style={styles.activeRankText}>CURRENT</Text></View>}
             </View>
             <Text style={[styles.tierPrice, { color: '#60a5fa' }]}>£2.99 — ONE-TIME LICENCE</Text>
-            <View style={styles.featureItem}><MaterialCommunityIcons name="infinity" size={16} color="#60a5fa" /><Text style={styles.featureText}>Unlimited cabinets, categories &amp; items</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="infinity" size={16} color="#60a5fa" /><Text style={styles.featureText}>Unlimited cabinets, categories & items</Text></View>
             <View style={styles.featureItem}><MaterialCommunityIcons name="snowflake" size={16} color="#60a5fa" /><Text style={styles.featureText}>Full freezer logistics — age-based tracking</Text></View>
-            <View style={styles.featureItem}><MaterialCommunityIcons name="truck-delivery" size={16} color="#60a5fa" /><Text style={styles.featureText}>The Quartermaster — low-stock reports &amp; sharing</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="truck-delivery" size={16} color="#60a5fa" /><Text style={styles.featureText}>The Quartermaster — low-stock reports & sharing</Text></View>
             {!isSergeanOrAbove && (
               <TouchableOpacity style={[styles.upgradeBtn, { backgroundColor: '#3b82f6' }]} onPress={() => requestPurchase('SERGEANT')}>
                 <Text style={styles.upgradeBtnText}>COMMISSION SERGEANT RANK</Text>
@@ -1424,9 +1878,9 @@ export default function CatalogScreen() {
             </View>
             <Text style={[styles.tierPrice, { color: '#fbbf24' }]}>£1.49/MONTH · £9.99/YEAR — HIGH COMMAND</Text>
             <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginBottom: 8 }}>Everything in Sergeant, plus:</Text>
-            <View style={styles.featureItem}><MaterialCommunityIcons name="bell-ring" size={16} color="#fbbf24" /><Text style={styles.featureText}>Automated low-stock &amp; expiry alerts</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="bell-ring" size={16} color="#fbbf24" /><Text style={styles.featureText}>Automated low-stock & expiry alerts</Text></View>
             <View style={styles.featureItem}><MaterialCommunityIcons name="chef-hat" size={16} color="#fbbf24" /><Text style={styles.featureText}>The Mess Hall — waste-conscious AI recipes</Text></View>
-            <View style={styles.featureItem}><MaterialCommunityIcons name="file-sync" size={16} color="#fbbf24" /><Text style={styles.featureText}>Automated backups &amp; disaster recovery</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="file-sync" size={16} color="#fbbf24" /><Text style={styles.featureText}>Automated backups & disaster recovery</Text></View>
             {!isGeneralOrAbove && (
               <TouchableOpacity style={[styles.upgradeBtn, { backgroundColor: '#fbbf24' }]} onPress={() => requestPurchase('GENERAL')}>
                 <Text style={[styles.upgradeBtnText, { color: '#000' }]}>ASSUME HIGH COMMAND — £1.49/MO</Text>
@@ -1480,40 +1934,231 @@ export default function CatalogScreen() {
 
       ) : null}
 
-      {/* INLINE ADD CABINET MODAL */}
-      <Modal visible={showInlineAddCabinet} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>NEW STORAGE CABINET</Text>
-            
-            <View style={{ marginBottom: 16, width: '100%' }}>
-              <Text style={styles.miniLabel}>CABINET NAME</Text>
-              <TextInput style={styles.inputSmall} value={inlineCabName} onChangeText={setInlineCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
-            </View>
+      <>
+        {/* RESTORE SOURCE MODAL */}
+        <Modal visible={showRestoreSourceModal} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>SELECT INTELLIGENCE SOURCE</Text>
+              <Text style={{color: '#94a3b8', fontSize: 13, marginBottom: 20, textAlign: 'center'}}>Where would you like to restore from?</Text>
 
-            <View style={{ marginBottom: 16, width: '100%' }}>
-              <Text style={styles.miniLabel}>LOCATION</Text>
-              <TextInput style={styles.inputSmall} value={inlineCabLoc} onChangeText={setInlineCabLoc} placeholder="e.g. Garage" placeholderTextColor="#64748b" />
-            </View>
+              <TouchableOpacity 
+                style={[styles.saveButton, {backgroundColor: '#fbbf24', marginTop: 10, flexDirection: 'row', justifyContent: 'center', gap: 10}]} 
+                onPress={() => {
+                  setShowRestoreSourceModal(false);
+                  handleCloudRestore();
+                }}
+              >
+                <MaterialCommunityIcons name="google-drive" size={20} color="#000" />
+                <Text style={[styles.saveText, {color: '#000'}]}>GOOGLE DRIVE MIRROR</Text>
+              </TouchableOpacity>
 
-            <View style={{ marginBottom: 24, width: '100%' }}>
-              <Text style={styles.miniLabel}>CABINET TYPE</Text>
-              <View style={styles.unitChipRowMini}>
-                <TouchableOpacity style={[styles.unitChip, inlineCabType === 'standard' && styles.unitChipActive]} onPress={() => setInlineCabType('standard')}><Text style={[styles.unitChipText, inlineCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text></TouchableOpacity>
-                <TouchableOpacity style={[styles.unitChip, inlineCabType === 'freezer' && styles.unitChipActive]} onPress={() => { if (inlineCabType === 'freezer') setInlineCabType('standard'); else if (checkEntitlement('FREEZER')) setInlineCabType('freezer'); }}><Text style={[styles.unitChipText, inlineCabType === 'freezer' && styles.unitChipTextActive]}>Freezer</Text></TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.saveButton, {backgroundColor: '#3b82f6', marginTop: 12, flexDirection: 'row', justifyContent: 'center', gap: 10}]} 
+                onPress={() => {
+                  setShowRestoreSourceModal(false);
+                  setTimeout(handleRestore, 300); // Standard local open wrapper
+                }}
+              >
+                <MaterialCommunityIcons name="folder-open" size={20} color="white" />
+                <Text style={styles.saveText}>LOCAL DEVICE ARCHIVE</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.modalClose} onPress={() => setShowRestoreSourceModal(false)}>
+                <Text style={styles.modalCloseText}>CANCEL</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* CLOUD CONSENT MODAL (HIGH COMMAND AUTHORIZATION) */}
+        <Modal visible={showCloudConsentModal} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {backgroundColor: '#0f172a', borderColor: cloudBackupEnabled ? '#22c55e' : '#334155', borderWidth: 2}]}>
+              <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 12}}>
+                <View style={{backgroundColor: cloudBackupEnabled ? '#064e3b' : '#1e293b', padding: 10, borderRadius: 12}}>
+                  <MaterialCommunityIcons name={cloudBackupEnabled ? "shield-check" : "shield-sync"} size={32} color={cloudBackupEnabled ? "#22c55e" : "#3b82f6"} />
+                </View>
+                <View style={{flex: 1}}>
+                  <Text style={[styles.modalTitle, {marginBottom: 0, textAlign: 'left', fontSize: 18}]}>High Command Mirroring</Text>
+                  <Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>CLOUD REDUNDANCY PROTOCOL</Text>
+                </View>
+              </View>
+
+              <View style={{backgroundColor: '#1e293b', padding: 16, borderRadius: 12, marginBottom: 20}}>
+                <Text style={{color: '#cbd5e1', fontSize: 13, lineHeight: 20, marginBottom: 12}}>
+                  Authorize a secure, real-time mirror of your logistical intelligence to your private Google Drive.
+                </Text>
+                
+                <View style={{gap: 10}}>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                    <MaterialCommunityIcons name="eye-off" size={16} color="#3b82f6" />
+                    <Text style={{color: '#94a3b8', fontSize: 12}}>Private, invisible application folder</Text>
+                  </View>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                    <MaterialCommunityIcons name="lock-outline" size={16} color="#3b82f6" />
+                    <Text style={{color: '#94a3b8', fontSize: 12}}>Encrypted end-to-end transport</Text>
+                  </View>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                    <MaterialCommunityIcons name="cellphone-arrow-down" size={16} color="#3b82f6" />
+                    <Text style={{color: '#94a3b8', fontSize: 12}}>Instant cross-device restoration</Text>
+                  </View>
+                </View>
+              </View>
+
+              {cloudBackupEnabled ? (
+                <View style={{backgroundColor: '#064e3b', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#059669', marginBottom: 20}}>
+                  <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
+                    <Text style={{color: '#34d399', fontSize: 11, fontWeight: 'bold'}}>CONNECTION ESTABLISHED</Text>
+                    <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: '#34d399'}} />
+                  </View>
+                  <Text style={{color: '#f8fafc', fontSize: 14, fontWeight: 'bold'}}>{cloudAccount}</Text>
+                  <Text style={{color: '#6ee7b7', fontSize: 12, marginTop: 4}}>Status: Fully Synchronized</Text>
+                </View>
+              ) : (
+                <TouchableOpacity 
+                  style={{backgroundColor: '#22c55e', padding: 16, borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10, marginBottom: 20}}
+                  onPress={handleGoogleAuth}
+                >
+                  <MaterialCommunityIcons name="google" size={20} color="white" />
+                  <Text style={{color: 'white', fontWeight: 'bold', fontSize: 15}}>AUTHORIZE HIGH COMMAND</Text>
+                </TouchableOpacity>
+              )}
+
+              <View style={{flexDirection: 'row', gap: 12}}>
+                {cloudBackupEnabled ? (
+                  <>
+                    <TouchableOpacity style={{flex: 1, backgroundColor: '#1e293b', padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#ef4444'}} onPress={handleDisconnectCloud}>
+                      <Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 12}}>DISCONNECT</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={{flex: 1, backgroundColor: '#334155', padding: 14, borderRadius: 10, alignItems: 'center'}} onPress={() => setShowCloudConsentModal(false)}>
+                      <Text style={{color: 'white', fontWeight: 'bold', fontSize: 12}}>CLOSE</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <TouchableOpacity style={{flex: 1, backgroundColor: '#1e293b', padding: 14, borderRadius: 10, alignItems: 'center'}} onPress={() => setShowCloudConsentModal(false)}>
+                      <Text style={{color: '#94a3b8', fontWeight: 'bold', fontSize: 12}}>ABORT</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             </View>
-
-            <TouchableOpacity style={styles.saveButton} onPress={handleCreateInlineCabinet}>
-              <Text style={styles.saveText}>CREATE CABINET</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.modalClose} onPress={() => setShowInlineAddCabinet(false)}>
-              <Text style={styles.modalCloseText}>CANCEL</Text>
-            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+
+        {/* TACTICAL NOTE MODAL */}
+        <Modal visible={showNoteModal} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {backgroundColor: '#0f172a', borderColor: '#3b82f6', borderWidth: 2}]}>
+              <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 12}}>
+                <View style={{backgroundColor: '#1e293b', padding: 10, borderRadius: 12}}>
+                  <MaterialCommunityIcons name="tag-text-outline" size={28} color="#3b82f6" />
+                </View>
+                <View style={{flex: 1}}>
+                  <Text style={[styles.modalTitle, {marginBottom: 0, textAlign: 'left', fontSize: 18}]}>Archive Metadata</Text>
+                  <Text style={{color: '#64748b', fontSize: 12, fontWeight: 'bold'}}>MARK THIS TACTICAL SNAPSHOT</Text>
+                </View>
+              </View>
+              <View style={{backgroundColor: '#1e293b', padding: 12, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#334155'}}>
+                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, letterSpacing: 1}}>FINAL PRE-SNAPSHOT EVENT</Text>
+                <Text style={{color: '#3b82f6', fontSize: 13, fontStyle: 'italic'}}>{currentActivity}</Text>
+              </View>
+
+              <View style={{marginBottom: 20}}>
+                <Text style={styles.miniLabel}>TACTICAL NOTE</Text>
+                <TextInput 
+                  style={[styles.inputSmall, {backgroundColor: '#1e293b', minHeight: 80, textAlignVertical: 'top', paddingTop: 12}]}
+                  placeholder="e.g. Pre-Experiment / Shopping Trip"
+                  placeholderTextColor="#64748b"
+                  value={tacticalNote}
+                  onChangeText={setTacticalNote}
+                  multiline
+                  autoFocus
+                />
+              </View>
+
+              <View style={{flexDirection: 'row', gap: 12}}>
+                <TouchableOpacity style={{flex: 1, backgroundColor: '#1e293b', padding: 14, borderRadius: 10, alignItems: 'center'}} onPress={() => setShowNoteModal(false)}>
+                  <Text style={{color: '#94a3b8', fontWeight: 'bold', fontSize: 13}}>CANCEL</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={{flex: 2, backgroundColor: '#3b82f6', padding: 14, borderRadius: 10, alignItems: 'center'}} onPress={() => executeManualSnapshot(tacticalNote)}>
+                  <Text style={{color: 'white', fontWeight: 'bold', fontSize: 13}}>CAPTURE SNAPSHOT</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* INLINE ADD CABINET MODAL */}
+        <Modal visible={showInlineAddCabinet} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>NEW STORAGE CABINET</Text>
+              
+              <View style={{ marginBottom: 16, width: '100%' }}>
+                <Text style={styles.miniLabel}>CABINET NAME</Text>
+                <TextInput style={styles.inputSmall} value={inlineCabName} onChangeText={setInlineCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
+              </View>
+
+              <View style={{ marginBottom: 16, width: '100%' }}>
+                <Text style={styles.miniLabel}>LOCATION</Text>
+                <TextInput style={styles.inputSmall} value={inlineCabLoc} onChangeText={setInlineCabLoc} placeholder="e.g. Garage" placeholderTextColor="#64748b" />
+              </View>
+
+              <View style={{ marginBottom: 24, width: '100%' }}>
+                <Text style={styles.miniLabel}>CABINET TYPE</Text>
+                <View style={styles.unitChipRowMini}>
+                  <TouchableOpacity style={[styles.unitChip, inlineCabType === 'standard' && styles.unitChipActive]} onPress={() => setInlineCabType('standard')}><Text style={[styles.unitChipText, inlineCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text></TouchableOpacity>
+                  <TouchableOpacity style={[styles.unitChip, inlineCabType === 'freezer' && styles.unitChipActive]} onPress={() => { if (inlineCabType === 'freezer') setInlineCabType('standard'); else if (checkEntitlement('FREEZER')) setInlineCabType('freezer'); }}><Text style={[styles.unitChipText, inlineCabType === 'freezer' && styles.unitChipTextActive]}>Freezer</Text></TouchableOpacity>
+                </View>
+              </View>
+
+              <TouchableOpacity style={styles.saveButton} onPress={handleCreateInlineCabinet}>
+                <Text style={styles.saveText}>CREATE CABINET</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.modalClose} onPress={() => setShowInlineAddCabinet(false)}>
+                <Text style={styles.modalCloseText}>CANCEL</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+        
+        {/* OPERATIONAL HISTORY MODAL */}
+        <Modal visible={showActivityModal} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {backgroundColor: '#0f172a', borderColor: '#3b82f6', borderWidth: 2, padding: 24}]}>
+              <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 12}}>
+                <View style={{backgroundColor: 'rgba(59, 130, 246, 0.1)', padding: 12, borderRadius: 14}}>
+                  <MaterialCommunityIcons name="history" size={32} color="#3b82f6" />
+                </View>
+                <View style={{flex: 1}}>
+                  <Text style={[styles.modalTitle, {marginBottom: 0, textAlign: 'left', fontSize: 18}]}>Pre-Snapshot Event</Text>
+                  <Text style={{color: '#64748b', fontSize: 11, fontWeight: 'bold', letterSpacing: 1}}>FINAL LOGGED CHANGE</Text>
+                </View>
+              </View>
+
+              <View style={{backgroundColor: '#1e293b', padding: 20, borderRadius: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 12}}>
+                <Text style={{color: '#f8fafc', fontSize: 15, lineHeight: 22, fontStyle: 'italic', textAlign: 'center'}}>
+                  "{selectedActivity}"
+                </Text>
+              </View>
+
+              <Text style={{color: '#64748b', fontSize: 11, fontStyle: 'italic', textAlign: 'center', marginBottom: 24, paddingHorizontal: 10}}>
+                This event represents the final operational activity recorded on the database prior to the creation of this archive.
+              </Text>
+
+              <TouchableOpacity 
+                style={{backgroundColor: '#3b82f6', padding: 16, borderRadius: 12, alignItems: 'center'}} 
+                onPress={() => setShowActivityModal(false)}
+              >
+                <Text style={{color: 'white', fontWeight: 'bold', fontSize: 14}}>CLOSE</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </>
 
     </View>
   );
@@ -1645,6 +2290,33 @@ const styles = StyleSheet.create({
   lockedNoteText: { color: '#64748b', fontSize: 11, fontStyle: 'italic' },
   promoFooter: { color: '#94a3b8', fontSize: 11, textAlign: 'center', marginTop: 10, lineHeight: 16 },
   miniLabel: { color: '#cbd5e1', fontSize: 12, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4, textTransform: 'uppercase' },
+  doctrineToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#0f172a',
+    borderRadius: 8,
+    padding: 3,
+    width: 160,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  doctrineOption: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  doctrineOptionActive: {
+    backgroundColor: '#fbbf24',
+  },
+  doctrineText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#64748b',
+    letterSpacing: 0.5,
+  },
+  doctrineTextActive: {
+    color: '#000000',
+  },
   formSection: { marginBottom: 16 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 24, maxHeight: '80%' },

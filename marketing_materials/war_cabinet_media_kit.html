@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>War Cabinet - Media Kit 2026</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Playfair+Display:ital,wght@0,700;1,700&display=swap');
+
+        :root {
+            --primary: #0f172a;
+            --accent: #fbbf24;
+            --secondary: #3b82f6;
+            --text: #f8fafc;
+            --subtext: #94a3b8;
+            --bg: #ffffff;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #020617;
+            color: var(--primary);
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* A4 Paper Simulation */
+        .page {
+            background: white;
+            width: 210mm;
+            min-height: 297mm;
+            padding: 14mm;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Tactical HUD Border */
+        .page::before {
+            content: '';
+            position: absolute;
+            top: 5mm;
+            left: 5mm;
+            right: 5mm;
+            bottom: 5mm;
+            border: 1px solid #e2e8f0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        header {
+            border-bottom: 3px solid var(--primary);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .brand .logo-circle {
+            width: 50px;
+            height: 50px;
+            background: var(--primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent);
+            font-weight: 800;
+            font-size: 24px;
+            border: 2px solid var(--accent);
+        }
+
+        .brand .title {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand .title h1 {
+            margin: 0;
+            font-family: 'Playfair Display', serif;
+            font-size: 28px;
+            line-height: 1;
+            color: var(--primary);
+            letter-spacing: -1px;
+        }
+
+        .brand .title p {
+            margin: 4px 0 0 0;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            color: var(--secondary);
+        }
+
+        .meta {
+            text-align: right;
+            font-size: 10px;
+            color: #64748b;
+            font-weight: 600;
+        }
+
+        .hero-section {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .hero-image {
+            width: 100%;
+            height: 200px;
+            background-size: cover;
+            background-position: center;
+            border-radius: 4px;
+            border: 1px solid var(--primary);
+            background-image: url('war_cabinet_hero.png');
+        }
+
+        h2 {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: white;
+            background: var(--primary);
+            display: inline-block;
+            padding: 4px 12px;
+            margin-bottom: 15px;
+        }
+
+        p {
+            font-size: 12px;
+            line-height: 1.6;
+            margin-bottom: 12px;
+            color: #334155;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .feature-box {
+            background: #f8fafc;
+            padding: 15px;
+            border: 1px solid #e2e8f0;
+            position: relative;
+        }
+
+        .feature-box h3 {
+            font-size: 13px;
+            color: var(--primary);
+            margin-top: 0;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .feature-box h3::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--accent);
+            display: block;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            border: 1px solid var(--primary);
+            padding: 15px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-family: 'Playfair Display', serif;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--secondary);
+            font-weight: 700;
+        }
+
+        blockquote {
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+            font-size: 14px;
+            border-left: 4px solid var(--accent);
+            margin: 30px 0;
+            padding: 10px 25px;
+            background: #fffbeb;
+            color: var(--primary);
+        }
+
+        .footer {
+            margin-top: auto;
+            padding-top: 20px;
+            border-top: 2px solid var(--primary);
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .footer a {
+            color: var(--secondary);
+            text-decoration: none;
+        }
+
+        @media print {
+            body { background: white; padding: 0; }
+            .page { box-shadow: none; width: 100%; height: auto; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="page">
+        <header>
+            <div class="brand">
+                <div class="logo-circle">WC</div>
+                <div class="title">
+                    <h1>War Cabinet</h1>
+                    <p>Logistical Intelligence Platform</p>
+                </div>
+            </div>
+            <div class="meta">
+                STRATEGIC BRIEFING 2026<br>
+                HIGH COMMAND ACCESS ONLY
+            </div>
+        </header>
+
+        <section class="hero-section">
+            <div>
+                <h2>The Mission</h2>
+                <p><strong>War Cabinet is the ultimate defensive layer against logistical entropy.</strong></p>
+                <p>Designed for the meticulous household manager, War Cabinet transforms chaotic pantries and forgotten freezers into a streamlined, data-driven operation. We don't just track items; we manage <strong>Readiness</strong>.</p>
+                <p>By applying military-grade inventory logic to the modern home, we eliminate waste, prevent stockouts, and ensure that every resource is accounted for and deployed with precision.</p>
+            </div>
+            <div class="hero-image"></div>
+        </section>
+
+        <div class="grid-2">
+            <div class="feature-box">
+                <h3>The Quartermaster</h3>
+                <p>Centralized oversight of all storage nodes. From deep-freeze logistics to the spice cabinet, the Quartermaster provides instant reports on stock levels and expiration trajectories.</p>
+                <img src="quartermaster_seal.png" style="width: 60px; position: absolute; bottom: 10px; right: 10px; opacity: 0.2;">
+            </div>
+            <div class="feature-box">
+                <h3>The Mess Hall AI</h3>
+                <p>Waste-conscious culinary intelligence. Our AI engine analyzes your current inventory to suggest high-impact recipes, demoting ingredients near their expiry to ensure zero-waste deployment.</p>
+                <img src="mess_hall_ai.png" style="width: 80px; position: absolute; bottom: 5px; right: 5px; opacity: 0.3; border-radius: 50%;">
+            </div>
+        </div>
+
+        <section>
+            <h2>Strategic Assets</h2>
+            <div class="grid-2" style="font-size: 11px;">
+                <ul style="margin: 0; padding-left: 15px;">
+                    <li><strong>Cloud Mirroring</strong>: Real-time, encrypted database mirroring for seamless device migration and disaster recovery.</li>
+                    <li><strong>Tactical Expiry Tracking</strong>: Age-based alerts and freezer-life calculations based on deployment date.</li>
+                    <li><strong>Personnel Sync</strong>: Share cabinets with 'Allied Forces' (family/roommates) for multi-user logistical coordination.</li>
+                </ul>
+                <ul style="margin: 0; padding-left: 15px;">
+                    <li><strong>Brutalist HUD Design</strong>: A high-contrast, distraction-free interface built for speed and clarity in the field.</li>
+                    <li><strong>Offline Sovereignty</strong>: Local-first data architecture ensures full operation even when external comms are severed.</li>
+                    <li><strong>Vanguard Updates</strong>: Direct intelligence feeds from Reestit Intel for smart-pantry assessments.</li>
+                </ul>
+            </div>
+        </section>
+
+        <div class="stats-row">
+            <div class="stat-item">
+                <span class="stat-value">100%</span>
+                <span class="stat-label">Data Sovereignty</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value">0%</span>
+                <span class="stat-label">Logistical Waste</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value">Instant</span>
+                <span class="stat-label">Cloud Restore</span>
+            </div>
+        </div>
+
+        <blockquote>
+            "War Cabinet turned my chaotic pantry into a well-oiled machine. I no longer buy duplicates, and the Mess Hall recipes are a game changer for mid-week deployment."
+            <cite>— Field Marshall Sarah L., London</cite>
+        </blockquote>
+
+        <div class="footer">
+            <div>
+                WAR CABINET / STRATEGIC LOGISTICS<br>
+                <a href="https://reestit.com">MISSION CONTROL: REESTIT.COM</a>
+            </div>
+            <div style="text-align: right;">
+                LAURENCE MOLLOY / PROJECT LEAD<br>
+                LAURENCE.MOLLOY@GMAIL.COM
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

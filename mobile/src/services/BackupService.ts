@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
  * createBackup and restore methods to account for all structural 
  * changes in sqlite.ts.
  */
-export const BACKUP_MANIFEST_VERSION = 102; // MANUALLY SYNCED TO ITERATION 102
+export const BACKUP_MANIFEST_VERSION = 104; // SYNCED TO ITERATION 104
 
 const getBackupDir = () => (FileSystem.documentDirectory || "") + 'backups/';
 const MAX_BACKUPS = 5;
@@ -20,6 +20,9 @@ export interface BackupMetadata {
   name: string;
   timestamp: number;
   uri: string;
+  note?: string;
+  summary?: string; // e.g. "54 Batches | 8 Types"
+  lastAction?: string; // e.g. "Consumed 500g Flour (2026-04-23 00:50)"
 }
 
 export const BackupService = {
@@ -42,16 +45,43 @@ export const BackupService = {
       const dateStr = new Date(timestamp).toISOString().replace(/[:.]/g, '-');
       
       // 1. DATA COLLECTION (JSON)
-      const categories = await db.getAllAsync('SELECT * FROM Categories');
-      const itemTypes = await db.getAllAsync('SELECT * FROM ItemTypes');
-      const inventory = await db.getAllAsync('SELECT * FROM Inventory');
-      const cabinets = await db.getAllAsync('SELECT * FROM Cabinets');
-      const settings = await db.getAllAsync('SELECT * FROM Settings');
-      const barcodeSignatures = await db.getAllAsync('SELECT * FROM BarcodeSignatures');
+      const categories = await db.getAllAsync<any>('SELECT * FROM Categories');
+      const itemTypes = await db.getAllAsync<any>('SELECT * FROM ItemTypes');
+      const inventory = await db.getAllAsync<any>('SELECT * FROM Inventory');
+      const cabinets = await db.getAllAsync<any>('SELECT * FROM Cabinets');
+      const settings = await db.getAllAsync<any>('SELECT * FROM Settings');
+      const barcodeSignatures = await db.getAllAsync<any>('SELECT * FROM BarcodeSignatures');
+
+      const lastActionRes = settings.find((s: any) => s.key === 'last_activity_log');
+      let lastAction = lastActionRes ? lastActionRes.value : 'No operational changes recorded';
+
+      // PREVENT REDUNDANT LOGS: Check the most recent local backup to see if this action was already archived
+      try {
+        const files = await FileSystem.readDirectoryAsync(backupDir);
+        const latestBackupFile = files
+          .filter(f => f.endsWith('.json'))
+          .sort((a, b) => b.localeCompare(a))[0];
+          
+        if (latestBackupFile) {
+          const prevContent = await FileSystem.readAsStringAsync(`${backupDir}${latestBackupFile}`);
+          const prevParsed = JSON.parse(prevContent);
+          if (prevParsed.lastAction === lastAction) {
+            lastAction = 'No changes recorded since previous archive';
+          }
+        }
+      } catch (e) {
+        // Fallback to original action if comparison fails
+      }
+
+      const totalUnits = inventory.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
+      const summary = `${totalUnits} Units | ${inventory.length} Batches`;
 
       const backupData = {
         version: BACKUP_MANIFEST_VERSION.toString(),
         timestamp,
+        note: isManual ? (typeof isManual === 'string' ? isManual : 'Manual Snapshot') : 'System Archive',
+        summary,
+        lastAction,
         tables: {
           Categories: categories,
           ItemTypes: itemTypes,
@@ -225,24 +255,38 @@ export const BackupService = {
     if (Platform.OS === 'web' || !FileSystem.documentDirectory) return [];
     if (!(await FileSystem.getInfoAsync(backupDir)).exists) return [];
     const files = await FileSystem.readDirectoryAsync(backupDir);
-    return files
+    return await Promise.all(files
       .filter(f => f.endsWith('.json'))
-      .map(f => {
-        // Filename format: war-cabinet-backup-2026-04-01T21-42-58-724Z.json
-        // We must reconstruct the ISO string: 2026-04-01T21:42:58.724Z
+      .map(async f => {
         const match = f.match(/backup-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/);
         let timestamp = 0;
         if (match) {
           const [_, date, h, m, s, ms] = match;
           timestamp = Date.parse(`${date}T${h}:${m}:${s}.${ms}Z`) || 0;
         }
+
+        // Try to read metadata from the file without loading the whole thing? 
+        // Actually for 5 files, reading is fast enough.
+        let note = "";
+        let summary = "";
+        let lastAction = "";
+        try {
+          const content = await FileSystem.readAsStringAsync(`${backupDir}${f}`);
+          const parsed = JSON.parse(content);
+          note = parsed.note || "";
+          summary = parsed.summary || "";
+          lastAction = parsed.lastAction || "";
+        } catch (e) {}
+
         return {
            name: f,
            timestamp: timestamp,
-           uri: `${backupDir}${f}`
+           uri: `${backupDir}${f}`,
+           note,
+           summary,
+           lastAction
         };
-      })
-      .sort((a,b) => b.timestamp - a.timestamp);
+      })).then(results => results.sort((a,b) => b.timestamp - a.timestamp));
   },
 
   /**
@@ -280,7 +324,12 @@ export const BackupService = {
   async restore(db: SQLiteDatabase, jsonData: any) {
     try {
       await db.withTransactionAsync(async () => {
-        // Clear all
+        // 1. CAPTURE CRITICAL LOCAL SETTINGS (To survive the wipe)
+        const localSettings = await db.getAllAsync<{key: string, value: string}>(
+          "SELECT * FROM Settings WHERE key IN ('cloud_account', 'cloud_backup_enabled', 'persistence_mirror_uri', 'google_access_token', 'google_refresh_token')"
+        );
+
+        // 2. WIPE ALL
         await db.runAsync("DELETE FROM Inventory");
         await db.runAsync("DELETE FROM ItemTypes");
         await db.runAsync("DELETE FROM Categories");
@@ -339,7 +388,15 @@ export const BackupService = {
 
         const settings = tables.Settings || [];
         for (const s of settings) {
+          // Skip sensitive cloud/mirror keys from the incoming backup to avoid overwriting current device's connection
+          const protectedKeys = ['cloud_account', 'cloud_backup_enabled', 'persistence_mirror_uri', 'google_access_token', 'google_refresh_token'];
+          if (protectedKeys.includes(s.key)) continue;
           await db.runAsync("INSERT INTO Settings (key, value) VALUES (?, ?)", s.key, s.value);
+        }
+
+        // 4. RESTORE CRITICAL LOCAL SETTINGS
+        for (const ls of localSettings) {
+          await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", ls.key, ls.value);
         }
 
         const barcodeSigs = tables.BarcodeSignatures || [];
@@ -391,5 +448,97 @@ export const BackupService = {
    */
   async readLocalBackup(uri: string) {
     return await FileSystem.readAsStringAsync(uri);
+  },
+
+  /**
+   * CLOUD MIRRORING: Uploads the latest JSON backup to Google Drive.
+   */
+  async uploadToCloud(accessToken: string, jsonData: any) {
+    console.log('[DRIVE] Uploading mirror to cloud...');
+    try {
+      const fileName = `war-cabinet-mirror-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      
+      // 1. Metadata
+      const metadata = {
+        name: fileName,
+        parents: ['appDataFolder'],
+      };
+
+      // 2. Multipart Upload
+      const boundary = '-------314159265358979323846';
+      const delimiter = "\r\n--" + boundary + "\r\n";
+      const close_delim = "\r\n--" + boundary + "--";
+
+      const contentType = "application/json";
+      const body = 
+        delimiter +
+        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify(metadata) +
+        delimiter +
+        'Content-Type: ' + contentType + '\r\n\r\n' +
+        JSON.stringify(jsonData) +
+        close_delim;
+
+      const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+          'Content-Length': body.length.toString(),
+        },
+        body: body
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Cloud upload failed: ${error}`);
+      }
+
+      console.log('[DRIVE] Mirror upload successful.');
+      return await response.json();
+    } catch (error) {
+      console.error('[DRIVE] Upload error:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * CLOUD MIRRORING: Lists available mirrors in the appDataFolder.
+   */
+  async listCloudBackups(accessToken: string): Promise<any[]> {
+    console.log('[DRIVE] Fetching cloud mirror list...');
+    try {
+      const response = await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id, name, createdTime)', {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (!response.ok) throw new Error('Failed to list cloud files');
+      const data = await response.json();
+      
+      return (data.files || []).sort((a: any, b: any) => 
+        new Date(b.createdTime).getTime() - new Date(a.createdTime).getTime()
+      );
+    } catch (error) {
+      console.error('[DRIVE] List error:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * CLOUD MIRRORING: Downloads a specific mirror by ID.
+   */
+  async downloadFromCloud(accessToken: string, fileId: string) {
+    console.log(`[DRIVE] Downloading mirror ${fileId}...`);
+    try {
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (!response.ok) throw new Error('Failed to download cloud mirror');
+      return await response.json();
+    } catch (error) {
+      console.error('[DRIVE] Download error:', error);
+      throw error;
+    }
   }
 };

@@ -6,7 +6,7 @@ import { Link, useFocusEffect, useRouter, useLocalSearchParams } from 'expo-rout
 import * as Notifications from 'expo-notifications';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { requestPermissions, scheduleMonthlyBriefing } from '../services/notifications';
-import { initializeDatabase, markModified } from '../db/sqlite';
+import { initializeDatabase, markModified, recordActivity } from '../db/sqlite';
 import { BackupService } from '../services/BackupService';
 import { useBilling } from '../context/BillingContext';
 
@@ -475,16 +475,27 @@ export default function HomeScreen() {
   };
 
   const deductQuantity = async (invId: number, currentQty: number, typeId?: number, forceDelete = false) => {
-    if (currentQty <= 1 || forceDelete) await db.runAsync('DELETE FROM Inventory WHERE id = ?', invId);
+    const isDeletion = currentQty <= 1 || forceDelete;
+    if (isDeletion) await db.runAsync('DELETE FROM Inventory WHERE id = ?', invId);
     else await db.runAsync('UPDATE Inventory SET quantity = quantity - 1 WHERE id = ?', invId);
-    if (typeId) await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
+    
+    if (typeId) {
+      const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]);
+      await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
+      await recordActivity(db, `${isDeletion ? 'Depleted batch' : 'Consumed unit'} of ${type?.name || 'Item'}`);
+    }
+    
     await markModified(db);
     load();
   };
 
   const addQuantity = async (invId: number, typeId?: number) => {
     await db.runAsync('UPDATE Inventory SET quantity = quantity + 1 WHERE id = ?', invId);
-    if (typeId) await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
+    if (typeId) {
+      const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]);
+      await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
+      await recordActivity(db, `Added unit of ${type?.name || 'Item'}`);
+    }
     await markModified(db);
     load();
   };
@@ -580,6 +591,7 @@ export default function HomeScreen() {
 
     await markModified(db);
     const destName = moveDestCabinets.find(c => c.id === moveDestCabId)?.name ?? 'DESTINATION';
+    await recordActivity(db, `Transferred ${moveQty}x ${moveType.name} to ${destName}`);
     triggerFeedback(`${moveQty} × ${moveType.name} → ${destName.toUpperCase()}`);
     load();
   };
@@ -797,6 +809,7 @@ export default function HomeScreen() {
       setOptimisticRemainders(prev => ({ ...prev, [inv.id]: current - 1 }));
 
       await db.runAsync('UPDATE Inventory SET portions_remaining = ? WHERE id = ?', [current - 1, inv.id]);
+      await recordActivity(db, `Consumed portion of ${type.name}`);
       await markModified(db);
     } else {
       // Hard reload required for whole unit deduction

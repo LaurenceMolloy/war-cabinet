@@ -7,9 +7,13 @@ import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { BillingProvider } from '../context/BillingContext';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+
+import { Platform } from 'react-native';
 
 export default function RootLayout() {
   const router = useRouter();
+  const dbName = Platform.OS === 'web' ? 'war_cabinet_web.db' : 'war_cabinet.db';
 
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
@@ -27,14 +31,18 @@ export default function RootLayout() {
         <ActivityIndicator size="large" color="#3b82f6" />
       </View>
     }>
-      <SQLiteProvider databaseName="war_cabinet.db" onInit={initializeDatabase}>
+      <SQLiteProvider databaseName={dbName} onInit={initializeDatabase}>
         <BillingProvider>
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              animation: 'slide_from_right'
-            }}
-          />
+          <SafeAreaProvider>
+            <SafeAreaView style={{ flex: 1, backgroundColor: '#0f172a' }}>
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  animation: 'slide_from_right'
+                }}
+              />
+            </SafeAreaView>
+          </SafeAreaProvider>
         </BillingProvider>
       </SQLiteProvider>
     </Suspense>

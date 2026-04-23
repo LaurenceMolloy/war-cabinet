@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView,
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
-import { markModified } from '../db/sqlite';
+import { markModified, recordActivity } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
 import SUPPLIERS_DATA from '../data/suppliers.json';
 import BRANDS_DATA from '../data/brands.json';
@@ -817,6 +817,8 @@ export default function AddInventoryScreen() {
           'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ?, portions_total = IFNULL(portions_total, 0) + ?, portions_remaining = IFNULL(portions_remaining, 0) + ? WHERE id = ?',
           [data.q, data.entryM, data.entryY, data.portions_total || 0, data.portions_remaining || 0, mergeTargetId]
         );
+        const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [Number(data.typeId)]);
+        await recordActivity(db, `Merged ${data.q} units into existing ${type?.name || 'Batch'}`);
         if (editBatchId) {
           await db.runAsync('DELETE FROM Inventory WHERE id = ?', [Number(editBatchId)]);
         }
@@ -825,12 +827,16 @@ export default function AddInventoryScreen() {
           'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ?, portions_total = ?, portions_remaining = ? WHERE id = ?',
           [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, data.portions_remaining, Number(editBatchId)]
         );
+        const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [Number(data.typeId)]);
+        await recordActivity(db, `Modified batch of ${type?.name || 'Item'}`);
       } else {
         await db.runAsync(
           `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, data.portions_remaining]
         );
+        const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [Number(data.typeId)]);
+        await recordActivity(db, `Added batch: ${data.q}x ${type?.name || 'Item'}`);
       }
 
       if (data.selectedCabinetId) {
