@@ -335,7 +335,9 @@ export default function CatalogScreen() {
 
   const fetchMissionLogs = async () => {
     setIsBunkerLedger(false);
-    const logs = await db.getAllAsync('SELECT * FROM TacticalLogs ORDER BY timestamp DESC LIMIT 100');
+    // Use temporal look-back: show logs since the absolute latest archive
+    const latestBackupTs = backups.length > 0 ? backups[0].timestamp : 0;
+    const logs = await db.getAllAsync('SELECT * FROM TacticalLogs WHERE timestamp > ? ORDER BY timestamp DESC LIMIT 100', [latestBackupTs]);
     setMissionLogs(logs);
 
     if (currentCensus && backups.length > 0 && backups[0].counts) {
@@ -1024,7 +1026,9 @@ export default function CatalogScreen() {
 
   const handleDeleteCategory = async (catId: number, hasTypes: boolean) => {
     if (hasTypes) return;
+    const catNameRes = await db.getFirstAsync<{name: string}>('SELECT name FROM Categories WHERE id = ?', [catId]);
     await db.runAsync('DELETE FROM Categories WHERE id = ?', catId);
+    await logTacticalAction(db, 'DELETE', 'CATEGORY', catId, catNameRes?.name || 'Unknown');
     load();
   };
 
@@ -2019,7 +2023,12 @@ export default function CatalogScreen() {
             </View>
           )}
 
-          <Text style={styles.label}>Local Snapshot Archive (Rolling 5)</Text>
+          <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, marginTop: 10}}>
+            <Text style={{color: '#94a3b8', fontSize: 16}}>Local Snapshot Archive (Rolling 5)</Text>
+            <TouchableOpacity onPress={() => Alert.alert("System Archive Protocol", "The auto-archiver enforces a 1-hour cooldown between snapshots to prevent database flooding.\n\nFurthermore, the system will only capture a snapshot if you actively visit the main inventory screen AFTER the 1-hour threshold has passed AND a logistical change has occurred since the last archive.\n\nThis ensures that archives only capture deliberate operational drift rather than background noise.")}>
+              <MaterialCommunityIcons name="information" size={20} color="#64748b" />
+            </TouchableOpacity>
+          </View>
           
           {/* ─── TACTICAL DELTA BRIEFING ─── */}
           {currentCensus && backups.length > 0 && backups[0].counts && (
@@ -2079,7 +2088,7 @@ export default function CatalogScreen() {
           {backups.length === 0 ? (
             <Text style={{color: '#64748b', textAlign: 'center', marginTop: 20}}>No backups recorded yet.</Text>
           ) : (
-            backups.map(item => (
+            backups.slice(0, 5).map(item => (
               <View key={item.name} style={styles.backupItem}>
                 <View style={{flex: 1}}>
                   <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4}}>
@@ -2510,10 +2519,11 @@ export default function CatalogScreen() {
                           const c = selectedBackup.counts;
                           const isBunker = idx === -1;
                           setIsBunkerLedger(isBunker);
+                          const prevBackup = isBunker ? null : backups.find(b => b.timestamp < selectedBackup.timestamp);
+                          const prev = prevBackup?.counts;
 
-                          if (idx >= 0 && idx + 1 < backups.length && backups[idx+1].counts && c) {
-                            // Regular snapshot: diff against the one that came before it
-                            const prev = backups[idx+1].counts;
+                          if (prev && c) {
+                            // Regular snapshot: diff against the one that was immediately prior in time
                             setMissionDelta({
                               units: c.units - prev.units,
                               batches: c.batches - prev.batches,
@@ -2522,7 +2532,7 @@ export default function CatalogScreen() {
                               cabinets: c.cabinets - prev.cabinets
                             });
                           } else if (isBunker && c && backups.length > 0 && backups[0].counts) {
-                            // Bunker: flip direction - drift FROM pinned baseline
+                            // Bunker: drift FROM pinned baseline TO latest system state
                             const latest = backups[0].counts;
                             setMissionDelta({
                               units: latest.units - c.units,
@@ -2532,12 +2542,13 @@ export default function CatalogScreen() {
                               cabinets: latest.cabinets - c.cabinets
                             });
                           } else {
-                            // No valid prior baseline at all
                             setMissionDelta(null);
                           }
 
-                         setMissionLogs([...parsed.tables.TacticalLogs].sort((a: any, b: any) => b.timestamp - a.timestamp));
-                         setShowMissionLogs(true);
+                          const prevTs = prevBackup ? prevBackup.timestamp : 0;
+                          const filteredLogs = parsed.tables.TacticalLogs.filter((l: any) => l.timestamp > prevTs);
+                          setMissionLogs([...filteredLogs].sort((a: any, b: any) => b.timestamp - a.timestamp));
+                          setShowMissionLogs(true);
                        } else {
                          Alert.alert("No Logs", "This archive predates the tactical logging engine or has no logs.");
                        }

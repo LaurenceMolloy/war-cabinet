@@ -14,7 +14,7 @@ import { Platform } from 'react-native';
 export const BACKUP_MANIFEST_VERSION = 107; // SYNCED TO ITERATION 107
 
 const getBackupDir = () => (FileSystem.documentDirectory || "") + 'backups/';
-const MAX_BACKUPS = 5;
+const MAX_BACKUPS = 6;
 
 export interface BackupMetadata {
   name: string;
