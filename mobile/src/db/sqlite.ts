@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
  *    script is lagging and requires an audit.
  * 4. Only after auditing BackupService.ts should the versions be re-aligned.
  */
-export const CURRENT_SCHEMA_VERSION = 107;
+export const CURRENT_SCHEMA_VERSION = 108;
 
 // Helper to record last action for backup context
 export const recordActivity = async (db: any, description: string) => {
@@ -352,6 +352,18 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
         `);
       }
     }
+
+    // Iteration 108: Portion Normalization (Repair Aggregate Data)
+    const i108Migrated = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'migration_v108_complete');
+    if (!i108Migrated || (i108Migrated as any).count === 0) {
+      console.log('[DB] Repairing Tactical Portions (v108)...');
+      // If portions_total was aggregate (e.g. 16 for qty 2), normalize it to per-unit (8)
+      await db.runAsync('UPDATE Inventory SET portions_total = portions_total / quantity WHERE quantity > 1 AND portions_total > 0');
+      // Ensure portions_remaining is initialized if missing
+      await db.runAsync('UPDATE Inventory SET portions_remaining = portions_total * quantity WHERE portions_remaining IS NULL AND portions_total > 0');
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v108_complete', '1']);
+    }
+
 
     // Migration: Silently populate freezer expiry (Iteration 102)
     const legacyFreezer = await db.getAllAsync<any>(`

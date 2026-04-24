@@ -202,7 +202,6 @@ export default function CatalogScreen() {
       setCloudLastStatus('Mirroring...');
       const backup = await BackupService.createBackup(db, note || 'Manual Snapshot');
       if (backup) {
-        await db.runAsync('DELETE FROM TacticalLogs');
         await load();
         
         // Mirror to cloud if enabled
@@ -447,10 +446,10 @@ export default function CatalogScreen() {
     setBackups(bList);
     setBunker(bnk);
 
-    // Compute Current Census
-    const invCountRes = await db.getAllAsync<{q: number}>('SELECT quantity as q FROM Inventory');
+    // Compute Current Census (Standardized)
+    const invCountRes = await db.getAllAsync<{q: any}>('SELECT quantity as q FROM Inventory');
     setCurrentCensus({
-      units: invCountRes.reduce((sum, r) => sum + (r.q || 0), 0),
+      units: invCountRes.reduce((sum, r) => sum + Number(r.q || 0), 0),
       batches: invCountRes.length,
       types: uniqueItemCount,
       categories: grouped.length,
@@ -2519,7 +2518,7 @@ export default function CatalogScreen() {
                           const c = selectedBackup.counts;
                           const isBunker = idx === -1;
                           setIsBunkerLedger(isBunker);
-                          const prevBackup = isBunker ? null : backups.find(b => b.timestamp < selectedBackup.timestamp);
+                          const prevBackup = isBunker ? null : backups.find(b => b.timestamp < selectedBackup.timestamp && b.counts);
                           const prev = prevBackup?.counts;
 
                           if (prev && c) {
@@ -2614,9 +2613,21 @@ export default function CatalogScreen() {
                   </Text>
                 </View>
               ) : (
-                <Text style={{ color: '#94a3b8', fontSize: 12, lineHeight: 18 }}>
-                  A record of everything that changed since the last snapshot — what was added, used up, or removed.
-                </Text>
+                <View style={{ gap: 2 }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 12, lineHeight: 18 }}>
+                    A record of everything that changed since the last snapshot.
+                  </Text>
+                  {missionDelta && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ color: '#64748b', fontSize: 10, fontWeight: 'bold' }}>
+                        COMPARED TO: {missionLogs.length > 0 ? (backups.find(b => b.timestamp < selectedBackup?.timestamp)?.name || 'NONE') : 'NONE'}
+                      </Text>
+                      <View style={{ backgroundColor: '#1e293b', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4 }}>
+                        <Text style={{ color: '#94a3b8', fontSize: 8, fontWeight: 'bold' }}>POOL: {backups.length}</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
               )}
 
               {/* TACTICAL METRICS PANEL */}

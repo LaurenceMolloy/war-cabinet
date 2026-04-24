@@ -480,7 +480,17 @@ export default function HomeScreen() {
     const inv = await db.getFirstAsync<any>('SELECT size, supplier FROM Inventory WHERE id = ?', [invId]);
 
     if (isDeletion) await db.runAsync('DELETE FROM Inventory WHERE id = ?', invId);
-    else await db.runAsync('UPDATE Inventory SET quantity = quantity - 1 WHERE id = ?', invId);
+    else {
+      // Portions-Aware Decrement: Ensure total remainder doesn't exceed new capacity
+      await db.runAsync(`
+        UPDATE Inventory 
+        SET quantity = quantity - 1, 
+            portions_remaining = CASE 
+              WHEN portions_total > 0 THEN MIN(IFNULL(portions_remaining, quantity * portions_total), (quantity - 1) * portions_total)
+              ELSE portions_remaining 
+            END 
+        WHERE id = ?`, [invId]);
+    }
     
     if (typeId) {
       await db.runAsync('UPDATE ItemTypes SET interaction_count = interaction_count + 1 WHERE id = ?', typeId);
@@ -492,7 +502,15 @@ export default function HomeScreen() {
   };
 
   const addQuantity = async (invId: number, typeId?: number) => {
-    await db.runAsync('UPDATE Inventory SET quantity = quantity + 1 WHERE id = ?', invId);
+    // Portions-Aware Increment: Ensure portions_remaining grows by portions_total
+    await db.runAsync(`
+      UPDATE Inventory 
+      SET quantity = quantity + 1, 
+          portions_remaining = CASE 
+            WHEN portions_total > 0 THEN IFNULL(portions_remaining, quantity * portions_total) + portions_total 
+            ELSE portions_remaining 
+          END 
+      WHERE id = ?`, invId);
     if (typeId) {
       const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]);
       const inv = await db.getFirstAsync<any>('SELECT size, supplier FROM Inventory WHERE id = ?', [invId]);
@@ -805,17 +823,21 @@ export default function HomeScreen() {
     triggerFeedback(next === 1 ? 'MESS HALL COMPATIBILITY ENABLED' : 'MESS HALL COMPATIBILITY DISABLED');
   };
 
-  const handleDecantSegment = async (inv: any, type: any, totalSegments: number) => {
-    // Favor dedicated column, then optimistic state
+  const handleDecantSegment = async (inv: any, type: any, perUnit: number) => {
+    // current is the TOTAL portions remaining in the batch
     const current = optimisticRemainders[inv.id] !== undefined 
       ? optimisticRemainders[inv.id] 
-      : (inv.portions_remaining !== null ? inv.portions_remaining : totalSegments);
+      : (inv.portions_remaining !== null ? inv.portions_remaining : (perUnit * inv.quantity));
     
     if (current > 1) {
-      setOptimisticRemainders(prev => ({ ...prev, [inv.id]: current - 1 }));
+      const next = current - 1;
+      setOptimisticRemainders(prev => ({ ...prev, [inv.id]: next }));
 
-      await db.runAsync('UPDATE Inventory SET portions_remaining = ? WHERE id = ?', [current - 1, inv.id]);
+      // Calculate the new quantity based on the new portion count
+      const nextQty = Math.ceil(next / perUnit);
+      await db.runAsync('UPDATE Inventory SET portions_remaining = ?, quantity = ? WHERE id = ?', [next, nextQty, inv.id]);
       await logTacticalAction(db, 'CONSUME_PORTION', 'BATCH', inv.id, type.name);
+      load();
     } else {
       // Hard reload required for whole unit deduction
       setOptimisticRemainders(prev => {
@@ -824,14 +846,9 @@ export default function HomeScreen() {
         return next;
       });
 
-      if (inv.quantity <= 1) {
-        await db.runAsync('DELETE FROM Inventory WHERE id = ?', [inv.id]);
-        triggerFeedback('BATCH DEPLETED');
-      } else {
-        await db.runAsync('UPDATE Inventory SET quantity = quantity - 1, portions_remaining = portions_total WHERE id = ?', [inv.id]);
-        triggerFeedback(`WHOLE UNIT CONSUMED`);
-      }
-      await logTacticalAction(db, inv.quantity <= 1 ? 'DELETE' : 'CONSUME', 'BATCH', inv.id, type.name, 'PORTION_DEPLETION');
+      await db.runAsync('DELETE FROM Inventory WHERE id = ?', [inv.id]);
+      triggerFeedback('BATCH DEPLETED');
+      await logTacticalAction(db, 'DELETE', 'BATCH', inv.id, type.name, 'PORTION_DEPLETION');
       load();
     }
   };
@@ -1141,64 +1158,66 @@ export default function HomeScreen() {
                       </View>
 
                       {/* --- EXPERIMENTAL: PARTIAL CONSUMPTION UI (ITERATION 97 PROTOTYPE) --- */}
-                      {(() => {
-                        const isAutoBulk = type.name.toLowerCase().includes('bulk') || cat.name.toLowerCase().includes('bulk') || cat.name === 'Tactical Rations';
-                        const segments = inv.portions_total || (isAutoBulk ? 5 : 0);
-                        if (!segments || segments <= 0) return null;
+                       {(() => {
+                         const isAutoBulk = type.name.toLowerCase().includes('bulk') || cat.name.toLowerCase().includes('bulk') || cat.name === 'Tactical Rations';
+                         const perUnit = inv.portions_total || (isAutoBulk ? 5 : 0);
+                         if (!perUnit || perUnit <= 0) return null;
 
-                        const dbSegments = inv.portions_remaining !== null ? inv.portions_remaining : segments;
-                        const activeSegments = optimisticRemainders[inv.id] !== undefined 
-                          ? optimisticRemainders[inv.id] 
-                          : dbSegments;
-                        
-                        const pipColor = getBatchStatusColor(inv, type);
+                         const totalRem = optimisticRemainders[inv.id] !== undefined 
+                           ? optimisticRemainders[inv.id] 
+                           : (inv.portions_remaining !== null ? inv.portions_remaining : (perUnit * inv.quantity));
+                         
+                         // Determine portions in the "currently active" unit
+                         const activeSegments = totalRem % perUnit || perUnit; 
+                         const reserveUnits = Math.floor((totalRem - activeSegments) / perUnit);
+                         
+                         const pipColor = getBatchStatusColor(inv, type);
 
-                        return (
-                          <View style={{ marginTop: 8 }}>
-                            <TouchableOpacity 
-                              activeOpacity={1}
-                              style={{ 
-                                backgroundColor: '#0f172a', 
-                                padding: 10, 
-                                borderRadius: 10, 
-                                borderWidth: 1, 
-                                borderColor: 'rgba(59, 130, 246, 0.3)',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 2 },
-                                shadowOpacity: 0.3,
-                                shadowRadius: 3,
-                                elevation: 4,
-                                borderColor: 'rgba(59, 130, 246, 0.3)'
-                              }}
-                              onPress={() => {
-                                if (!checkEntitlement('OPEN_CONSUMPTION')) return;
-                                handleDecantSegment(inv, type, segments);
-                              }}
-                            >
-                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                                <Text style={{ color: '#3b82f6', fontSize: 10, fontWeight: '900', textTransform: 'uppercase' }}>
-                                  1 OPEN • {Math.max(0, inv.quantity - 1)} RESERVE
-                                </Text>
-                                <Text style={[styles.experimentalLabel, { color: '#60a5fa' }]}>TAP TO CONSUME</Text>
-                              </View>
+                         return (
+                           <View style={{ marginTop: 8 }}>
+                             <TouchableOpacity 
+                               activeOpacity={1}
+                               style={{ 
+                                 backgroundColor: '#0f172a', 
+                                 padding: 10, 
+                                 borderRadius: 10, 
+                                 borderWidth: 1, 
+                                 borderColor: 'rgba(59, 130, 246, 0.3)',
+                                 shadowColor: '#000',
+                                 shadowOffset: { width: 0, height: 2 },
+                                 shadowOpacity: 0.3,
+                                 shadowRadius: 3,
+                                 elevation: 4,
+                               }}
+                               onPress={() => {
+                                 if (!checkEntitlement('OPEN_CONSUMPTION')) return;
+                                 handleDecantSegment(inv, type, perUnit);
+                               }}
+                             >
+                               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                 <Text style={{ color: '#3b82f6', fontSize: 10, fontWeight: '900', textTransform: 'uppercase' }}>
+                                   1 OPEN • {Math.max(0, reserveUnits)} RESERVE
+                                 </Text>
+                                 <Text style={[styles.experimentalLabel, { color: '#60a5fa' }]}>TAP TO CONSUME</Text>
+                               </View>
 
-                              <View style={[styles.pipRail, { marginBottom: 6 }]}>
-                                {Array.from({ length: segments }).map((_, i) => (
-                                  <View 
-                                    key={i} 
-                                    style={[
-                                      styles.pip, 
-                                      { backgroundColor: i < activeSegments ? pipColor : '#1e293b' }
-                                    ]} 
-                                  />
-                                ))}
-                              </View>
+                               <View style={[styles.pipRail, { marginBottom: 6 }]}>
+                                 {Array.from({ length: perUnit }).map((_, i) => (
+                                   <View 
+                                     key={i} 
+                                     style={[
+                                       styles.pip, 
+                                       { backgroundColor: i < activeSegments ? pipColor : '#1e293b' }
+                                     ]} 
+                                   />
+                                 ))}
+                               </View>
 
-                              <Text style={[styles.experimentalLabel, { color: pipColor }]}>{activeSegments} OUT OF {segments} PORTIONS REMAIN</Text>
-                            </TouchableOpacity>
-                          </View>
-                        );
-                      })()}
+                               <Text style={[styles.experimentalLabel, { color: pipColor }]}>{activeSegments} OUT OF {perUnit} PORTIONS REMAIN</Text>
+                             </TouchableOpacity>
+                           </View>
+                         );
+                       })()}
                     </View>
                   ))}
                 </>

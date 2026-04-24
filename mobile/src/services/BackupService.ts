@@ -14,7 +14,7 @@ import { Platform } from 'react-native';
 export const BACKUP_MANIFEST_VERSION = 107; // SYNCED TO ITERATION 107
 
 const getBackupDir = () => (FileSystem.documentDirectory || "") + 'backups/';
-const MAX_BACKUPS = 6;
+const MAX_BACKUPS = 7;
 
 export interface BackupMetadata {
   name: string;
@@ -85,19 +85,18 @@ export const BackupService = {
         // Fallback to original action if comparison fails
       }
 
-      const totalUnits = inventory.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
-      const summary = `${totalUnits} Units | ${inventory.length} Batches`;
       const counts = {
-        units: totalUnits,
+        units: inventory.reduce((sum, r) => sum + Number(r.quantity || 0), 0),
         batches: inventory.length,
         types: itemTypes.length,
         categories: categories.length,
         cabinets: cabinets.length
       };
+      const summary = `${counts.units} Units | ${inventory.length} Batches`;
 
       const ts = Date.now();
-      const fileName = `backup_${ts}.json`;
-      const csvFileName = `backup_${ts}.csv`;
+      const fileName = `war-cabinet-backup-${ts}.json`;
+      const csvFileName = `war-cabinet-backup-${ts}.csv`;
       const uri = `${backupDir}${fileName}`;
       const csvUri = `${backupDir}${csvFileName}`;
 
@@ -121,6 +120,9 @@ export const BackupService = {
       };
 
       await FileSystem.writeAsStringAsync(uri, JSON.stringify(backupData, null, 2));
+
+      // 1.5. PURGE TACTICAL LOGS: Now that they are safely archived in the snapshot, clear the live table.
+      await db.runAsync('DELETE FROM TacticalLogs');
 
       // 2. SPREADSHEET GENERATION (CSV)
       let csvContent = "";
@@ -173,15 +175,23 @@ export const BackupService = {
     const backupDir = getBackupDir();
     if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
     const files = await FileSystem.readDirectoryAsync(backupDir);
-    const backups = files
-      .filter(f => f.endsWith('.json') && !f.startsWith('bunker_'))
-      .sort((a,b) => b.localeCompare(a));
+    const jsonFiles = files.filter(f => f.endsWith('.json') && !f.startsWith('bunker_'));
 
-    if (backups.length > MAX_BACKUPS) {
-      for (let i = MAX_BACKUPS; i < backups.length; i++) {
-        const base = backups[i].replace('.json', '');
-        await FileSystem.deleteAsync(`${backupDir}${backups[i]}`, { idempotent: true });
-        const csvName = base.replace('backup', 'backup') + '.csv';
+    // Get modification times for all files to ensure absolute chronological sorting
+    const fileStats = await Promise.all(
+      jsonFiles.map(async f => {
+        const info = await FileSystem.getInfoAsync(`${backupDir}${f}`);
+        return { name: f, mtime: info.exists ? (info.modificationTime || 0) : 0 };
+      })
+    );
+
+    const backupsSorted = fileStats.sort((a, b) => b.mtime - a.mtime);
+
+    if (backupsSorted.length > MAX_BACKUPS) {
+      for (let i = MAX_BACKUPS; i < backupsSorted.length; i++) {
+        const base = backupsSorted[i].name.replace('.json', '');
+        await FileSystem.deleteAsync(`${backupDir}${backupsSorted[i].name}`, { idempotent: true });
+        const csvName = base + '.csv';
         await FileSystem.deleteAsync(`${backupDir}${csvName}`, { idempotent: true });
       }
     }
@@ -202,7 +212,7 @@ export const BackupService = {
       for (const f of jsonFiles) {
         const content = await FileSystem.readAsStringAsync(`${backupDir}${f}`);
         const data = JSON.parse(content);
-        const meta = {
+        const meta: BackupMetadata = {
           name: f,
           uri: `${backupDir}${f}`,
           timestamp: data.timestamp,
@@ -213,6 +223,21 @@ export const BackupService = {
           version: data.version,
           logCount: data.logCount !== undefined ? data.logCount : (data.tables && data.tables.TacticalLogs ? data.tables.TacticalLogs.length : undefined)
         };
+
+        // --- METADATA RECOVERY ---
+        // If counts are missing (legacy backup), derive them from the tables object.
+        if (!meta.counts && data.tables) {
+          meta.counts = {
+            units: (data.tables.Inventory || []).reduce((sum: number, r: any) => sum + Number(r.quantity || 0), 0),
+            batches: (data.tables.Inventory || []).length,
+            types: (data.tables.ItemTypes || []).length,
+            categories: (data.tables.Categories || []).length,
+            cabinets: (data.tables.Cabinets || []).length
+          };
+          if (!meta.summary) {
+            meta.summary = `${meta.counts.units} Units | ${meta.counts.batches} Batches`;
+          }
+        }
 
         if (f.startsWith('bunker_')) {
           bunker = meta;

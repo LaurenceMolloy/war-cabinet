@@ -739,7 +739,8 @@ export default function AddInventoryScreen() {
         const exactMatch = potentialMatches.find(m => 
           (m.batch_intel?.trim() || null)?.toLowerCase() === cleanNewIntel?.toLowerCase() &&
           (m.supplier || null)?.toLowerCase() === cleanNewSupplier?.toLowerCase() &&
-          (m.product_range || null)?.toLowerCase() === cleanNewRange?.toLowerCase()
+          (m.product_range || null)?.toLowerCase() === cleanNewRange?.toLowerCase() &&
+          (m.portions_total || null) === (finalPortionsTotal || null)
         );
 
         if (exactMatch) {
@@ -819,9 +820,15 @@ export default function AddInventoryScreen() {
       const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [Number(data.typeId)]);
       
       if (mergeTargetId) {
+        // Fetch current state to ensure we handle NULLs correctly during transition
+        const existing = await db.getFirstAsync<any>('SELECT quantity, portions_total, portions_remaining FROM Inventory WHERE id = ?', [mergeTargetId]);
+        const currentTotal = existing?.portions_total || data.portions_total || 0;
+        const currentRem = existing?.portions_remaining !== null ? existing.portions_remaining : (existing?.quantity || 0) * currentTotal;
+        const addedRem = data.q * (data.portions_total || currentTotal);
+
         await db.runAsync(
-          'UPDATE Inventory SET quantity = quantity + ?, entry_month = ?, entry_year = ?, entry_day = ?, portions_total = IFNULL(portions_total, 0) + ?, portions_remaining = IFNULL(portions_remaining, 0) + ? WHERE id = ?',
-          [data.q, data.entryM, data.entryY, data.entryD || 1, data.portions_total || 0, data.portions_remaining || 0, mergeTargetId]
+          'UPDATE Inventory SET quantity = quantity + ?, portions_total = ?, entry_month = ?, entry_year = ?, entry_day = ?, portions_remaining = ? WHERE id = ?',
+          [data.q, currentTotal, data.entryM, data.entryY, data.entryD || 1, currentRem + addedRem, mergeTargetId]
         );
         await logTacticalAction(db, 'MERGE', 'BATCH', mergeTargetId, type?.name || 'Batch', 
           JSON.stringify({ q: data.q, size: data.finalSize }));
@@ -832,6 +839,7 @@ export default function AddInventoryScreen() {
       } else if (editBatchId) {
         const old = await db.getFirstAsync<any>('SELECT * FROM Inventory WHERE id = ?', [Number(editBatchId)]);
         const diff: any = {};
+        let finalRem = data.portions_remaining;
         if (old) {
            const norm = (v: any) => (v === null || v === undefined || v === '') ? null : v;
            if (norm(old.quantity) !== norm(data.q)) diff.quantity = data.q;
@@ -842,18 +850,25 @@ export default function AddInventoryScreen() {
            if (norm(old.supplier) !== norm(data.supplier)) diff.supplier = data.supplier;
            if (norm(old.product_range) !== norm(data.productRange)) diff.range = data.productRange;
            if (norm(old.batch_intel) !== norm(data.batchIntel)) diff.intel = data.batchIntel;
+
+           // --- PORTION CORRECTION LOGIC (SIMPLIFIED) ---
+           if (data.portions_total && old.portions_total && old.portions_total !== data.portions_total) {
+             finalRem = data.q * data.portions_total;
+           } else if (!old.portions_total && data.portions_total) {
+             finalRem = data.q * data.portions_total;
+           }
         }
 
         await db.runAsync(
           'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, entry_day = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ?, portions_total = ?, portions_remaining = ? WHERE id = ?',
-          [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.entryD || 1, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, data.portions_remaining, Number(editBatchId)]
+          [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.entryD || 1, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, finalRem, Number(editBatchId)]
         );
         await logTacticalAction(db, 'UPDATE', 'BATCH', Number(editBatchId), type?.name || 'Item', Object.keys(diff).length > 0 ? JSON.stringify(diff) : null);
       } else {
         const res = await db.runAsync(
           `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, entry_day, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.entryD || 1, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, data.portions_remaining]
+          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.entryD || 1, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, (data.portions_total && data.q > 1) ? (data.portions_remaining + (data.portions_total * (data.q - 1))) : data.portions_remaining]
         );
         await logTacticalAction(db, 'ADD', 'BATCH', Number(res.lastInsertRowId), type?.name || 'Item',
           JSON.stringify({ q: data.q, size: data.finalSize }));
@@ -2052,9 +2067,21 @@ export default function AddInventoryScreen() {
                 <MaterialCommunityIcons name="source-branch-sync" size={24} color="#3b82f6" />
                 <Text style={[styles.modalTitle, { marginBottom: 0 }]}>INTEL COLLISION</Text>
               </View>
-              <Text style={{ color: '#cbd5e1', fontSize: 13, textAlign: 'center', marginBottom: 20 }}>
+              <Text style={{ color: '#cbd5e1', fontSize: 13, textAlign: 'center', marginBottom: 16 }}>
                 Matching item found in <Text style={{fontWeight: 'bold', color: '#f8fafc'}}>{selectedCabinet?.name}</Text> with different brand intel.
               </Text>
+
+              {mergeCandidate?.portions_total !== deferredSave?.portions_total && (
+                <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: 12, borderRadius: 8, marginBottom: 16, borderWidth: 1, borderColor: '#ef4444' }}>
+                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                     <MaterialCommunityIcons name="alert-outline" size={16} color="#ef4444" />
+                     <Text style={{ color: '#ef4444', fontWeight: 'bold', fontSize: 11 }}>PORTION DISPARITY</Text>
+                   </View>
+                   <Text style={{ color: '#fca5a5', fontSize: 11, lineHeight: 15 }}>
+                     Existing batch uses {mergeCandidate?.portions_total || 'no'} portions per unit. This entry has {deferredSave?.portions_total || 'no'}. Merging will adopt the existing setting ({mergeCandidate?.portions_total} portions).
+                   </Text>
+                </View>
+              )}
               <View style={{ backgroundColor: '#0f172a', padding: 12, borderRadius: 8, marginBottom: 24, borderWidth: 1, borderColor: '#334155' }}>
                 <Text style={{ color: '#64748b', fontSize: 10, textTransform: 'uppercase', fontWeight: 'bold', marginBottom: 12 }}>EXISTING BATCH DETAILS</Text>
                 
