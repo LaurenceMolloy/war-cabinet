@@ -34,6 +34,8 @@ export interface BackupMetadata {
   };
 }
 
+let isAutoBackupRunning = false;
+
 export const BackupService = {
   /**
    * Generates a tactical backup (JSON + CSV).
@@ -276,6 +278,8 @@ export const BackupService = {
    * Checks if an automated backup is required.
    */
   async checkAndRunAutoBackup(db: SQLiteDatabase) {
+    if (isAutoBackupRunning) return;
+
     if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
     const enabled = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'auto_backup_enabled'");
     if (enabled?.value === '0') return;
@@ -288,7 +292,12 @@ export const BackupService = {
     const oneHour = 60 * 60 * 1000;
 
     if (modTime > backTime && Date.now() - backTime > oneHour) {
-      await this.createBackup(db);
+      isAutoBackupRunning = true;
+      try {
+        await this.createBackup(db);
+      } finally {
+        isAutoBackupRunning = false;
+      }
     }
   },
 

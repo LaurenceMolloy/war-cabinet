@@ -89,12 +89,12 @@ To empower user agency, Cadets may choose to "Graduate Early" within the Promoti
 ## Rank-Specific Feature Anchors (Proposed)
 
 ### RANK: CADET (Trial - Day 1-30)
-- [✓] **Scale**: 2 Cabinets / 4 Categories / 16 batches and 16 item types.
+- [✓] **Scale**: 2 Cabinets / 5 Categories / 15 item types / 15 batches / 30 units
 - [✓] **Full Intel**: Full access to AI Suggestions & Alerts.
 - [✓] **Experimental Protocol**: Limited Freezer Mode (1 Cabinet / 4 Item Types and Batches).
 
 ### RANK: PRIVATE (Post-Trial Free)
-- [✓] **Earned Scale**: 8 Cabinets / 8 Categories / 32 batches and 32 item types.
+- [✓] **Earned Scale**: 4 Cabinets / 10 Categories / 25 item types / 25 batches / 50 units
 - [✓] **Core Ops**: Basic MANUAL stock tracking only, incl. freezer mode intelligence
 - [✓] No AI, data integrity engine, batch consolidation, partial consumption or Alerts.
 
@@ -105,25 +105,30 @@ To empower user agency, Cadets may choose to "Graduate Early" within the Promoti
 - [✓] **Barcode Logistics**: Lightning-fast data entry via memory-mapped physical scanner.
 - [✓] **Data Integrity Engine**: Advanced noise cancellation and interactive reconciliation to keep your usage metrics clean. (this includes capturing and correcting all types of user error)
 - [✓] **The Quartermaster Hub**: Tactical resupply reports and sharing.
-- [✓] **Tactical Stock Rotation**: Manual movement-audit roster for secondary storage zones.
+- [✓] **The Command Ledger**: Forensic operational logs, drift analysis, and physical-vs-digital variance tracking.
+- [✓] **Rapid Cupboard Audits**: "Tinder-style" swipe-to-confirm interface for lightning-fast physical stock reconciliation.
+- [✓] **Tactical Stock Rotation**: Manual movement-audit roster for secondary storage zones (e.g., ensuring emergency bunkers don't go out of date).
+- [✓] **Manual Backups**: the ability to create off-device backups and restore from backups
 
 ### RANK: GENERAL (£2.49 / month or £19.99 / year)
-- [TODO] **Strategic Command**: Automated alerts
+- [TODO] **Strategic Command**: Automated alerts 
     - [TODO] weekly low-stock (predictive)
     - [TODO] monthly overstock (predictive)
     - [✓] expiry (based on actual expiry dates)
-    - [✓] stock rotation (alerts for overdue cabinet sweeps)
+    - [✓] stock rotation (alerts for overdue rotation sweeps of secondary locations)
+    - [✓] cabinet audits (automated reminders for overdue physical stock reconciliation)
 - [TODO] **SITREP Intelligence**: 90-day BurnRate and "Days of Cover" forecasting.
 - [TODO] **Predictive Waste Analysis**: The Intersection Model (Expiry vs. Consumption conflicts).
 - [PARKED] **Market & Cost Intelligence**: Personalised inflation tracking, proxy batches, and recon-only (no stock) items.
 - [✓] **The Mess Hall**: Full AI-powered recipe suggestions from inventory.
-- [✓] **Tactical Backups**: Automated rolling snapshots, friction-free device migration and disaster recovery.
+- [✓] **Tactical Backups**: Automated rolling snapshots, friction-free device migration and disaster recovery. 
 
-### RANK: FIELD MARSHALL (Pricing TBD)
-- [TODO] **Platoon-Level P2P Mesh**: True offline-first multi-device synchronization over local WiFi. Maintain a synchronized "common operational picture" across up to 3 devices—no cloud server required. Your data stays entirely within your perimeter.
-- [TODO] **Joint Action Logs**: Decentralized tracking to see which operative consumed, restocked, or relocated tactical assets recently.
+### RANK: FIELD MARSHALL (Pricing TBD - Suggested one time add-on purchase of £19.99)
+- [TODO] **Platoon-Level P2P Mesh**: True offline-first multi-device synchronization over local WiFi. Maintain a synchronized "common operational picture" across up to 4 devices—no cloud server required. Your data stays entirely within your perimeter.
+- [TODO] **Joint Action Logs**: Decentralized tracking to see which operative consumed, restocked, or relocated tactical assets recently. 
+- [TODO] **Free Additional Licences**: Purchase of the Field Marshall rank includes three additional Sergeant licences for use by up to three devices of your choice.
 
----
+---  
 
 ## Implementation Decisions
 - **[AER-69.1]**: Implemented `isPrivate` rename and finalized 2/3/12 Cadet footprint.

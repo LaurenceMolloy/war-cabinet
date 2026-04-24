@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>War Cabinet - Ranks & Deployment Packages</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap');
+
+        :root {
+            --bg-dark: #020617;
+            --panel-bg: #0f172a;
+            --panel-border: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-gold: #fbbf24;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 85% 30%, rgba(251, 191, 36, 0.05) 0%, transparent 50%);
+            display: flex;
+            justify-content: center;
+        }
+
+        .a4-container {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 40px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .hero-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 3rem;
+            font-weight: 800;
+            margin: 0;
+            letter-spacing: -1px;
+            background: linear-gradient(to right, #f8fafc, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-subtitle {
+            color: var(--accent-blue);
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        .intro-text {
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 15px auto 0;
+            line-height: 1.6;
+        }
+
+        .panels-wrapper {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            flex: 1;
+        }
+
+        .panel {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            padding: 30px 20px;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(12px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .panel.featured {
+            border-color: rgba(59, 130, 246, 0.5);
+            background: rgba(15, 23, 42, 0.8);
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+        }
+
+        .panel.premium {
+            border-color: rgba(251, 191, 36, 0.5);
+        }
+
+        .rank-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 15px;
+            letter-spacing: 1px;
+        }
+
+        .badge-private { background: #334155; color: #f8fafc; }
+        .badge-sergeant { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); }
+        .badge-general { background: rgba(251, 191, 36, 0.2); color: var(--accent-gold); }
+
+        .price-block {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+
+        .price {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin: 0;
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .price span {
+            font-size: 1rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .pitch {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-top: 10px;
+            min-height: 40px;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            flex: 1;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .feature-icon {
+            color: var(--accent-green);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .feature-title {
+            font-weight: 600;
+            color: var(--text-main);
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        .feature-desc {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        .addon-banner {
+            margin-top: 20px;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.9) 100%);
+            border: 1px solid var(--panel-border);
+            border-left: 4px solid var(--accent-red);
+            border-radius: 12px;
+            padding: 25px;
+            display: flex;
+            align-items: center;
+            gap: 30px;
+        }
+
+        .addon-content {
+            flex: 1;
+        }
+
+        .addon-title {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-red);
+            font-size: 1.2rem;
+            margin: 0 0 5px 0;
+        }
+
+        .addon-desc {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin: 0;
+            line-height: 1.5;
+        }
+
+        .addon-price {
+            text-align: right;
+        }
+
+        .addon-price .amount {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+
+        .addon-price .tag {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="a4-container">
+        <header>
+            <h1 class="hero-title">WAR CABINET</h1>
+            <div class="hero-subtitle">Household Logistics & Resilience</div>
+            <p class="intro-text">In an era of unpredictable supply chains and relentless inflation, your pantry is a critical asset. Protect your household, eliminate food waste, and stay one step ahead of price hikes. War Cabinet turns your home into a strategic reserve.</p>
+        </header>
+
+        <div class="panels-wrapper">
+            <!-- PRIVATE TIER -->
+            <div class="panel">
+                <div>
+                    <span class="rank-badge badge-private">RANK: PRIVATE</span>
+                    <div class="price-block">
+                        <h2 class="price">Free<span> forever</span></h2>
+                        <p class="pitch">Eliminate the "mystery meat" in your freezer and stop buying duplicates. Command your most critical storage zones at zero cost.</p>
+                    </div>
+                </div>
+                <ul class="feature-list">
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Master Your Freezer</span>
+                            <span class="feature-desc">Stop throwing money away on forgotten frozen goods. Perfect for tracking up to 25 essential survival items.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Clarity Out Of Chaos</span>
+                            <span class="feature-desc">Never ask "do we have any left?" again. Instant visibility over 4 of your most important cabinets.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Essential Recon</span>
+                            <span class="feature-desc">Start building your household resilience today with robust, manual stockpile tracking.</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- SERGEANT TIER -->
+            <div class="panel featured">
+                <div style="position: absolute; top: 0; right: 0; background: var(--accent-blue); color: white; font-size: 0.7rem; font-weight: bold; padding: 4px 12px; border-bottom-left-radius: 8px;">MOST POPULAR</div>
+                <div>
+                    <span class="rank-badge badge-sergeant">RANK: SERGEANT</span>
+                    <div class="price-block">
+                        <h2 class="price">£4.99<span> one-time</span></h2>
+                        <p class="pitch">Total household dominance. For the prepared family that demands absolute data sovereignty and zero logistical blind spots.</p>
+                    </div>
+                </div>
+                <ul class="feature-list">
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Infinite Scale</span>
+                            <span class="feature-desc">From the spice rack to the deep freeze garage, map every single asset in your home without hitting a wall.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Frictionless Entry & Audits</span>
+                            <span class="feature-desc">Scan barcodes for instant entry, and use our "Tinder-style" swipe interface for lightning-fast physical stock reconciliation.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Ironclad Data Integrity</span>
+                            <span class="feature-desc">Our advanced noise cancellation engine captures and corrects human entry errors, ensuring your consumption metrics remain flawless.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Command Ledger & Rotation</span>
+                            <span class="feature-desc">Forensic logs to track every movement, plus manual rotation sweeps to ensure secondary bunkers never go out of date.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Absolute Sovereignty</span>
+                            <span class="feature-desc">Your data belongs to you. Export your encrypted database anywhere, anytime. Zero cloud reliance required.</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- GENERAL TIER -->
+            <div class="panel premium">
+                <div>
+                    <span class="rank-badge badge-general">RANK: GENERAL</span>
+                    <div class="price-block">
+                        <h2 class="price">£2.49<span> / mo</span></h2>
+                        <p class="pitch">Your automated command center. Stay ahead of supply shocks, beat inflation, and let predictive AI manage your reserves.</p>
+                    </div>
+                </div>
+                <ul class="feature-list">
+                    <li class="feature-item">
+                        <svg class="feature-icon" style="color: var(--accent-gold)" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Inflation & Supply Radar</span>
+                            <span class="feature-desc">Track your personal inflation rate and secure your supply lines before supermarket prices surge.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" style="color: var(--accent-gold)" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Strategic Command Alerts</span>
+                            <span class="feature-desc">Automated early-warning push notifications for predictive low-stock, dangerous overstock, impending expiries, overdue cabinet audits, and batch-based stock rotations.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" style="color: var(--accent-gold)" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Predictive Waste Prevention</span>
+                            <span class="feature-desc">The system warns you when your consumption rate won't beat the expiry clock. Saves the average household £40+ monthly.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" style="color: var(--accent-gold)" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">The AI Mess Hall</span>
+                            <span class="feature-desc">Don't know what to cook? The AI analyzes what's expiring soonest and generates elite recipes perfectly tailored to your dietary needs and current cravings.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" style="color: var(--accent-gold)" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Set & Forget Security</span>
+                            <span class="feature-desc">Automated, military-grade cloud snapshots. Lose your phone, but never lose your stockpile intel.</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>

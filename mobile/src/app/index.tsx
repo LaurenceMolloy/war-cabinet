@@ -943,9 +943,9 @@ export default function HomeScreen() {
                   <Text style={{color: '#94a3b8', fontSize: 12, fontWeight: 'bold'}}>EMPTY CATEGORY</Text>
                 ) : hasStock ? (
                   <>
-                    <MaterialCommunityIcons name="package-variant" size={18} color="#f8fafc" />
-                    <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{cat.total_qty}</Text>
                     <MaterialCommunityIcons name="layers-triple" size={18} color="#f8fafc" />
+                    <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{cat.total_qty}</Text>
+                    <MaterialCommunityIcons name="package-variant" size={18} color="#f8fafc" />
                     <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{cat.batch_count}</Text>
                     <MaterialCommunityIcons name="warehouse" size={18} color="#f8fafc" />
                     <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>{cat.site_count}</Text>
@@ -1019,9 +1019,9 @@ export default function HomeScreen() {
                 {!isTypeExpanded && hasItems && (
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 8, marginRight: 4, marginTop: 4 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                      <MaterialCommunityIcons name="package-variant" size={18} color="#f8fafc" />
-                      <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{totalItems}</Text>
                       <MaterialCommunityIcons name="layers-triple" size={18} color="#f8fafc" />
+                      <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{totalItems}</Text>
+                      <MaterialCommunityIcons name="package-variant" size={18} color="#f8fafc" />
                       <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold', marginRight: 4}}>{type.items.length}</Text>
                       <MaterialCommunityIcons name="warehouse" size={18} color="#f8fafc" />
                       <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>{uniqueSites}</Text>

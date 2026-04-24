@@ -830,12 +830,25 @@ export default function AddInventoryScreen() {
           await db.runAsync('DELETE FROM Inventory WHERE id = ?', [Number(editBatchId)]);
         }
       } else if (editBatchId) {
+        const old = await db.getFirstAsync<any>('SELECT * FROM Inventory WHERE id = ?', [Number(editBatchId)]);
+        const diff: any = {};
+        if (old) {
+           const norm = (v: any) => (v === null || v === undefined || v === '') ? null : v;
+           if (norm(old.quantity) !== norm(data.q)) diff.quantity = data.q;
+           if (norm(old.size) !== norm(data.finalSize)) diff.size = data.finalSize;
+           if (norm(old.cabinet_id) !== norm(data.selectedCabinetId)) diff.location = data.selectedCabinetId;
+           if (norm(old.expiry_month) !== norm(data.expMVal) || norm(old.expiry_year) !== norm(data.expYVal)) diff.expiry = `${data.expMVal}/${data.expYVal}`;
+           if (norm(old.portions_total) !== norm(data.portions_total)) diff.portions = data.portions_total;
+           if (norm(old.supplier) !== norm(data.supplier)) diff.supplier = data.supplier;
+           if (norm(old.product_range) !== norm(data.productRange)) diff.range = data.productRange;
+           if (norm(old.batch_intel) !== norm(data.batchIntel)) diff.intel = data.batchIntel;
+        }
+
         await db.runAsync(
           'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, entry_day = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ?, portions_total = ?, portions_remaining = ? WHERE id = ?',
           [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.entryD || 1, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, data.portions_remaining, Number(editBatchId)]
         );
-        await logTacticalAction(db, 'UPDATE', 'BATCH', Number(editBatchId), type?.name || 'Item',
-          JSON.stringify({ q: data.q, size: data.finalSize }));
+        await logTacticalAction(db, 'UPDATE', 'BATCH', Number(editBatchId), type?.name || 'Item', Object.keys(diff).length > 0 ? JSON.stringify(diff) : null);
       } else {
         const res = await db.runAsync(
           `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, entry_day, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) 

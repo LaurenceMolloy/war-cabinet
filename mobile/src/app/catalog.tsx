@@ -683,8 +683,15 @@ export default function CatalogScreen() {
       setEditingCatId(null);
       return;
     }
+    const old = categories.find(c => c.id === catId);
+    const diff: any = {};
+    if (old) {
+       const norm = (v: any) => (v === null || v === undefined || v === '') ? null : v;
+       if (norm(old.name) !== norm(editingCatName)) diff.name = editingCatName;
+       if (old.is_mess_hall !== editingCatIsMessHall) diff.mess_hall = editingCatIsMessHall;
+    }
     await db.runAsync('UPDATE Categories SET name = ?, is_mess_hall = ? WHERE id = ?', [editingCatName, editingCatIsMessHall ? 1 : 0, catId]);
-    await logTacticalAction(db, 'UPDATE', 'CATEGORY', catId, editingCatName);
+    await logTacticalAction(db, 'UPDATE', 'CATEGORY', catId, editingCatName, Object.keys(diff).length > 0 ? JSON.stringify(diff) : null);
     setEditingCatId(null);
     load();
   };
@@ -735,8 +742,18 @@ export default function CatalogScreen() {
       }
     }
 
+    const old = cabinets.find(c => c.id === cabId);
+    const diff: any = {};
+    if (old) {
+       const norm = (v: any) => (v === null || v === undefined || v === '') ? null : v;
+       if (norm(old.name) !== norm(editingCabName)) diff.name = editingCabName;
+       if (norm(old.location) !== norm(editingCabLocation)) diff.location = editingCabLocation;
+       if (norm(old.cabinet_type) !== norm(editingCabType)) diff.type = editingCabType;
+       if (norm(old.rotation_interval_months) !== norm(editingCabRotationInterval === 0 ? null : editingCabRotationInterval)) diff.rotation = editingCabRotationInterval;
+       if (norm(old.default_rotation_cabinet_id) !== norm(editingCabRotDestId)) diff.rotation_dest = editingCabRotDestId;
+    }
     await db.runAsync('UPDATE Cabinets SET name = ?, location = ?, cabinet_type = ?, rotation_interval_months = ?, default_rotation_cabinet_id = ? WHERE id = ?', [editingCabName, editingCabLocation, editingCabType, editingCabRotationInterval === 0 ? null : editingCabRotationInterval, editingCabRotDestId, cabId]);
-    await logTacticalAction(db, 'UPDATE', 'CABINET', cabId, editingCabName);
+    await logTacticalAction(db, 'UPDATE', 'CABINET', cabId, editingCabName, Object.keys(diff).length > 0 ? JSON.stringify(diff) : null);
     setEditingCabId(null);
     load();
   };
@@ -952,6 +969,22 @@ export default function CatalogScreen() {
       }
     }
 
+    const old = await db.getFirstAsync<any>('SELECT * FROM ItemTypes WHERE id = ?', [typeId]);
+    const diff: any = {};
+    if (old) {
+       const norm = (v: any) => (v === null || v === undefined || v === '') ? null : v;
+       if (norm(old.name) !== norm(editingTypeName)) diff.name = editingTypeName;
+       if (norm(old.category_id) !== norm(editingTypeCategoryId)) diff.category = editingTypeCategoryId;
+       if (norm(old.unit_type) !== norm(editingTypeUnit)) diff.unit = editingTypeUnit;
+       if (norm(old.default_size) !== norm(finalDefaultSize)) diff.size = finalDefaultSize;
+       if (norm(old.default_cabinet_id) !== norm(editingTypeDefaultCabinet)) diff.cabinet = editingTypeDefaultCabinet;
+       if (norm(old.min_stock_level) !== norm(editingTypeMinStock ? parseInt(editingTypeMinStock) : null)) diff.min_stock = editingTypeMinStock;
+       if (norm(old.max_stock_level) !== norm(editingTypeMaxStock ? parseInt(editingTypeMaxStock) : null)) diff.max_stock = editingTypeMaxStock;
+       if (norm(old.freeze_months) !== norm(editingTypeFreezeMonths ? parseInt(editingTypeFreezeMonths) : null)) diff.freeze_months = editingTypeFreezeMonths;
+       if (norm(old.default_supplier) !== norm(editingTypeSupplier)) diff.supplier = editingTypeSupplier;
+       if (norm(old.default_product_range) !== norm(editingTypeRange)) diff.range = editingTypeRange;
+    }
+
     await db.runAsync('UPDATE ItemTypes SET name = ?, category_id = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ?, freeze_months = ?, default_supplier = ?, default_product_range = ? WHERE id = ?', [
         editingTypeName, editingTypeCategoryId, editingTypeUnit, finalDefaultSize, editingTypeDefaultCabinet,
         editingTypeMinStock ? parseInt(editingTypeMinStock) : null,
@@ -961,6 +994,7 @@ export default function CatalogScreen() {
         editingTypeRange || null,
         typeId
     ]);
+    await logTacticalAction(db, 'UPDATE', 'ITEM_TYPE', typeId, editingTypeName, Object.keys(diff).length > 0 ? JSON.stringify(diff) : null);
     if (editingTypeCategoryId) {
       setExpandedCatId(editingTypeCategoryId);
       const index = categories.findIndex(c => c.id === editingTypeCategoryId);
@@ -2502,7 +2536,7 @@ export default function CatalogScreen() {
                             setMissionDelta(null);
                           }
 
-                         setMissionLogs(parsed.tables.TacticalLogs);
+                         setMissionLogs([...parsed.tables.TacticalLogs].sort((a: any, b: any) => b.timestamp - a.timestamp));
                          setShowMissionLogs(true);
                        } else {
                          Alert.alert("No Logs", "This archive predates the tactical logging engine or has no logs.");
@@ -2671,22 +2705,40 @@ export default function CatalogScreen() {
               renderItem={({ item }) => (
                 <View style={{ marginBottom: 12, backgroundColor: '#0f172a', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#1e293b' }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <View style={{ 
-                        backgroundColor: 
-                          item.action_type === 'ADD' ? '#065f46' : 
-                          item.action_type === 'DELETE' ? '#7f1d1d' : 
-                          item.action_type === 'MOVE' ? '#1e3a8a' : 
-                          '#1e293b', 
-                        paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 
-                      }}>
-                        <Text style={{ color: 'white', fontSize: 9, fontWeight: 'bold' }}>{item.action_type}</Text>
-                      </View>
-                      <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: 'bold' }}>{item.entity_type}</Text>
-                    </View>
+                    <Text style={{ color: '#f8fafc', fontSize: 14, fontWeight: 'bold', flex: 1 }} numberOfLines={1}>{item.entity_name}</Text>
                     <Text style={{ color: '#64748b', fontSize: 10 }}>{new Date(item.timestamp).toLocaleString()}</Text>
                   </View>
-                  <Text style={{ color: '#f8fafc', fontSize: 14, fontWeight: 'bold' }}>{item.entity_name}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ 
+                      backgroundColor: 
+                        item.action_type === 'ADD' ? '#065f46' : 
+                        item.action_type === 'DELETE' ? '#7f1d1d' : 
+                        item.action_type === 'MOVE' ? '#1e3a8a' : 
+                        item.action_type === 'UPDATE' ? '#b45309' :
+                        '#1e293b', 
+                      paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 
+                    }}>
+                      <Text style={{ color: 'white', fontSize: 9, fontWeight: 'bold' }}>{item.action_type}</Text>
+                    </View>
+                    <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: 'bold' }}>{item.entity_type}</Text>
+                    {item.action_type === 'UPDATE' && item.details && (() => {
+                      let keyText = '';
+                      try {
+                        const parsed = JSON.parse(item.details);
+                        const keys = Object.keys(parsed);
+                        if (keys.length === 1) keyText = keys[0].replace(/_/g, ' ').toUpperCase();
+                        else if (keys.length > 1) keyText = 'MULTIPLE';
+                      } catch(e) {
+                        keyText = 'DATA';
+                      }
+                      return keyText ? (
+                        <>
+                          <Text style={{ color: '#475569', fontSize: 10 }}>•</Text>
+                          <Text style={{ color: '#cbd5e1', fontSize: 9, fontWeight: 'bold' }}>{keyText}</Text>
+                        </>
+                      ) : null;
+                    })()}
+                  </View>
                 </View>
               )}
               ListEmptyComponent={
