@@ -4,6 +4,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { type SQLiteDatabase } from 'expo-sqlite';
 import { Platform } from 'react-native';
 import { GoogleDriveService } from './GoogleDriveService';
+import * as Network from 'expo-network';
 
 /**
  * BACKUP MANIFEST INTEGRITY
@@ -170,7 +171,7 @@ export const BackupService = {
             const accessToken = await GoogleDriveService.getAccessToken();
             if (accessToken) {
               console.log(`[DRIVE] Auto-syncing mirror (Background): ${backupData.note}`);
-              await this.uploadToCloud(accessToken, backupData);
+              await this.uploadToCloud(accessToken, backupData, db);
             }
           } catch (cloudError) {
             console.error('[DRIVE] Automated cloud sync failed:', cloudError);
@@ -558,9 +559,24 @@ export const BackupService = {
   /**
    * CLOUD MIRRORING: Uploads the latest JSON backup to Google Drive.
    */
-  async uploadToCloud(accessToken: string, jsonData: any) {
+  async uploadToCloud(accessToken: string, jsonData: any, db?: SQLiteDatabase) {
     console.log('[DRIVE] Uploading mirror to cloud...');
     try {
+      // PGR RULE #7 EXTENSION: Connectivity Sentinel
+      const network = await Network.getNetworkStateAsync();
+      if (!network.isInternetReachable) {
+        console.log('[DRIVE] System is Radio Silent. Sync deferred.');
+        if (db) {
+          const ts = new Date().toLocaleString();
+          const currentStatus = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'cloud_last_status'");
+          // Only update if we aren't already in a pending state to preserve the "First Spotted" timestamp
+          if (!currentStatus?.value?.includes('Sync Pending')) {
+            await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", 'cloud_last_status', `Radio Silent (Sync Pending since ${ts})`);
+          }
+        }
+        return;
+      }
+
       // Use the note from the backup or a generic name
       const isBunker = jsonData.note?.toLowerCase().includes('bunker');
       const prefix = isBunker ? 'bunker' : 'backup';
@@ -604,11 +620,19 @@ export const BackupService = {
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Cloud upload failed: ${error}`);
+        const errorText = await response.text();
+        console.error(`[DRIVE] API Error: ${response.status} ${response.statusText}`, errorText);
+        throw new Error(`Cloud upload failed: ${response.status} ${errorText}`);
       }
 
       console.log('[DRIVE] Mirror upload successful.');
+
+      // Clear pending status upon success
+      if (db) {
+        const ts = new Date().toLocaleString();
+        await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", 'cloud_last_status', `Success (${ts})`);
+        await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", 'cloud_last_sync', ts);
+      }
       
       // 3. PGR-Compliant Cloud Rotation: Maintain 7+1 Mirroring
       await this.rotateCloudBackups(accessToken);

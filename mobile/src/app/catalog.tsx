@@ -138,10 +138,8 @@ export default function CatalogScreen() {
   // Initialize Native Google Sign-In
   useEffect(() => {
     GoogleSignin.configure({
-      webClientId: '649377265049-br0c6diva1ng3rcqlm8dlovl392i2vmk.apps.googleusercontent.com',
-      offlineAccess: true,
+      ...GOOGLE_AUTH_CONFIG,
       forceCodeForRefreshToken: true,
-      scopes: GOOGLE_AUTH_CONFIG.scopes,
     });
 
     // Try silent sign-in to restore session (Native Only)
@@ -174,9 +172,9 @@ export default function CatalogScreen() {
         await handleEnableCloudSyncWithToken(tokens.accessToken);
       }
     } catch (error: any) {
-      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+      if (error.code === GoogleSignin.statusCodes.SIGN_IN_CANCELLED) {
         console.log('[DRIVE] Auth Cancelled by user');
-      } else if (error.code === statusCodes.IN_PROGRESS) {
+      } else if (error.code === GoogleSignin.statusCodes.IN_PROGRESS) {
         console.log('[DRIVE] Auth already in progress');
       } else {
         console.error('[DRIVE] Native Auth Error:', error);
@@ -204,19 +202,36 @@ export default function CatalogScreen() {
       setShowNoteModal(false);
       setCloudLastStatus('Mirroring...');
       const backup = await BackupService.createBackup(db, note || 'Manual Snapshot');
+      
       if (backup) {
+        // 1. REFRESH LOCAL INTEL IMMEDIATELY
         await load();
-        
-        // Mirror to cloud if enabled
-        const tokens = await GoogleSignin.getTokens();
-        if (cloudBackupEnabled && tokens.accessToken) {
-           const content = await BackupService.readLocalBackup(backup.jsonUri);
-           await BackupService.uploadToCloud(tokens.accessToken, JSON.parse(content));
-           setCloudLastStatus('Success (Mirrored)');
-        }
-        
         setTacticalNote('');
         Alert.alert('Snapshot Captured', note ? `Archive marked as: ${note}` : 'Tactical snapshot stored in rolling archive.');
+        
+        // 2. TRIGGER CLOUD MIRROR (FIRE-AND-FORGET)
+        (async () => {
+          try {
+            const tokens = await GoogleSignin.getTokens();
+            if (cloudBackupEnabled && tokens.accessToken) {
+              const content = await BackupService.readLocalBackup(backup.jsonUri);
+              await BackupService.uploadToCloud(tokens.accessToken, JSON.parse(content), db);
+              
+              // Refresh success states
+              const status = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'cloud_last_status'");
+              if (status) setCloudLastStatus(status.value);
+              const lastSync = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'cloud_last_sync'");
+              if (lastSync) setCloudLastSync(lastSync.value);
+            }
+          } catch (cloudError) {
+            console.log('[DRIVE] Manual mirror sync deferred (Expected in Radio Silent).');
+            // Proactively update UI state from DB to show Radio Silent status immediately
+            const status = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'cloud_last_status'");
+            if (status) setCloudLastStatus(status.value);
+            const lastSync = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'cloud_last_sync'");
+            if (lastSync) setCloudLastSync(lastSync.value);
+          }
+        })();
       }
     } catch (error) {
       console.error('Manual snapshot failed:', error);
@@ -274,7 +289,7 @@ export default function CatalogScreen() {
       const jsonData = JSON.parse(content);
 
       // 3. Upload to cloud
-      await BackupService.uploadToCloud(tokens.accessToken, jsonData);
+      await BackupService.uploadToCloud(tokens.accessToken, jsonData, db);
       
       const ts = new Date().toLocaleString();
       setCloudLastSync(ts);
@@ -1575,6 +1590,26 @@ export default function CatalogScreen() {
         </View>
       </View>
 
+      {/* CLOUD STATUS BANNER */}
+      {cloudBackupEnabled && cloudLastStatus.includes('Radio Silent') && (
+        <View style={{
+          backgroundColor: '#450a0a', 
+          paddingVertical: 6, 
+          paddingHorizontal: 16, 
+          flexDirection: 'row', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          gap: 8,
+          borderBottomWidth: 1,
+          borderBottomColor: '#7f1d1d'
+        }}>
+          <MaterialCommunityIcons name="cloud-off-outline" size={14} color="#f87171" />
+          <Text style={{color: '#f87171', fontSize: 11, fontWeight: 'bold', letterSpacing: 1}}>
+            LOGISTICAL LINK SEVERED - RADIO SILENT MODE
+          </Text>
+        </View>
+      )}
+
       <View style={styles.tabRow}>
         <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'catalog' && styles.tabActive]} onPress={() => setActiveTab('catalog')} testID="tab-catalog"><Text style={[styles.tabText, activeTab === 'catalog' && styles.tabTextActive]}>CATALOG</Text></TouchableOpacity>
         <TouchableOpacity accessibilityRole="tab" style={[styles.tab, activeTab === 'cabinets' && styles.tabActive]} onPress={() => setActiveTab('cabinets')} testID="tab-cabinets"><Text style={[styles.tabText, activeTab === 'cabinets' && styles.tabTextActive]}>CABINETS</Text></TouchableOpacity>
@@ -1802,9 +1837,18 @@ export default function CatalogScreen() {
                   <Text style={{color: '#94a3b8', fontSize: 13}}>Last Successful Sync</Text>
                   <Text style={{color: '#f8fafc', fontSize: 13, fontWeight: 'bold'}}>{cloudLastSync || 'Never'}</Text>
                </View>
-               <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-                  <Text style={{color: '#94a3b8', fontSize: 13}}>Last Status</Text>
-                  <Text style={{color: cloudLastStatus.includes('Success') ? '#22c55e' : (cloudLastStatus.includes('Failed') ? '#ef4444' : '#64748b'), fontSize: 13, fontWeight: 'bold'}}>{cloudLastStatus || 'N/A'}</Text>
+               <View style={{flexDirection: 'row', marginBottom: 8}}>
+                  <Text style={{color: '#94a3b8', fontSize: 13, width: 85}}>Last Status</Text>
+                  <Text style={{
+                    color: cloudLastStatus.includes('Success') ? '#22c55e' : (cloudLastStatus.includes('Radio Silent') ? '#ef4444' : '#64748b'), 
+                    fontSize: 13, 
+                    fontWeight: 'bold', 
+                    flex: 1, 
+                    textAlign: 'right',
+                    flexWrap: 'wrap'
+                  }} numberOfLines={2}>
+                    {cloudLastStatus || 'N/A'}
+                  </Text>
                </View>
 
                <TouchableOpacity 
@@ -2000,7 +2044,7 @@ export default function CatalogScreen() {
                                  const jsonData = JSON.parse(content);
                                  const originalNote = jsonData.note || 'System Archive';
                                  jsonData.note = `${originalNote} (PINNED BUNKER)`;
-                                 await BackupService.uploadToCloud(tokens.accessToken, jsonData);
+                                 await BackupService.uploadToCloud(tokens.accessToken, jsonData, db);
                                }
                              } catch (ce) {
                                console.error('[DRIVE] Bunker promotion sync failed:', ce);
@@ -2079,6 +2123,7 @@ export default function CatalogScreen() {
             )}
           </View>
 
+          {/* SEARCH AND FILTER BAR */}
           {/* SERGEANT TIER */}
           <View style={[styles.tierCard, isSergeant && styles.tierCardActive, { borderColor: '#3b82f6' }]}>
             <View style={styles.tierStatusRow}>
@@ -2501,12 +2546,31 @@ export default function CatalogScreen() {
                     A record of everything that changed since the last snapshot.
                   </Text>
                   {missionDelta && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ gap: 4, marginTop: 4 }}>
                       <Text style={{ color: '#64748b', fontSize: 10, fontWeight: 'bold' }}>
-                        COMPARED TO: {missionLogs.length > 0 ? (backups.find(b => b.timestamp < selectedBackup?.timestamp)?.name || 'NONE') : 'NONE'}
+                        BASELINE: {(() => {
+                           const prev = backups.find(b => b.timestamp < (selectedBackup?.timestamp || 0));
+                           return prev ? new Date(prev.timestamp).toLocaleString() : 'NONE';
+                        })()}
                       </Text>
-                      <View style={{ backgroundColor: '#1e293b', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4 }}>
-                        <Text style={{ color: '#94a3b8', fontSize: 8, fontWeight: 'bold' }}>POOL: {backups.length}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <MaterialCommunityIcons name="clock-outline" size={12} color="#3b82f6" />
+                        <Text style={{ color: '#3b82f6', fontSize: 10, fontWeight: 'bold' }}>
+                          INTELLIGENCE WINDOW: {(() => {
+                             const prev = backups.find(b => b.timestamp < (selectedBackup?.timestamp || 0));
+                             if (!prev || !selectedBackup) return 'N/A';
+                             const ms = selectedBackup.timestamp - prev.timestamp;
+                             const secs = Math.floor(ms / 1000);
+                             const mins = Math.floor(secs / 60);
+                             const hrs = Math.floor(mins / 60);
+                             const days = Math.floor(hrs / 24);
+
+                             if (days > 0) return `${days} DAYS`;
+                             if (hrs > 0) return `${hrs} HOURS`;
+                             if (mins > 0) return `${mins} MINUTES`;
+                             return `${secs} SECONDS`;
+                          })()}
+                        </Text>
                       </View>
                     </View>
                   )}
