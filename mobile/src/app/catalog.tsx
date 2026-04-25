@@ -1,15 +1,21 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Switch, Platform, ScrollView, Linking, Modal, KeyboardAvoidingView } from 'react-native';
-import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
+import { View, Text, TextInput, TouchableOpacity, FlatList, ScrollView, StyleSheet, Alert, Switch, Platform, Modal, KeyboardAvoidingView, ActivityIndicator, Pressable } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
-import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
+import * as SecureStore from 'expo-secure-store';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
 import { BackupService, BackupMetadata, BACKUP_MANIFEST_VERSION } from '../services/BackupService';
 import { GoogleDriveService, GOOGLE_AUTH_CONFIG } from '../services/GoogleDriveService';
 import { CURRENT_SCHEMA_VERSION, markModified, logTacticalAction } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
 import SUPPLIERS_DATA from '../data/suppliers.json';
 import BRANDS_DATA from '../data/brands.json';
+import { Database } from '../database';
+import { CabinetFormModal } from '../components/CabinetFormModal';
+import { CommandLedgerView } from '../components/CommandLedgerView';
 
 export default function CatalogScreen() {
   const router = useRouter();
@@ -50,13 +56,8 @@ export default function CatalogScreen() {
   const [suggestedTypeAheadRanges, setSuggestedTypeAheadRanges] = useState<string[]>([]);
 
   const [cabinets, setCabinets] = useState<any[]>([]);
-  const [newCabName, setNewCabName] = useState('');
-  const [newCabLocation, setNewCabLocation] = useState('');
-  const [newCabError, setNewCabError] = useState<string | null>(null);
-  const [editingCabId, setEditingCabId] = useState<number | null>(null);
-  const [editingCabName, setEditingCabName] = useState('');
-  const [editingCabLocation, setEditingCabLocation] = useState('');
-  const [editingCabError, setEditingCabError] = useState<string | null>(null);
+  const [showCabinetModal, setShowCabinetModal] = useState(false);
+  const [selectedCabinetForEdit, setSelectedCabinetForEdit] = useState<any>(null);
   
   const params = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<'catalog' | 'cabinets' | 'system' | 'backups' | 'rank'>('catalog');
@@ -79,8 +80,6 @@ export default function CatalogScreen() {
   const [freezerItemCount, setFreezerItemCount] = useState(0);
   const [freezerCabCount, setFreezerCabCount] = useState(0);
   const [expandedCatId, setExpandedCatId] = useState<number | null>(null);
-  const [newCabType, setNewCabType] = useState<'standard' | 'freezer'>('standard');
-  const [editingCabType, setEditingCabType] = useState<'standard' | 'freezer'>('standard');
   const [newItemFreezeMonths, setNewItemFreezeMonths] = useState('');
   const [editingTypeFreezeMonths, setEditingTypeFreezeMonths] = useState('');
   const [showInlineAddCabinet, setShowInlineAddCabinet] = useState(false);
@@ -88,16 +87,14 @@ export default function CatalogScreen() {
   const [inlineCabName, setInlineCabName] = useState('');
   const [inlineCabLoc, setInlineCabLoc] = useState('');
   const [inlineCabType, setInlineCabType] = useState<'standard' | 'freezer'>('standard');
-  const [editingCabRotationInterval, setEditingCabRotationInterval] = useState<number>(0);
-  const [editingCabRotDestId, setEditingCabRotDestId] = useState<number | null>(null);
-  const [newCabRotationInterval, setNewCabRotationInterval] = useState<number>(0);
-  const [newCabRotDestId, setNewCabRotDestId] = useState<number | null>(null);
 
   const [cloudBackupEnabled, setCloudBackupEnabled] = useState(false);
   const [cloudSchedule, setCloudSchedule] = useState('Daily');
   const [cloudAccount, setCloudAccount] = useState('');
   const [cloudLastSync, setCloudLastSync] = useState('');
   const [cloudLastStatus, setCloudLastStatus] = useState('');
+
+
   const [showCloudConsentModal, setShowCloudConsentModal] = useState(false);
   const [showRestoreSourceModal, setShowRestoreSourceModal] = useState(false);
   const [showMissionLogs, setShowMissionLogs] = useState(false);
@@ -401,11 +398,7 @@ export default function CatalogScreen() {
 
     setMinReqCount(rows.filter((r: any) => r.type_id !== null && r.min_stock_level !== null).length);
     setMaxReqCount(rows.filter((r: any) => r.type_id !== null && r.max_stock_level !== null).length);
-    const cabRows = await db.getAllAsync<any>(`
-      SELECT c.*, (SELECT COUNT(*) FROM Inventory v WHERE v.cabinet_id = c.id) as stock_count
-      FROM Cabinets c
-      ORDER BY c.name
-    `);
+    const cabRows = await Database.Cabinets.getAll(db);
 
     setFreezerItemCount(rows.filter((r: any) => {
         if (r.type_id === null) return false;
@@ -697,74 +690,13 @@ export default function CatalogScreen() {
     load();
   };
 
-  const handleAddCabinet = async () => {
-    if (!newCabName.trim()) return;
-
-    if (cabinets.some(c => c.name.toLowerCase() === newCabName.trim().toLowerCase())) {
-      setNewCabError(`"${newCabName.trim()}" is already deployed in your logistics network.`);
-      return;
-    }
-    setNewCabError(null);
-
-    if (cabinets.length >= limits.cabinets && !hasFullAccess) {
-      checkEntitlement('CABINET_LIMIT');
-      return;
-    }
-
-    if (newCabType === 'freezer' && freezerCabCount >= limits.freezer_cabs && !hasFullAccess) {
-      checkEntitlement('FREEZER_CABINET_LIMIT');
-      return;
-    }
-
-    const res = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type, rotation_interval_months, default_rotation_cabinet_id) VALUES (?, ?, ?, ?, ?)', [newCabName, newCabLocation, newCabType, newCabRotationInterval === 0 ? null : newCabRotationInterval, newCabRotDestId]);
-    await logTacticalAction(db, 'ADD', 'CABINET', Number(res.lastInsertRowId), newCabName);
-    setNewCabName('');
-    setNewCabLocation('');
-    setNewCabType('standard');
-    setNewCabRotationInterval(0);
-    setNewCabRotDestId(null);
-    load();
-  };
-
-  const handleUpdateCabinet = async (cabId: number) => {
-    if (!editingCabName.trim()) return;
-
-    if (cabinets.some(c => c.id !== cabId && c.name.toLowerCase() === editingCabName.trim().toLowerCase())) {
-      setEditingCabError(`"${editingCabName.trim()}" is already deployed in your logistics network.`);
-      return;
-    }
-    setEditingCabError(null);
-
-    if (editingCabType === 'freezer' && !hasFullAccess) {
-      const currentCab = cabinets.find(c => c.id === cabId);
-      if (currentCab?.cabinet_type !== 'freezer' && freezerCabCount >= limits.freezer_cabs) {
-        checkEntitlement('FREEZER_CABINET_LIMIT');
-        return;
-      }
-    }
-
-    const old = cabinets.find(c => c.id === cabId);
-    const diff: any = {};
-    if (old) {
-       const norm = (v: any) => (v === null || v === undefined || v === '') ? null : v;
-       if (norm(old.name) !== norm(editingCabName)) diff.name = editingCabName;
-       if (norm(old.location) !== norm(editingCabLocation)) diff.location = editingCabLocation;
-       if (norm(old.cabinet_type) !== norm(editingCabType)) diff.type = editingCabType;
-       if (norm(old.rotation_interval_months) !== norm(editingCabRotationInterval === 0 ? null : editingCabRotationInterval)) diff.rotation = editingCabRotationInterval;
-       if (norm(old.default_rotation_cabinet_id) !== norm(editingCabRotDestId)) diff.rotation_dest = editingCabRotDestId;
-    }
-    await db.runAsync('UPDATE Cabinets SET name = ?, location = ?, cabinet_type = ?, rotation_interval_months = ?, default_rotation_cabinet_id = ? WHERE id = ?', [editingCabName, editingCabLocation, editingCabType, editingCabRotationInterval === 0 ? null : editingCabRotationInterval, editingCabRotDestId, cabId]);
-    await logTacticalAction(db, 'UPDATE', 'CABINET', cabId, editingCabName, Object.keys(diff).length > 0 ? JSON.stringify(diff) : null);
-    setEditingCabId(null);
-    load();
-  };
-
   const handleDeleteCabinet = async (cabId: number, hasStock: boolean) => {
-    if (hasStock) return;
-    const cabNameRes = await db.getFirstAsync<{name: string}>('SELECT name FROM Cabinets WHERE id = ?', [cabId]);
-    await db.runAsync('DELETE FROM Cabinets WHERE id = ?', [cabId]);
-    await logTacticalAction(db, 'DELETE', 'CABINET', cabId, cabNameRes?.name || 'Unknown');
-    load();
+    try {
+      await Database.Cabinets.delete(db, cabId);
+      load();
+    } catch (e: any) {
+      Alert.alert('Deployment Error', e.message);
+    }
   };
 
   const handleCreateInlineCabinet = async () => {
@@ -1542,127 +1474,45 @@ export default function CatalogScreen() {
   };
 
   const renderCabinet = ({ item: cab }: any) => {
-    const isEditing = editingCabId === cab.id;
-    
     return (
       <View style={styles.catCard}>
         <View style={styles.catHeader}>
-          {isEditing ? (
-            <View style={{flexDirection: 'column', flex: 1, backgroundColor: '#0f172a', padding: 10, borderRadius: 8, gap: 8}}>
-              <Text style={[styles.formLabel, { marginTop: 10, marginBottom: 10, marginHorizontal: 0 }]}>Edit Cabinet</Text>
-              
-              <View>
-                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET NAME</Text>
-                <TextInput
-                  style={[styles.inputSmall, editingCabError ? { borderColor: '#ef4444', borderWidth: 1 } : {}]}
-                  value={editingCabName}
-                  onChangeText={(v) => { setEditingCabName(v); setEditingCabError(null); }}
-                  placeholder="e.g. Spare Supplies, Spice Cupboard"
-                  placeholderTextColor="#64748b"
-                />
-                {editingCabError && <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginTop: 4, paddingLeft: 4 }}>{editingCabError}</Text>}
-              </View>
-
-              <View style={{marginTop: 8}}>
-                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>PHYSICAL LOCATION</Text>
-                <TextInput style={styles.inputSmall} value={editingCabLocation} onChangeText={setEditingCabLocation} placeholder="e.g. Kitchen, Garage" placeholderTextColor="#64748b" />
-              </View>
-
-              <View style={{marginTop: 8}}>
-                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET TYPE</Text>
-                <View style={styles.unitChipRowMini}>
-                  <TouchableOpacity style={[styles.unitChip, editingCabType === 'standard' && styles.unitChipActive]} onPress={() => setEditingCabType('standard')}>
-                    <Text style={[styles.unitChipText, editingCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.unitChip, {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}, editingCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
-                    onPress={() => { if (editingCabType === 'freezer') { setEditingCabType('standard'); } else { if (checkEntitlement('FREEZER')) setEditingCabType('freezer'); } }}
-                  >
-                    <MaterialCommunityIcons name="snowflake" size={12} color={editingCabType === 'freezer' ? '#60a5fa' : '#64748b'} />
-                    <Text style={[styles.unitChipText, editingCabType === 'freezer' && {color: '#60a5fa'}]}>Freezer</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={{marginTop: 8}}>
-                <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>ROTATION CYCLE</Text>
-                <View style={styles.unitChipRowMini}>
-                  {[0, 1, 3, 6, 12].map(m => (
-                    <TouchableOpacity key={m} style={[styles.unitChip, editingCabRotationInterval === m && styles.unitChipActive]} onPress={() => setEditingCabRotationInterval(m)}>
-                      <Text style={[styles.unitChipText, editingCabRotationInterval === m && styles.unitChipTextActive]}>{m === 0 ? 'NONE' : `${m}m`}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {editingCabRotationInterval > 0 && (
-                <View style={{marginTop: 8}}>
-                  <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>ROTATION DESTINATION</Text>
-                  <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
-                    <TouchableOpacity 
-                      style={[styles.chip, !editingCabRotDestId && styles.chipActive]} 
-                      onPress={() => setEditingCabRotDestId(null)}
-                    >
-                      <Text style={[styles.chipText, !editingCabRotDestId && styles.chipTextActive]}>None (Stay)</Text>
-                    </TouchableOpacity>
-                    {cabinets.filter(c => c.id !== cab.id).map(c => (
-                      <TouchableOpacity 
-                        key={c.id} 
-                        style={[styles.chip, editingCabRotDestId === c.id && styles.chipActive]} 
-                        onPress={() => setEditingCabRotDestId(c.id)}
-                      >
-                        <Text style={[styles.chipText, editingCabRotDestId === c.id && styles.chipTextActive]}>{c.name}</Text>
-                      </TouchableOpacity>
-                    ))}
+          <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-between'}}>
+            <View>
+              <View style={{flexDirection:'row',alignItems:'center',gap:8}}>
+                <Text style={styles.catTitle}>{cab.name}</Text>
+                {!!cab.rotation_interval_months && (
+                  <View style={{backgroundColor: '#fbbf2433', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, borderWidth: 1, borderColor: '#fbbf2466'}}>
+                    <Text style={{color: '#fbbf24', fontSize: 8, fontWeight: 'bold'}}>{cab.rotation_interval_months}M CYCLE</Text>
                   </View>
-                </View>
-              )}
-
-              <TouchableOpacity onPress={() => handleUpdateCabinet(cab.id)} style={[styles.addSaveBtnFull, { marginTop: 12 }]} testID="save-cabinet-btn"><Text style={styles.addSaveText}>SAVE CHANGES</Text></TouchableOpacity>
-              <TouchableOpacity onPress={() => setEditingCabId(null)} style={{ marginTop: 10, alignItems: 'center' }} testID="close-edit-cab-btn"><Text style={{ color: '#64748b', fontSize: 12, fontWeight: 'bold' }}>CANCEL</Text></TouchableOpacity>
-            </View>
-          ) : (
-            <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-between'}}>
-              <View>
-                <View style={{flexDirection:'row',alignItems:'center',gap:8}}>
-                  <Text style={styles.catTitle}>{cab.name}</Text>
-                  {!!cab.rotation_interval_months && (
-                    <View style={{backgroundColor: '#fbbf2433', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, borderWidth: 1, borderColor: '#fbbf2466'}}>
-                      <Text style={{color: '#fbbf24', fontSize: 8, fontWeight: 'bold'}}>{cab.rotation_interval_months}M CYCLE</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={{color: '#64748b', fontSize: 13}}>{cab.location || 'No Location'}</Text>
-                <View style={{flexDirection:'row',alignItems:'center',gap:8,marginTop:3}}>
-                  {cab.cabinet_type === 'freezer' && (
-                    <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
-                      <MaterialCommunityIcons name="snowflake" size={11} color="#60a5fa" />
-                      <Text style={{color:'#60a5fa',fontSize:11,fontWeight:'bold'}}>FREEZER</Text>
-                    </View>
-                  )}
-                </View>
+                )}
               </View>
-              <View style={styles.catActions}>
-                <TouchableOpacity 
-                  onPress={() => { 
-                    setEditingCabId(cab.id); 
-                    setEditingCabName(cab.name); 
-                    setEditingCabLocation(cab.location || ''); 
-                    setEditingCabType(cab.cabinet_type || 'standard'); 
-                    setEditingCabRotationInterval(cab.rotation_interval_months || 0); 
-                    setEditingCabRotDestId(cab.default_rotation_cabinet_id); 
-                  }} 
-                  style={{marginRight: 10}} 
-                  testID={`edit-cab-btn-${cab.name.toLowerCase().replace(/\s+/g, '-')}`}
-                >
-                  <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
-                </TouchableOpacity>
-                <TouchableOpacity disabled={cab.stock_count > 0} onPress={() => handleDeleteCabinet(cab.id, cab.stock_count > 0)}>
-                  <MaterialCommunityIcons name="delete" size={20} color={cab.stock_count > 0 ? "#334155" : "#ef4444"} />
-                </TouchableOpacity>
+              <Text style={{color: '#64748b', fontSize: 13}}>{cab.location || 'No Location'}</Text>
+              <View style={{flexDirection:'row',alignItems:'center',gap:8,marginTop:3}}>
+                {cab.cabinet_type === 'freezer' && (
+                  <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
+                    <MaterialCommunityIcons name="snowflake" size={11} color="#60a5fa" />
+                    <Text style={{color:'#60a5fa',fontSize:11,fontWeight:'bold'}}>FREEZER</Text>
+                  </View>
+                )}
               </View>
             </View>
-          )}
+            <View style={styles.catActions}>
+              <TouchableOpacity 
+                onPress={() => { 
+                  setSelectedCabinetForEdit(cab);
+                  setShowCabinetModal(true);
+                }} 
+                style={{marginRight: 10}} 
+                testID={`edit-cab-btn-${cab.name.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                <MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" />
+              </TouchableOpacity>
+              <TouchableOpacity disabled={cab.stock_count > 0} onPress={() => handleDeleteCabinet(cab.id, cab.stock_count > 0)}>
+                <MaterialCommunityIcons name="delete" size={20} color={cab.stock_count > 0 ? "#334155" : "#ef4444"} />
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </View>
     );
@@ -1740,74 +1590,21 @@ export default function CatalogScreen() {
           )} />
       ) : activeTab === 'cabinets' ? (
         <FlatList data={cabinets} keyExtractor={i => i.id.toString()} renderItem={renderCabinet} ListHeaderComponent={(
-            <View style={[styles.newCatBlock, { backgroundColor: '#0f172a', borderRadius: 8, padding: 10, paddingTop: 0 }]}>
-              <Text style={styles.formLabel}>New Cabinet / Location</Text>
-              <View style={{ marginBottom: 10 }}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET NAME</Text>
-                    <TextInput
-                      style={[styles.inputSmall, newCabError ? { borderColor: '#ef4444', borderWidth: 1 } : {}]}
-                      value={newCabName}
-                      onChangeText={(v) => { setNewCabName(v); setNewCabError(null); }}
-                      placeholder="e.g. Spare Supplies, Spice Cupboard"
-                      placeholderTextColor="#64748b"
-                      testID="new-cab-name-input"
-                    />
-                    {newCabError && <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: 'bold', marginTop: 4, paddingLeft: 4 }}>{newCabError}</Text>}
-                  </View>
-                  <View style={{ marginBottom: 10 }}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>PHYSICAL LOCATION</Text>
-                    <TextInput style={styles.inputSmall} value={newCabLocation} onChangeText={setNewCabLocation} placeholder="e.g. Kitchen, Garage" placeholderTextColor="#64748b" testID="new-cab-loc-input" />
-                  </View>
-                  <View style={{ marginBottom: 10 }}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>CABINET TYPE</Text>
-                    <View style={styles.unitChipRowMini}>
-                      <TouchableOpacity style={[styles.unitChip, newCabType === 'standard' && styles.unitChipActive]} onPress={() => setNewCabType('standard')}>
-                        <Text style={[styles.unitChipText, newCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.unitChip, {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}, newCabType === 'freezer' && {backgroundColor: '#0f2744', borderWidth: 1, borderColor: '#60a5fa'}]}
-                        onPress={() => { if (newCabType === 'freezer') { setNewCabType('standard'); } else { if (checkEntitlement('FREEZER')) setNewCabType('freezer'); } }}
-                        testID="new-cab-type-freezer"
-                      >
-                        <MaterialCommunityIcons name="snowflake" size={12} color={newCabType === 'freezer' ? '#60a5fa' : '#64748b'} />
-                        <Text style={[styles.unitChipText, newCabType === 'freezer' && {color: '#60a5fa'}]}>Freezer</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  <View style={{ marginBottom: 10 }}>
-                    <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>ROTATION CYCLE</Text>
-                    <View style={styles.unitChipRowMini}>
-                      {[0, 1, 3, 6, 12].map(m => (
-                        <TouchableOpacity key={m} style={[styles.unitChip, newCabRotationInterval === m && styles.unitChipActive]} onPress={() => setNewCabRotationInterval(m)}>
-                          <Text style={[styles.unitChipText, newCabRotationInterval === m && styles.unitChipTextActive]}>{m === 0 ? 'NONE' : `${m}m`}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                  {newCabRotationInterval > 0 && (
-                    <View style={{ marginBottom: 10 }}>
-                      <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 4, paddingLeft: 4}}>ROTATION DESTINATION</Text>
-                      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
-                        <TouchableOpacity 
-                          style={[styles.chip, !newCabRotDestId && styles.chipActive]} 
-                          onPress={() => setNewCabRotDestId(null)}
-                        >
-                          <Text style={[styles.chipText, !newCabRotDestId && styles.chipTextActive]}>None (Stay)</Text>
-                        </TouchableOpacity>
-                        {cabinets.map(c => (
-                          <TouchableOpacity 
-                            key={c.id} 
-                            style={[styles.chip, newCabRotDestId === c.id && styles.chipActive]} 
-                            onPress={() => setNewCabRotDestId(c.id)}
-                          >
-                            <Text style={[styles.chipText, newCabRotDestId === c.id && styles.chipTextActive]}>{c.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </View>
-                  )}
-                  <TouchableOpacity onPress={handleAddCabinet} style={styles.addSaveBtnFull} testID="create-cabinet-btn"><Text style={styles.addSaveText}>COMMISSION CABINET</Text></TouchableOpacity>
-              </View>
+            <View style={{ paddingVertical: 10, alignItems: 'center' }}>
+              <TouchableOpacity 
+                style={[styles.addSaveBtnFull, { backgroundColor: '#1e293b', borderColor: '#3b82f6', borderWidth: 1, height: 50 }]} 
+                onPress={() => {
+                  setSelectedCabinetForEdit(null);
+                  setShowCabinetModal(true);
+                }}
+                testID='deploy-new-cabinet-btn'
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <MaterialCommunityIcons name='plus-circle' size={20} color='#3b82f6' />
+                  <Text style={[styles.addSaveText, { color: '#3b82f6' }]}>DEPLOY NEW CABINET</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
             )} />
       ) : activeTab === 'system' ? (
         <View style={{padding: 10}}>
@@ -2138,17 +1935,19 @@ export default function CatalogScreen() {
             ))
           )}
 
-          <View style={{marginTop: 20, backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 20}}>
-            <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 12}}>STRATEGIC BUILD MANIFEST</Text>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
-              <Text style={{color: '#94a3b8', fontSize: 12}}>Database Schema</Text>
-              <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>v{schemaVersion}</Text>
+            <View style={{marginTop: 20, backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 20}}>
+              <Text style={{color: '#64748b', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 12}}>STRATEGIC BUILD MANIFEST</Text>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
+                <Text style={{color: '#94a3b8', fontSize: 12}}>Database Schema</Text>
+                <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>v{schemaVersion}</Text>
+              </View>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+                <Text style={{color: '#94a3b8', fontSize: 12}}>Backup Manifest</Text>
+                <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>v{BACKUP_MANIFEST_VERSION}</Text>
+              </View>
             </View>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-              <Text style={{color: '#94a3b8', fontSize: 12}}>Backup Manifest</Text>
-              <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>v{BACKUP_MANIFEST_VERSION}</Text>
-            </View>
-          </View>
+
+            <CommandLedgerView />
         </ScrollView>
       ) : activeTab === 'rank' ? (
         <ScrollView style={{padding: 16}} contentContainerStyle={{paddingBottom: 40}}>
@@ -2780,6 +2579,16 @@ export default function CatalogScreen() {
           </View>
         </View>
       </Modal>
+      <CabinetFormModal 
+        visible={showCabinetModal}
+        initialData={selectedCabinetForEdit}
+        allCabinets={cabinets}
+        onSuccess={() => {
+          setShowCabinetModal(false);
+          load();
+        }}
+        onCancel={() => setShowCabinetModal(false)}
+      />
     </View>
   );
 }
@@ -2946,3 +2755,5 @@ const styles = StyleSheet.create({
   saveButton: { backgroundColor: '#22c55e', padding: 18, borderRadius: 8, alignItems: 'center', marginTop: 20 },
   saveText: { color: 'white', fontWeight: 'bold', fontSize: 18 }
 });
+
+
