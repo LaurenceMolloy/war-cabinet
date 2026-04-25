@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, ScrollView, StyleSheet, Alert, Switch, Platform, Modal, KeyboardAvoidingView, ActivityIndicator, Pressable } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -16,6 +17,7 @@ import BRANDS_DATA from '../data/brands.json';
 import { Database } from '../database';
 import { CabinetFormModal } from '../components/CabinetFormModal';
 import { CommandLedgerView } from '../components/CommandLedgerView';
+import { CloudRestoreModal } from '../components/CloudRestoreModal';
 
 export default function CatalogScreen() {
   const router = useRouter();
@@ -72,6 +74,10 @@ export default function CatalogScreen() {
   const [logisticsEmail, setLogisticsEmail] = useState('');
   const [mirrorUri, setMirrorUri] = useState<string | null>(null);
   const [backups, setBackups] = useState<BackupMetadata[]>([]);
+  const [showProactiveUpsell, setShowProactiveUpsell] = useState(false);
+  const [silenceUpsell, setSilenceUpsell] = useState(false);
+  const [showCloudRestoreModal, setShowCloudRestoreModal] = useState(false);
+  const [cloudToken, setCloudToken] = useState<string | null>(null);
   const [bunker, setBunker] = useState<BackupMetadata | null>(null);
   const [totalItemCount, setTotalItemCount] = useState(0);
   const [schemaVersion, setSchemaVersion] = useState('0');
@@ -400,20 +406,30 @@ export default function CatalogScreen() {
     setMaxReqCount(rows.filter((r: any) => r.type_id !== null && r.max_stock_level !== null).length);
     const cabRows = await Database.Cabinets.getAll(db);
 
+    // PGR RULE #7: Check for proactive backup upsell trigger
+    const upsellRes = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'show_rank_upsell'");
+    if (upsellRes?.value === '1') {
+      setShowProactiveUpsell(true);
+    }
+
     setFreezerItemCount(rows.filter((r: any) => {
         if (r.type_id === null) return false;
         if (r.freeze_months !== null || r.in_freezer === 1) return true;
         const defaultCab = cabRows.find((c: any) => c.id === r.default_cabinet_id);
         return defaultCab?.cabinet_type === 'freezer';
     }).length);
+
     setCabinets(cabRows);
     setFreezerCabCount(cabRows.filter((c: any) => c.cabinet_type === 'freezer').length);
 
     const setRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['month_brief_enabled']);
     setAlertsEnabled(setRes?.value === '1');
+    
+    const autoRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['auto_backup_enabled']);
+    setAutoBackupEnabled(autoRes?.value === '1');
 
-    const backupRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['auto_backup_enabled']);
-    setAutoBackupEnabled(backupRes?.value === '1');
+    const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['logistics_email']);
+    setLogisticsEmail(emailRes?.value || '');
 
     const cbeRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['cloud_backup_enabled']);
     setCloudBackupEnabled(cbeRes?.value === '1');
@@ -432,14 +448,12 @@ export default function CatalogScreen() {
     const mirrorRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['persistence_mirror_uri']);
     setMirrorUri(mirrorRes?.value || null);
 
-    const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', ['logistics_email']);
-    setLogisticsEmail(emailRes?.value || '');
-
     const { backups: bList, bunker: bnk } = await BackupService.loadBackups();
     setBackups(bList);
     setBunker(bnk);
 
-    // Compute Current Census (Standardized)
+
+  // Compute Current Census (Standardized)
     const invCountRes = await db.getAllAsync<{q: any}>('SELECT quantity as q FROM Inventory');
     setCurrentCensus({
       units: invCountRes.reduce((sum, r) => sum + Number(r.q || 0), 0),
@@ -511,6 +525,14 @@ export default function CatalogScreen() {
       setRangeCounts(rMap);
     } catch (e) {
       console.error("Failed to load vocabulary", e);
+    }
+  };
+
+  const handleDismissUpsell = async () => {
+    setShowProactiveUpsell(false);
+    await db.runAsync("DELETE FROM Settings WHERE key = 'show_rank_upsell'");
+    if (silenceUpsell) {
+      await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", 'proactive_upsell_silenced', '1');
     }
   };
 
@@ -836,6 +858,29 @@ export default function CatalogScreen() {
     } else {
       await db.runAsync('UPDATE Settings SET value = ? WHERE key = ?', ['', 'persistence_mirror_uri']);
       load();
+    }
+  };
+
+  const handleOpenCloudRestore = async () => {
+    try {
+      await GoogleSignin.hasPlayServices();
+      let user;
+      try {
+        user = await GoogleSignin.signInSilently();
+      } catch (err) {
+        user = await GoogleSignin.signIn();
+      }
+      
+      const tokens = await GoogleSignin.getTokens();
+      if (tokens.accessToken) {
+        setCloudToken(tokens.accessToken);
+        setShowCloudRestoreModal(true);
+      } else {
+        throw new Error('No access token received.');
+      }
+    } catch (e) {
+      console.error('Cloud Auth Error:', e);
+      Alert.alert('Cloud Authentication', 'Unable to authorize with Google Drive for recovery. Please ensure you are signed in.');
     }
   };
 
@@ -1763,6 +1808,23 @@ export default function CatalogScreen() {
                </View>
 
                <TouchableOpacity 
+                 onPress={handleOpenCloudRestore}
+                 style={{
+                   marginTop: 16, 
+                   backgroundColor: '#3b82f6', 
+                   padding: 12, 
+                   borderRadius: 8, 
+                   flexDirection: 'row', 
+                   alignItems: 'center', 
+                   justifyContent: 'center', 
+                   gap: 8
+                 }}
+               >
+                 <MaterialCommunityIcons name="cloud-download" size={18} color="#fff" />
+                 <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 13, letterSpacing: 1}}>CLOUD RECOVERY CENTER</Text>
+               </TouchableOpacity>
+
+               <TouchableOpacity 
                  onPress={handleDisconnectCloud}
                  style={{marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#1e293b', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6}}
                >
@@ -1924,7 +1986,29 @@ export default function CatalogScreen() {
                   <TouchableOpacity 
                     onPress={async () => {
                       const success = await BackupService.fortifyToBunker(item);
-                      if (success) load();
+                      if (success) {
+                        // PGR RULE #7 EXTENSION: Sync the new bunker to cloud (FIRE-AND-FORGET)
+                        const cloudEnabled = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'cloud_backup_enabled'");
+                        if (cloudEnabled?.value === '1') {
+                           (async () => {
+                             try {
+                               const tokens = await GoogleSignin.getTokens();
+                               if (tokens.accessToken) {
+                                 const backupDir = (FileSystem.documentDirectory || "") + 'backups/';
+                                 const bunkerUri = `${backupDir}bunker_${item.timestamp}.json`;
+                                 const content = await BackupService.readLocalBackup(bunkerUri);
+                                 const jsonData = JSON.parse(content);
+                                 const originalNote = jsonData.note || 'System Archive';
+                                 jsonData.note = `${originalNote} (PINNED BUNKER)`;
+                                 await BackupService.uploadToCloud(tokens.accessToken, jsonData);
+                               }
+                             } catch (ce) {
+                               console.error('[DRIVE] Bunker promotion sync failed:', ce);
+                             }
+                           })();
+                        }
+                        load();
+                      }
                     }}
                     style={[styles.shareBtn, {backgroundColor: '#1e293b', borderColor: '#fbbf24', borderWidth: 1}]}
                   >
@@ -2579,6 +2663,54 @@ export default function CatalogScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* PROACTIVE BACKUP UPSELL MODAL (PGR RULE #7) */}
+      <Modal visible={showProactiveUpsell} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderColor: '#fbbf24', borderWidth: 2 }]}>
+            <View style={{ alignItems: 'center', marginBottom: 20 }}>
+              <MaterialCommunityIcons name="shield-sync" size={48} color="#fbbf24" />
+              <Text style={[styles.modalTitle, { marginTop: 12 }]}>SECURE YOUR AUDIT?</Text>
+              <Text style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', marginTop: 8 }}>
+                You've just made multiple tactical changes to your logistics network.
+              </Text>
+            </View>
+
+            <View style={{ backgroundColor: '#0f172a', padding: 16, borderRadius: 12, marginBottom: 20 }}>
+              <Text style={{ color: '#f8fafc', fontSize: 14, lineHeight: 20 }}>
+                <Text style={{ color: '#fbbf24', fontWeight: 'bold' }}>General Rank</Text> users get every change backed up <Text style={{ fontWeight: 'bold' }}>instantly</Text> and <Text style={{ fontWeight: 'bold' }}>automatically</Text>.
+                {"\n\n"}
+                Don't risk losing your audit progress to a device failure.
+              </Text>
+            </View>
+
+            <TouchableOpacity 
+              style={{ backgroundColor: '#fbbf24', padding: 16, borderRadius: 12, alignItems: 'center', marginBottom: 12 }}
+              onPress={() => { handleDismissUpsell(); requestPurchase('GENERAL'); }}
+            >
+              <Text style={{ color: '#000', fontWeight: 'bold', fontSize: 16 }}>UPGRADE TO GENERAL</Text>
+            </TouchableOpacity>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+              <TouchableOpacity 
+                style={{ flexDirection: 'row', alignItems: 'center' }}
+                onPress={() => setSilenceUpsell(!silenceUpsell)}
+              >
+                <MaterialCommunityIcons 
+                  name={silenceUpsell ? "checkbox-marked" : "checkbox-blank-outline"} 
+                  size={20} 
+                  color={silenceUpsell ? "#22c55e" : "#64748b"} 
+                />
+                <Text style={{ color: '#64748b', fontSize: 12, marginLeft: 8 }}>Don't show this reminder again</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={{ alignSelf: 'center' }} onPress={handleDismissUpsell}>
+              <Text style={{ color: '#64748b', fontWeight: 'bold' }}>NOT NOW</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       <CabinetFormModal 
         visible={showCabinetModal}
         initialData={selectedCabinetForEdit}
@@ -2589,6 +2721,16 @@ export default function CatalogScreen() {
         }}
         onCancel={() => setShowCabinetModal(false)}
       />
+
+      {cloudToken && (
+        <CloudRestoreModal
+          visible={showCloudRestoreModal}
+          accessToken={cloudToken}
+          db={db}
+          onClose={() => setShowCloudRestoreModal(false)}
+          onSuccess={() => load()}
+        />
+      )}
     </View>
   );
 }

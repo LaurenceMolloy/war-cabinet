@@ -1,5 +1,6 @@
 import { SQLiteDatabase } from 'expo-sqlite';
 import { logTacticalAction } from '../db/sqlite';
+import { BackupService } from '../services/BackupService';
 
 export interface Cabinet {
   id: number;
@@ -52,6 +53,10 @@ export const Cabinets = {
 
     const newId = Number(res.lastInsertRowId);
     await logTacticalAction(db, 'ADD', 'CABINET', newId, name.trim());
+    
+    // PGR RULE #7: Trigger proactive backup verification
+    await BackupService.proactiveBackupProtocol(db, 'Cabinet Add');
+
     return newId;
   },
 
@@ -84,6 +89,9 @@ export const Cabinets = {
       name.trim(), 
       JSON.stringify({ from: old, to: params })
     );
+
+    // PGR RULE #7: Trigger proactive backup verification
+    await BackupService.proactiveBackupProtocol(db, 'Cabinet Edit');
   },
 
   /**
@@ -101,5 +109,8 @@ export const Cabinets = {
     
     // Record the decommission event with the final state snapshot
     await logTacticalAction(db, 'DELETE', 'CABINET', id, old?.name || 'Unknown', JSON.stringify(old));
+
+    // PGR RULE #7: Trigger proactive backup verification
+    await BackupService.proactiveBackupProtocol(db, 'Cabinet Delete');
   }
 };

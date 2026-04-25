@@ -3,6 +3,7 @@ import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { type SQLiteDatabase } from 'expo-sqlite';
 import { Platform } from 'react-native';
+import { GoogleDriveService } from './GoogleDriveService';
 
 /**
  * BACKUP MANIFEST INTEGRITY
@@ -160,6 +161,22 @@ export const BackupService = {
 
       // 4. ROTATION
       await this.rotateBackups();
+
+      // 5. AUTOMATED CLOUD MIRROR (PGR RULE #7 EXTENSION - FIRE-AND-FORGET)
+      const cloudEnabled = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'cloud_backup_enabled'");
+      if (cloudEnabled?.value === '1') {
+        (async () => {
+          try {
+            const accessToken = await GoogleDriveService.getAccessToken();
+            if (accessToken) {
+              console.log(`[DRIVE] Auto-syncing mirror (Background): ${backupData.note}`);
+              await this.uploadToCloud(accessToken, backupData);
+            }
+          } catch (cloudError) {
+            console.error('[DRIVE] Automated cloud sync failed:', cloudError);
+          }
+        })();
+      }
 
       return { jsonUri: uri, timestamp: ts };
     } catch (error) {
@@ -324,6 +341,40 @@ export const BackupService = {
         isAutoBackupRunning = false;
       }
     }
+  },
+
+  /**
+   * PGR RULE #7: Proactive Backup Verification
+   * Triggered after every DAL write to secure high-activity bursts.
+   */
+  async proactiveBackupProtocol(db: SQLiteDatabase, triggerContext: string) {
+    if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
+
+    // 1. Check Rank (Is user a GENERAL?)
+    const license = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'license_key_general'");
+    const isGeneral = !!license?.value;
+
+    if (isGeneral) {
+      console.log(`[PGR] Proactive backup triggered: Event Triggered - ${triggerContext}`);
+      await this.createBackup(db, `Event Triggered - ${triggerContext}`);
+      return;
+    }
+
+    // 2. Free User: Handle Upsell Counter
+    const silenced = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'proactive_upsell_silenced'");
+    if (silenced?.value === '1') return;
+
+    const countRes = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'proactive_upsell_count'");
+    let count = parseInt(countRes?.value || "0") + 1;
+    const N = 5; // Upsell every 5 operational saves
+
+    if (count >= N) {
+      console.log('[PGR] Upsell threshold reached. Triggering UI prompt.');
+      await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", 'show_rank_upsell', '1');
+      count = 0;
+    }
+    
+    await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", 'proactive_upsell_count', count.toString());
   },
 
   /**
@@ -510,12 +561,22 @@ export const BackupService = {
   async uploadToCloud(accessToken: string, jsonData: any) {
     console.log('[DRIVE] Uploading mirror to cloud...');
     try {
-      const fileName = `war-cabinet-mirror-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      // Use the note from the backup or a generic name
+      const isBunker = jsonData.note?.toLowerCase().includes('bunker');
+      const prefix = isBunker ? 'bunker' : 'backup';
+      const fileName = `war-cabinet-${prefix}-${new Date(jsonData.timestamp).toISOString().replace(/[:.]/g, '-')}.json`;
       
-      // 1. Metadata
+      // 1. Metadata: We store the 'note' (Event Trigger context) in the description
+      // and counts in appProperties for fast listing without downloading the whole file.
       const metadata = {
         name: fileName,
+        description: jsonData.note || 'System Archive',
         parents: ['appDataFolder'],
+        appProperties: {
+          summary: jsonData.summary || '',
+          version: jsonData.version || '',
+          timestamp: jsonData.timestamp.toString()
+        }
       };
 
       // 2. Multipart Upload
@@ -523,13 +584,12 @@ export const BackupService = {
       const delimiter = "\r\n--" + boundary + "\r\n";
       const close_delim = "\r\n--" + boundary + "--";
 
-      const contentType = "application/json";
       const body = 
         delimiter +
         'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
         JSON.stringify(metadata) +
         delimiter +
-        'Content-Type: ' + contentType + '\r\n\r\n' +
+        'Content-Type: application/json\r\n\r\n' +
         JSON.stringify(jsonData) +
         close_delim;
 
@@ -549,6 +609,10 @@ export const BackupService = {
       }
 
       console.log('[DRIVE] Mirror upload successful.');
+      
+      // 3. PGR-Compliant Cloud Rotation: Maintain 7+1 Mirroring
+      await this.rotateCloudBackups(accessToken);
+      
       return await response.json();
     } catch (error) {
       console.error('[DRIVE] Upload error:', error);
@@ -557,12 +621,65 @@ export const BackupService = {
   },
 
   /**
-   * CLOUD MIRRORING: Lists available mirrors in the appDataFolder.
+   * CLOUD MIRRORING: Ensures only the last 7 backups + 1 Bunker are kept on Drive.
+   * Also deduplicates backups that have been promoted to Bunker status.
+   */
+  async rotateCloudBackups(accessToken: string) {
+    try {
+      const files = await this.listCloudBackups(accessToken);
+      const bunkers = files.filter(f => f.name.includes('bunker'));
+      const backups = files.filter(f => !f.name.includes('bunker'));
+
+      // 1. Deduplicate: If a backup has the same timestamp as a bunker, delete the backup
+      for (const bnk of bunkers) {
+        const ts = bnk.appProperties?.timestamp;
+        if (ts) {
+          const dup = backups.find(b => b.appProperties?.timestamp === ts);
+          if (dup) {
+            console.log(`[DRIVE] Decommissioning duplicate backup ${dup.id} (Promoted to Bunker)`);
+            await fetch(`https://www.googleapis.com/drive/v3/files/${dup.id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+          }
+        }
+      }
+
+      // Re-fetch list if we deleted duplicates to have accurate counts for rotation
+      const refreshedBackups = (await this.listCloudBackups(accessToken))
+        .filter(f => !f.name.includes('bunker'));
+
+      // Keep only the latest bunker
+      if (bunkers.length > 1) {
+        for (let i = 1; i < bunkers.length; i++) {
+          await fetch(`https://www.googleapis.com/drive/v3/files/${bunkers[i].id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+        }
+      }
+
+      // Keep last 7 backups
+      if (refreshedBackups.length > MAX_BACKUPS) {
+        for (let i = MAX_BACKUPS; i < refreshedBackups.length; i++) {
+          await fetch(`https://www.googleapis.com/drive/v3/files/${refreshedBackups[i].id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[DRIVE] Rotation failed:', e);
+    }
+  },
+
+  /**
+   * CLOUD MIRRORING: Lists available mirrors in the appDataFolder with rich metadata.
    */
   async listCloudBackups(accessToken: string): Promise<any[]> {
     console.log('[DRIVE] Fetching cloud mirror list...');
     try {
-      const response = await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id, name, createdTime)', {
+      const response = await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id, name, createdTime, description, appProperties)', {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
       

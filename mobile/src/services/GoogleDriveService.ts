@@ -22,7 +22,7 @@ export const GOOGLE_AUTH_CONFIG = {
 };
 
 export class GoogleDriveService {
-  private static async getAccessToken(): Promise<string | null> {
+  static async getAccessToken(): Promise<string | null> {
     return await SecureStore.getItemAsync('google_access_token');
   }
 
