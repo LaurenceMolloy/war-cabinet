@@ -5,9 +5,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { markModified, recordActivity, logTacticalAction } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
+import { Database } from '../database';
 import SUPPLIERS_DATA from '../data/suppliers.json';
 import BRANDS_DATA from '../data/brands.json';
 import { ExpiryScannerModal } from '../components/ExpiryScannerModal';
+import { CabinetFormModal } from '../components/CabinetFormModal';
 
 function getLevenshteinDistance(a: string, b: string): number {
   const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
@@ -91,10 +93,8 @@ export default function AddInventoryScreen() {
   const [quickAddRange, setQuickAddRange] = useState('');
   const [quickAddDefaultCabinet, setQuickAddDefaultCabinet] = useState<number | null>(null);
 
-  const [showAddCabinet, setShowAddCabinet] = useState(false);
-  const [newCabName, setNewCabName] = useState('');
-  const [newCabLoc, setNewCabLoc] = useState('');
-  const [newCabType, setNewCabType] = useState<'standard' | 'freezer'>('standard');
+  const [showCabinetModal, setShowCabinetModal] = useState(false);
+  const [cabinetModalContext, setCabinetModalContext] = useState<'main' | 'quick_add'>('main');
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatIsMessHall, setNewCatIsMessHall] = useState(true);
@@ -345,7 +345,7 @@ export default function AddInventoryScreen() {
   useEffect(() => {
     async function loadData() {
 
-      const cabRows = await db.getAllAsync<any>('SELECT * FROM Cabinets');
+      const cabRows = await Database.Cabinets.getAll(db);
       setCabinets(cabRows);
 
       // Load Vocab
@@ -777,10 +777,7 @@ export default function AddInventoryScreen() {
             const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? LIMIT 1', [Number(finalTypeId), selectedCabinetId]);
             
             if (!existingHere) {
-               const others = await db.getAllAsync<any>(
-                'SELECT DISTINCT c.id, c.name FROM Inventory v JOIN Cabinets c ON v.cabinet_id = c.id WHERE v.item_type_id = ? AND v.cabinet_id != ?',
-                [Number(finalTypeId), selectedCabinetId]
-              );
+               const others = await Database.Cabinets.getStorageSitesForItemType(db, Number(finalTypeId), Number(selectedCabinetId));
               if (others.length > 0) {
                 setOtherLocations(others.map(o => ({ id: o.id, name: o.name })));
                 setDeferredSave({ typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
@@ -946,31 +943,17 @@ export default function AddInventoryScreen() {
     }
   };
 
-  const handleCreateCabinet = async () => {
-    if (!newCabName.trim()) return;
-    try {
-      const res = await db.runAsync(
-        'INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)',
-        [newCabName.trim(), newCabLoc.trim(), newCabType]
-      );
-      const newCabId = res.lastInsertRowId;
-      await logTacticalAction(db, 'ADD', 'CABINET', Number(newCabId), newCabName.trim());
-      
-      const updatedCabs = await db.getAllAsync<any>('SELECT * FROM Cabinets');
-      setCabinets(updatedCabs);
-      
-      if (showQuickAddType) {
-        setQuickAddDefaultCabinet(Number(newCabId));
+  const handleCabinetModalSuccess = async (id?: number) => {
+    setShowCabinetModal(false);
+    const updatedCabs = await Database.Cabinets.getAll(db);
+    setCabinets(updatedCabs);
+    
+    if (id) {
+      if (cabinetModalContext === 'quick_add') {
+        setQuickAddDefaultCabinet(id);
       } else {
-        setSelectedCabinetId(Number(newCabId));
+        setSelectedCabinetId(id);
       }
-      
-      setShowAddCabinet(false);
-      setNewCabName('');
-      setNewCabLoc('');
-      setNewCabType('standard');
-    } catch (e) {
-      Alert.alert('Error', 'Could not create cabinet.');
     }
   };
 
@@ -1194,7 +1177,7 @@ export default function AddInventoryScreen() {
                 ))}
                 <TouchableOpacity 
                   style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: 'rgba(59, 130, 246, 0.1)' }]} 
-                  onPress={() => setShowAddCabinet(true)}
+                  onPress={() => { setCabinetModalContext('quick_add'); setShowCabinetModal(true); }}
                 >
                   <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CABINET</Text>
                 </TouchableOpacity>
@@ -1298,17 +1281,6 @@ export default function AddInventoryScreen() {
         )}
 
         {/* RE-RENDER MODALS IN THIS BRANCH AS VIEW OVERLAYS */}
-        {showAddCabinet && (
-          <View style={styles.modalOverlay}><View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>DEPLOY CABINET</Text>
-            <View style={{ marginBottom: 16 }}>
-              <Text style={styles.miniLabel}>CABINET NAME</Text>
-              <TextInput style={styles.inputSmall} value={newCabName} onChangeText={setNewCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
-            </View>
-            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCabinet}><Text style={styles.saveText}>CREATE CABINET</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCabinet(false)}><Text style={styles.modalCloseText}>CANCEL</Text></TouchableOpacity>
-          </View></View>
-        )}
         {showAddCategory && (
           <View style={styles.modalOverlay}><View style={styles.modalContent}>
             <Text style={styles.modalTitle}>DEPLOY CATEGORY</Text>
@@ -1439,7 +1411,7 @@ export default function AddInventoryScreen() {
           ))}
           <TouchableOpacity 
             style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: 'rgba(59, 130, 246, 0.1)' }]} 
-            onPress={() => setShowAddCabinet(true)}
+            onPress={() => { setCabinetModalContext('main'); setShowCabinetModal(true); }}
           >
             <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CABINET</Text>
           </TouchableOpacity>
@@ -1893,48 +1865,13 @@ export default function AddInventoryScreen() {
 
             <TouchableOpacity 
               style={{ marginTop: -10, padding: 15, alignItems: 'center', borderTopWidth: 1, borderTopColor: '#334155' }} 
-              onPress={() => { setShowCabinetPicker(false); setShowAddCabinet(true); }}
+              onPress={() => { 
+                setShowCabinetPicker(false); 
+                setCabinetModalContext('main');
+                setShowCabinetModal(true); 
+              }}
             >
               <Text style={{ color: '#3b82f6', fontWeight: 'bold' }}>+ DEPLOY NEW CABINET</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-
-
-      {/* MODALS REMOVED FROM HERE AS THEY ARE BRANCHED ABOVE */}
-
-      {/* ADD CABINET MODAL */}
-      <Modal visible={showAddCabinet} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>NEW STORAGE CABINET</Text>
-            
-            <View style={{ marginBottom: 16, width: '100%' }}>
-              <Text style={styles.miniLabel}>CABINET NAME</Text>
-              <TextInput style={styles.inputSmall} value={newCabName} onChangeText={setNewCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
-            </View>
-
-            <View style={{ marginBottom: 16, width: '100%' }}>
-              <Text style={styles.miniLabel}>LOCATION</Text>
-              <TextInput style={styles.inputSmall} value={newCabLoc} onChangeText={setNewCabLoc} placeholder="e.g. Garage" placeholderTextColor="#64748b" />
-            </View>
-
-            <View style={{ marginBottom: 24, width: '100%' }}>
-              <Text style={styles.miniLabel}>CABINET TYPE</Text>
-              <View style={styles.unitChipRowMini}>
-                <TouchableOpacity style={[styles.unitChip, newCabType === 'standard' && styles.unitChipActive]} onPress={() => setNewCabType('standard')}><Text style={[styles.unitChipText, newCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text></TouchableOpacity>
-                <TouchableOpacity style={[styles.unitChip, newCabType === 'freezer' && styles.unitChipActive]} onPress={() => setNewCabType('freezer')}><Text style={[styles.unitChipText, newCabType === 'freezer' && styles.unitChipTextActive]}>Freezer</Text></TouchableOpacity>
-              </View>
-            </View>
-
-            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCabinet}>
-              <Text style={styles.saveText}>CREATE CABINET</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCabinet(false)}>
-              <Text style={styles.modalCloseText}>CANCEL</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2005,7 +1942,11 @@ export default function AddInventoryScreen() {
               ))}
               <TouchableOpacity 
                 style={[styles.modalItem, { borderBottomWidth: 0, marginTop: 10 }]} 
-                onPress={() => { setShowCabinetPicker(false); setShowAddCabinet(true); }}
+                onPress={() => { 
+                  setShowCabinetPicker(false); 
+                  setCabinetModalContext('main');
+                  setShowCabinetModal(true); 
+                }}
               >
                 <Text style={[styles.modalItemText, { color: '#3b82f6', fontWeight: 'bold' }]}>+ DEPLOY NEW CABINET</Text>
               </TouchableOpacity>
@@ -2380,18 +2321,6 @@ export default function AddInventoryScreen() {
         </View>
       )}
 
-      {/* --- ADD NEW CABINET / CATEGORY MODALS FOR PHASE 2 --- */}
-      {showAddCabinet && (
-        <View style={styles.modalOverlay}><View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>DEPLOY CABINET</Text>
-          <View style={{ marginBottom: 16 }}>
-            <Text style={styles.miniLabel}>CABINET NAME</Text>
-            <TextInput style={styles.inputSmall} value={newCabName} onChangeText={setNewCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
-          </View>
-          <TouchableOpacity style={styles.saveButton} onPress={handleCreateCabinet}><Text style={styles.saveText}>CREATE CABINET</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.modalClose} onPress={() => setShowAddCabinet(false)}><Text style={styles.modalCloseText}>CANCEL</Text></TouchableOpacity>
-        </View></View>
-      )}
       {showAddCategory && (
         <View style={styles.modalOverlay}><View style={styles.modalContent}>
           <Text style={styles.modalTitle}>DEPLOY CATEGORY</Text>
@@ -2416,6 +2345,12 @@ export default function AddInventoryScreen() {
           // Visual feedback
           // Alert.alert("Date Captured", `Expiry set to ${m.padStart(2, '0')}/${y} based on optical intel.`);
         }}
+      />
+      <CabinetFormModal 
+        visible={showCabinetModal}
+        allCabinets={cabinets}
+        onSuccess={handleCabinetModalSuccess}
+        onCancel={() => setShowCabinetModal(false)}
       />
     </View>
   );

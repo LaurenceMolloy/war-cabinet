@@ -35,6 +35,19 @@ export const Cabinets = {
   },
 
   /**
+   * Identifies all storage sites currently containing stock for a specific item type.
+   * Useful for "Location Conflict" detection and logistical pooling.
+   */
+  async getStorageSitesForItemType(db: SQLiteDatabase, typeId: number, excludingCabinetId?: number): Promise<{id: number, name: string}[]> {
+    return await db.getAllAsync<{id: number, name: string}>(`
+      SELECT DISTINCT c.id, c.name 
+      FROM Inventory v 
+      JOIN Cabinets c ON v.cabinet_id = c.id 
+      WHERE v.item_type_id = ? ${excludingCabinetId ? `AND v.cabinet_id != ${excludingCabinetId}` : ''}
+    `, [typeId]);
+  },
+
+  /**
    * Deploys a new cabinet to the logistics network.
    */
   async create(db: SQLiteDatabase, params: CabinetCreateParams): Promise<number> {

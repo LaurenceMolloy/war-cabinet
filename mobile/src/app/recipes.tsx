@@ -14,6 +14,7 @@ import { RECIPE_PROMPT_TEMPLATE, AUTHENTIC_MODE_SUB_TEMPLATES, LOGISTICS_MODE_SU
 import CHEFS_DATA from '../data/chefs.json';
 import FRIDGE_INGREDIENTS from '../data/fridge_ingredients.json';
 import { useBilling } from '../context/BillingContext';
+import { Database } from '../database';
 
 function getLevenshteinDistance(a: string, b: string): number {
   const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
@@ -164,7 +165,7 @@ export default function RecipesScreen() {
   useEffect(() => {
     async function load() {
       let tempCustomChefs: string[] = [];
-      const cabs = await db.getAllAsync('SELECT * FROM Cabinets ORDER BY name');
+      const cabs = await Database.Cabinets.getAll(db);
       setCabinets(cabs);
 
       const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 

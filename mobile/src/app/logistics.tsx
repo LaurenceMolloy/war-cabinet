@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useBilling } from '../context/BillingContext';
+import { Database } from '../database';
 
 import * as MailComposer from 'expo-mail-composer';
 
@@ -227,7 +228,7 @@ export default function LogisticsScreen() {
     const emailRes = await db.getFirstAsync<{value: string}>('SELECT value FROM Settings WHERE key = ?', 'logistics_email');
     setLogisticsEmail(emailRes?.value || '');
 
-    const cabList = await db.getAllAsync<any>('SELECT * FROM Cabinets ORDER BY name');
+    const cabList = await Database.Cabinets.getAll(db);
     setCabinets(cabList);
   };
 
@@ -327,7 +328,7 @@ export default function LogisticsScreen() {
       
       // Squash logic: Group by batch identity and find net movement (Initial -> Final)
       const cabinetMap = new Map<number, string>();
-      const allCabs = await db.getAllAsync<any>('SELECT id, name FROM Cabinets');
+      const allCabs = await Database.Cabinets.getAll(db);
       allCabs.forEach(c => cabinetMap.set(c.id, c.name));
 
       const squashedMap = new Map<string, any>();

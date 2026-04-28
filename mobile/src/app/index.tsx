@@ -9,6 +9,8 @@ import { requestPermissions, scheduleMonthlyBriefing } from '../services/notific
 import { initializeDatabase, logTacticalAction } from '../db/sqlite';
 import { BackupService } from '../services/BackupService';
 import { useBilling } from '../context/BillingContext';
+import { CabinetFormModal } from '../components/CabinetFormModal';
+import { Database } from '../database';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
@@ -61,12 +63,9 @@ export default function HomeScreen() {
   const [moveDestCabinets, setMoveDestCabinets] = useState<any[]>([]);
   const [showMoveCabinetPicker, setShowMoveCabinetPicker] = useState(false);
 
-  const [showInlineAddCabinet, setShowInlineAddCabinet] = useState(false);
+  const [showCabinetModal, setShowCabinetModal] = useState(false);
   const [showDeploymentHub, setShowDeploymentHub] = useState(false);
   const [showInlineAddCategory, setShowInlineAddCategory] = useState(false);
-  const [inlineCabName, setInlineCabName] = useState('');
-  const [inlineCabLoc, setInlineCabLoc] = useState('');
-  const [inlineCabType, setInlineCabType] = useState<'standard' | 'freezer'>('standard');
   const [inlineCatName, setInlineCatName] = useState('');
   const [inlineCatIsMessHall, setInlineCatIsMessHall] = useState(true);
 
@@ -190,7 +189,7 @@ export default function HomeScreen() {
        await scheduleMonthlyBriefing(db);
     }
 
-    const cabRows = await db.getAllAsync<any>('SELECT * FROM Cabinets ORDER BY name');
+    const cabRows = await Database.Cabinets.getAll(db);
     setCabinets(cabRows);
 
     const allRows = await db.getAllAsync<any>(`
@@ -536,28 +535,8 @@ export default function HomeScreen() {
     setShowMoveModal(true);
   };
 
-  const handleCreateCabinet = async () => {
-    if (!inlineCabName.trim()) return;
-
-    if (cabinets.length >= limits.cabinets && !hasFullAccess) {
-      checkEntitlement('CABINET_LIMIT');
-      return;
-    }
-
-    const freezerCabCount = cabinets.filter((c: any) => c.cabinet_type === 'freezer').length;
-    if (inlineCabType === 'freezer' && freezerCabCount >= limits.freezer_cabs && !hasFullAccess) {
-      checkEntitlement('FREEZER_CABINET_LIMIT');
-      return;
-    }
-
-    const res = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', [inlineCabName.trim(), inlineCabLoc.trim(), inlineCabType]);
-    await logTacticalAction(db, 'ADD', 'CABINET', Number(res.lastInsertRowId), inlineCabName.trim());
-    
-    setShowInlineAddCabinet(false);
-    setInlineCabName('');
-    setInlineCabLoc('');
-    setInlineCabType('standard');
-    
+  const handleCabinetModalSuccess = async () => {
+    setShowCabinetModal(false);
     load();
   };
 
@@ -1724,40 +1703,6 @@ export default function HomeScreen() {
         </Animated.View>
       )}
 
-      {/* INLINE ADD CABINET MODAL */}
-      <Modal visible={showInlineAddCabinet} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>NEW STORAGE CABINET</Text>
-            
-            <View style={{ marginBottom: 16, width: '100%' }}>
-              <Text style={styles.miniLabel}>CABINET NAME</Text>
-              <TextInput style={styles.inputSmall} value={inlineCabName} onChangeText={setInlineCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
-            </View>
-
-            <View style={{ marginBottom: 16, width: '100%' }}>
-              <Text style={styles.miniLabel}>LOCATION</Text>
-              <TextInput style={styles.inputSmall} value={inlineCabLoc} onChangeText={setInlineCabLoc} placeholder="e.g. Garage" placeholderTextColor="#64748b" />
-            </View>
-
-            <View style={{ marginBottom: 24, width: '100%' }}>
-              <Text style={styles.miniLabel}>CABINET TYPE</Text>
-              <View style={styles.unitChipRowMini}>
-                <TouchableOpacity style={[styles.unitChip, inlineCabType === 'standard' && styles.unitChipActive]} onPress={() => setInlineCabType('standard')}><Text style={[styles.unitChipText, inlineCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text></TouchableOpacity>
-                <TouchableOpacity style={[styles.unitChip, inlineCabType === 'freezer' && styles.unitChipActive]} onPress={() => { if (inlineCabType === 'freezer') setInlineCabType('standard'); else if (checkEntitlement('FREEZER')) setInlineCabType('freezer'); }}><Text style={[styles.unitChipText, inlineCabType === 'freezer' && styles.unitChipTextActive]}>Freezer</Text></TouchableOpacity>
-              </View>
-            </View>
-
-            <TouchableOpacity style={styles.saveButton} onPress={handleCreateCabinet}>
-              <Text style={styles.saveText}>CREATE CABINET</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.modalClose} onPress={() => setShowInlineAddCabinet(false)}>
-              <Text style={styles.modalCloseText}>CANCEL</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {/* DEPLOYMENT HUB MODAL */}
       <Modal visible={showDeploymentHub} transparent animationType="fade">
@@ -1789,7 +1734,7 @@ export default function HomeScreen() {
             <TouchableOpacity 
               testID="deploy-cabinet-btn"
               style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#1e293b' }}
-              onPress={() => { setShowDeploymentHub(false); setShowInlineAddCabinet(true); }}
+              onPress={() => { setShowDeploymentHub(false); setShowCabinetModal(true); }}
             >
               <View style={{ backgroundColor: '#334155', padding: 10, borderRadius: 8, marginRight: 16 }}>
                 <MaterialCommunityIcons name="warehouse" size={24} color="#94a3b8" />
@@ -1967,6 +1912,12 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
+      <CabinetFormModal 
+        visible={showCabinetModal}
+        allCabinets={cabinets}
+        onSuccess={handleCabinetModalSuccess}
+        onCancel={() => setShowCabinetModal(false)}
+      />
     </View>
   );
 }
