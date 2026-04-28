@@ -42,7 +42,7 @@ One-Tap Launch: Generate and send your personalised recipe prompt straight to Ch
 Start your deployment for free to test the core systems. When you are ready to expand your operational envelope, War Cabinet offers two one-time, lifetime premium ranks—**absolutely no subscriptions.**
 
 *   **PRIVATE (Free Trial Mode):** Track up to 1 cabinet, 6 categories, and 20 item types. Get a feel for the command centre.
-*   **SERGEANT (Standard - £2.99 one-time):** For the power organiser. Unlocks unlimited cabinets, categories, and item types. Introduces **Freezer Cabinet Mode** (track age instead of expiry) and **The Quartermaster** (low-stock reports and shareable shopping lists).
+*   **SERGEANT (Standard - £2.99 one-time):** For the power organiser. Unlocks unlimited cabinets, categories, and item types. Introduces **Barcode and expiry date scanning**, **Freezer Cabinet Mode** (track age instead of expiry) and **The Quartermaster** (low-stock reports and shareable shopping lists).
 *   **GENERAL (Pro - £4.99 one-time):** Complete operational peace of mind. Everything in Sergeant, plus **Automated Backups & Disaster Recovery**, automated push notifications for low stock/expiry, and access to **The Mess Hall** AI recipe engine.
 
 ### ⚡ THE FRONT LINE (DIRECT ACTION)

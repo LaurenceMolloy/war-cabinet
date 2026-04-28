@@ -1702,53 +1702,64 @@ export default function CatalogScreen() {
             await testStockAlert(db);
             Alert.alert('System Armed', 'A test alert has been dispatched.');
           }}><MaterialCommunityIcons name="bell-ring" size={24} color="white" /><Text style={styles.testBtnText}>TEST STOCK ALERT</Text></TouchableOpacity></View>
-<TouchableOpacity 
-  testID="debug-purge-db" 
-  style={{ backgroundColor: '#ef4444', padding: 16, borderRadius: 12, marginTop: 40, alignItems: 'center' }} 
-  onPress={async () => {
-    Alert.alert(
-      "HARD SYSTEM RESET",
-      "This will WIPE all data, settings, and license tokens from this device. Are you sure?",
-      [
-        { text: "CANCEL", style: "cancel" },
-        { 
-          text: "WIPE EVERYTHING", 
-          style: "destructive", 
-          onPress: async () => {
-            try {
-              // 1. Wipe Database
-              await db.runAsync('DELETE FROM Inventory');
-              await db.runAsync('DELETE FROM ItemTypes');
-              await db.runAsync('DELETE FROM Categories');
-              await db.runAsync('DELETE FROM Settings');
-              
-              // 2. Wipe License/Auth Tokens
-              if (Platform.OS === 'web') {
-                localStorage.removeItem('google_access_token');
-                localStorage.removeItem('google_refresh_token');
-              } else {
-                await SecureStore.deleteItemAsync('google_access_token');
-                await SecureStore.deleteItemAsync('google_refresh_token');
-              }
+          <TouchableOpacity 
+            testID="debug-purge-db" 
+            style={{ backgroundColor: '#ef4444', padding: 16, borderRadius: 12, marginTop: 40, alignItems: 'center' }} 
+            onPress={async () => {
+              Alert.alert(
+                "HARD SYSTEM RESET",
+                "This will WIPE all data, settings, and license tokens from this device. Are you sure?",
+                [
+                  { text: "CANCEL", style: "cancel" },
+                  { 
+                    text: "WIPE EVERYTHING", 
+                    style: "destructive", 
+                    onPress: async () => {
+                      try {
+                        // 1. Wipe Database
+                        await db.runAsync('DELETE FROM Inventory');
+                        await db.runAsync('DELETE FROM ItemTypes');
+                        await db.runAsync('DELETE FROM Categories');
+                        await db.runAsync('DELETE FROM Settings');
+                        
+                        // 2. Wipe License/Auth Tokens
+                        if (Platform.OS === 'web') {
+                          localStorage.removeItem('google_access_token');
+                          localStorage.removeItem('google_refresh_token');
+                        } else {
+                          await SecureStore.deleteItemAsync('google_access_token');
+                          await SecureStore.deleteItemAsync('google_refresh_token');
+                        }
 
-              // 3. Force Reload
-              if (typeof window !== 'undefined') {
-                window.location.reload();
-              } else {
-                Alert.alert("System Reset", "All local data has been purged. Restart the app.");
-              }
-            } catch (e) {
-              console.error("Purge Error:", e);
-              Alert.alert("Purge Failed", "Critical failure during system wipe.");
-            }
-          }
-        }
-      ]
-    );
-  }}
->
-  <Text style={{fontSize: 14, color: 'white', fontWeight: 'bold'}}>DEVELOPER: WIPE SYSTEM & LICENSE</Text>
-</TouchableOpacity>
+                        // 3. Force Reload
+                        if (typeof window !== 'undefined') {
+                          window.location.reload();
+                        } else {
+                          Alert.alert("System Reset", "All local data has been purged. Restart the app.");
+                        }
+                      } catch (e) {
+                        console.error("Purge Error:", e);
+                        Alert.alert("Purge Failed", "Critical failure during system wipe.");
+                      }
+                    }
+                  }
+                ]
+              );
+            }}
+          >
+            <Text style={{fontSize: 14, color: 'white', fontWeight: 'bold'}}>DEVELOPER: WIPE SYSTEM & LICENSE</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={{ marginTop: 60, padding: 20, backgroundColor: '#0f172a', borderRadius: 16, borderStyle: 'dashed', borderWidth: 1, borderColor: '#3b82f666', alignItems: 'center' }}
+            onPress={() => router.push('/ocr_poc')}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <MaterialCommunityIcons name="eye-scan-outline" size={24} color="#3b82f6" />
+              <Text style={{ color: '#3b82f6', fontSize: 14, fontWeight: 'bold' }}>EXPERIMENTAL: OCR EXPIRY SCANNER</Text>
+            </View>
+            <Text style={{ color: '#64748b', fontSize: 11, marginTop: 6, textAlign: 'center' }}>Standalone reliability assessment module for printed expiry dates.</Text>
+          </TouchableOpacity>
         </View>
       ) : activeTab === 'backups' ? (
         <ScrollView style={{padding: 10, flex: 1}} contentContainerStyle={{paddingBottom: 60}}>
@@ -2178,6 +2189,7 @@ export default function CatalogScreen() {
             <Text style={[styles.tierPrice, { color: '#60a5fa' }]}>£4.99 — ONE-TIME LICENCE</Text>
             <View style={styles.featureItem}><MaterialCommunityIcons name="infinity" size={16} color="#60a5fa" /><Text style={styles.featureText}>Unlimited cabinets, categories & items</Text></View>
             <View style={styles.featureItem}><MaterialCommunityIcons name="snowflake" size={16} color="#60a5fa" /><Text style={styles.featureText}>Full freezer logistics — age-based tracking</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="barcode-scan" size={16} color="#60a5fa" /><Text style={styles.featureText}>BARCODE AND EXPIRY DATE scanning</Text></View>
             <View style={styles.featureItem}><MaterialCommunityIcons name="truck-delivery" size={16} color="#60a5fa" /><Text style={styles.featureText}>The Quartermaster — low-stock reports & sharing</Text></View>
             {!isSergeanOrAbove && (
               <TouchableOpacity style={[styles.upgradeBtn, { backgroundColor: '#3b82f6' }]} onPress={() => requestPurchase('SERGEANT')}>
