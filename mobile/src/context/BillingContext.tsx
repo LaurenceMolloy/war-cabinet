@@ -60,9 +60,9 @@ const SECURE_KEY_WELCOME_SEEN = 'war_cabinet_welcome_seen';
 const SECURE_KEY_GRADUATED_EARLY = 'war_cabinet_graduated_early';
 
 export const RANK_LIMITS = {
-  CADET:   { cabinets: 2, items: 12, categories: 4, freezer_cabs: 1, freezer_items: 3 },
-  PRIVATE: { cabinets: 4, items: 24, categories: 8, freezer_cabs: 0, freezer_items: 0 },
-  ELITE:   { cabinets: 999, items: 999, categories: 999, freezer_cabs: 999, freezer_items: 999 }
+  CADET: { cabinets: 2, categories: 5, types: 15, batches: 15, units: 30 },
+  PRIVATE: { cabinets: 999, categories: 999, types: 999, batches: 40, units: 80 },
+  SERGEANT: { cabinets: 999, categories: 999, types: 999, batches: 999, units: 999 }
 };
 
 // Which tier each feature requires
@@ -86,35 +86,35 @@ export const FEATURE_TIER: Record<string, 'SERGEANT' | 'GENERAL'> = {
   ROTATION_ALERTS:  'GENERAL',
 };
 
-// Feature lock descriptions
+// Feature descriptions (Marketing Layer)
 const FEATURE_COPY: Record<string, { title: string; desc: string; tier: 'SERGEANT' | 'GENERAL' }> = {
-  LOGISTICS:      { title: 'The Quartermaster',       desc: 'Low-stock reports & shareable shopping lists.',                          tier: 'SERGEANT' },
-  BACKUPS:        { title: 'Tactical Backups',         desc: 'Automated snapshots & disaster recovery.',                              tier: 'GENERAL'  },
-  CABINET_LIMIT:  { title: 'Multiple Cabinets',        desc: 'Unlimited storage locations.',                                          tier: 'SERGEANT' },
-  CATEGORY_LIMIT: { title: 'More Categories',          desc: 'Unlimited item categories.',                                            tier: 'SERGEANT' },
-  ITEM_LIMIT:     { title: 'More Items',               desc: 'Unlimited tracked item types.',                                         tier: 'SERGEANT' },
-  FREEZER_CABINET_LIMIT: { title: 'Freezer Capacity', desc: 'Unlimited freezer cabinets for deep storage.',                           tier: 'SERGEANT' },
-  FREEZER:        { title: 'Freezer Cabinet Mode',     desc: 'Track how long items have been frozen instead of expiry dates.',        tier: 'SERGEANT' },
-  FREEZER_LIMIT:  { title: 'Freezer Logistics',        desc: 'Unlimited freezer item specifications & storage.',                      tier: 'SERGEANT' },
-  RECIPES:        { title: 'The Mess Hall',            desc: 'Waste-conscious AI recipe suggestions from what you have.',             tier: 'GENERAL'  },
-  ALERTS:         { title: 'Stock & Expiry Alerts',    desc: 'Monthly push notifications for low stock and upcoming expiry dates.',   tier: 'GENERAL'  },
-  OPEN_CONSUMPTION: { title: 'Open Item Intelligence', desc: 'Track partial usage & split batches for precise logistics.',            tier: 'SERGEANT' },
-  SILO_ISOLATION:   { title: 'Strategic Silo Isolation',desc: 'Lock recipe generation to specific cabinets or categories.',            tier: 'SERGEANT' },
-  VANGUARD_INTEGRITY: { title: 'Vanguard Integrity',    desc: 'Automated active-silence checks for inventory drift.',                  tier: 'SERGEANT' },
-  ERROR_DETECTION:  { title: 'Smart Error Detection',   desc: 'Fuzzy-logic validation for entry errors and near-misses.',               tier: 'SERGEANT' },
-  CABINET_AUDIT:    { title: 'Cabinet Audit Mode',      desc: 'High-speed physical inventory reconciliation flow.',                    tier: 'GENERAL'  },
-  STOCK_ROTATION:   { title: 'Tactical Stock Rotation', desc: 'Manage periodic stock movement cycles for deep storage zones.',         tier: 'SERGEANT' },
-  ROTATION_ALERTS:  { title: 'Rotation Reminders',      desc: 'Monthly alerts for cabinets overdue for a logistical rotation sweep.',  tier: 'GENERAL'  },
+  LOGISTICS:      { title: 'Household Stock Reports',   desc: 'Low-stock insights & shareable shopping lists.',                          tier: 'SERGEANT' },
+  BACKUPS:        { title: 'Backup & Sync Options',    desc: 'Secure cloud backups & multi-device sync.',                                tier: 'GENERAL'  },
+  CABINET_LIMIT:  { title: 'Scalable Storage',        desc: 'Unlimited storage locations and cabinets.',                               tier: 'SERGEANT' },
+  CATEGORY_LIMIT: { title: 'Unlimited Categories',    desc: 'Organise your entire home without limits.',                                tier: 'SERGEANT' },
+  ITEM_LIMIT:     { title: 'Full Inventory Tracking',   desc: 'Track every item type in your household.',                                tier: 'SERGEANT' },
+  FREEZER_CABINET_LIMIT: { title: 'Advanced Freezer Tracking', desc: 'Unlimited freezer zones for long-term storage.',                     tier: 'SERGEANT' },
+  FREEZER:        { title: 'Smart Freezer Management',desc: 'Track freeze dates and storage limits effortlessly.',                      tier: 'SERGEANT' },
+  FREEZER_LIMIT:  { title: 'Inventory Resilience',    desc: 'Unlimited specifications for deep-storage items.',                        tier: 'SERGEANT' },
+  RECIPES:        { title: 'AI-Powered Suggestions',   desc: 'Smart meal ideas to use up what you already have.',                        tier: 'GENERAL'  },
+  ALERTS:         { title: 'Smart Notifications',     desc: 'Useful reminders for stock and expiry without the noise.',                tier: 'GENERAL'  },
+  OPEN_CONSUMPTION: { title: 'Usage Intelligence',    desc: 'Track partial portions and open items with precision.',                   tier: 'SERGEANT' },
+  SILO_ISOLATION:   { title: 'Silo Management',       desc: 'Isolate stock tracking to specific household zones.',                     tier: 'SERGEANT' },
+  VANGUARD_INTEGRITY: { title: 'Data Accuracy Tools',   desc: 'Automated checks to keep your inventory reliable.',                       tier: 'SERGEANT' },
+  ERROR_DETECTION:  { title: 'Quick Scan & Entry',      desc: 'Smart validation to spot inconsistencies and near-misses.',               tier: 'SERGEANT' },
+  CABINET_AUDIT:    { title: 'Household Audit Mode',    desc: 'Streamlined flow for regular stock-take and reconciliation.',             tier: 'GENERAL'  },
+  STOCK_ROTATION:   { title: 'Organisation Tools',      desc: 'Bring order to secondary storage with rotation tracking.',                tier: 'SERGEANT' },
+  ROTATION_ALERTS:  { title: 'Rotation Reminders',      desc: 'Helpful nudges to keep your deep-storage fresh.',                         tier: 'GENERAL'  },
 };
 
 const TIER_PRICE: Record<'SERGEANT' | 'GENERAL', string> = {
-  SERGEANT: '£2.99',
-  GENERAL:  '£1.49/mo',
+  SERGEANT: '£4.99',
+  GENERAL:  '£2.49/mo',
 };
 
 const TIER_PRICE_ANNUAL: Record<'SERGEANT' | 'GENERAL', string | null> = {
   SERGEANT: null,
-  GENERAL:  '£9.99/yr',
+  GENERAL:  '£19.99/yr',
 };
 
 const TIER_NAME: Record<'SERGEANT' | 'GENERAL', string> = {
@@ -353,124 +353,95 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               ))}
             </View>
 
-            {/* ── PAGE 0: Your 7-Day Trial ── */}
+            {/* ── PAGE 0: Introduction ── */}
             {welcomePage === 0 && (<>
-              <MaterialCommunityIcons name="shield-check" size={40} color="#22c55e" style={{ alignSelf: 'center', marginBottom: 12 }} />
-              <Text style={styles.welcomeTitle}>Welcome, Cadet</Text>
+              <MaterialCommunityIcons name="home-analytics" size={40} color="#22c55e" style={{ alignSelf: 'center', marginBottom: 12 }} />
+              <Text style={styles.welcomeTitle}>Logistics & Resilience</Text>
               <Text style={styles.welcomeSub}>
-                Prepare for the <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>7-day tactical evaluation</Text> of your new 
-                <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}> Swiss Army Knife</Text> for home logistics.
+                Welcome to the evaluation phase. Turn your home into a well-run system—without the stress.
               </Text>
               <View style={styles.welcomeDivider} />
               <View style={styles.tierHeader}>
-                <Text style={[styles.tierLabel, { color: '#fbbf24' }]}>RANK: CADET — TRAINING PHASE</Text>
+                <Text style={[styles.tierLabel, { color: '#fbbf24' }]}>RANK: CADET — 7-DAY EVALUATION</Text>
               </View>
               <View style={styles.welcomeRow}>
                 <MaterialCommunityIcons name="check-circle" size={16} color="#22c55e" />
-                <Text style={styles.welcomeRowText}>AI recipe suggestions via The Mess Hall</Text>
+                <Text style={styles.welcomeRowText}>Reduce waste and keep track of what you have.</Text>
               </View>
               <View style={styles.welcomeRow}>
                 <MaterialCommunityIcons name="check-circle" size={16} color="#22c55e" />
-                <Text style={styles.welcomeRowText}>Low-stock &amp; expiry alerts</Text>
+                <Text style={styles.welcomeRowText}>Make everyday decisions with more confidence.</Text>
               </View>
               <View style={styles.welcomeRow}>
-                <MaterialCommunityIcons name="check-circle" size={16} color="#22c55e" />
-                <Text style={styles.welcomeRowText}>Freezer cabinet mode (1 cabinet · 3 item types trial)</Text>
+                <MaterialCommunityIcons name="broadcast-off" size={16} color="#60a5fa" />
+                <Text style={styles.welcomeRowText}>Signal-Independent: Works in garages & rural black spots.</Text>
               </View>
               <View style={styles.welcomeRow}>
-                <MaterialCommunityIcons name="alert-circle" size={16} color="#fbbf24" />
-                <Text style={styles.welcomeRowText}>Scale limited: {RANK_LIMITS.CADET.cabinets} cabinets · {RANK_LIMITS.CADET.categories} categories · {RANK_LIMITS.CADET.items} items</Text>
+                <MaterialCommunityIcons name="shield-check" size={16} color="#60a5fa" />
+                <Text style={styles.welcomeRowText}>Secure, Private, and Local-First data.</Text>
               </View>
             </>)}
 
-            {/* ── PAGE 1: After the Trial ── */}
+            {/* ── PAGE 1: The Tiers ── */}
             {welcomePage === 1 && (<>
-              <Text style={styles.welcomeTitle}>After the Trial</Text>
+              <Text style={styles.welcomeTitle}>Smarter Organisation</Text>
               <Text style={styles.welcomeSub}>Your path forward — free or funded.</Text>
               <View style={styles.welcomeDivider} />
               <View style={styles.tierHeader}>
-                <Text style={styles.tierLabel}>RANK: PRIVATE — EARNED PROMOTION</Text>
+                <Text style={styles.tierLabel}>PRIVATE — FREE FOREVER</Text>
               </View>
-              <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic', marginBottom: 8, marginTop: -4 }}>Rock-solid basic logistics for a steady household.</Text>
-              <Text style={styles.tierInheritNote}>Trial completion expands your system capacity:</Text>
               <View style={styles.welcomeRow}>
                 <MaterialCommunityIcons name="check-circle" size={16} color="#94a3b8" />
-                <Text style={styles.welcomeRowText}>{RANK_LIMITS.PRIVATE.cabinets} cabinets · {RANK_LIMITS.PRIVATE.categories} categories · {RANK_LIMITS.PRIVATE.items} items</Text>
-              </View>
-              <View style={styles.welcomeRow}>
-                <MaterialCommunityIcons name="close-circle" size={16} color="#475569" />
-                <Text style={styles.welcomeRowText}>AI recipes &amp; alerts not available at Private rank</Text>
+                <Text style={styles.welcomeRowText}>Freezer & Pantry Tracking (Essentials)</Text>
               </View>
               <View style={styles.welcomeDivider} />
               <View style={styles.tierHeader}>
-                <Text style={[styles.tierLabel, { color: '#60a5fa' }]}>SERGEANT — £2.99 ONE-TIME</Text>
+                <Text style={[styles.tierLabel, { color: '#60a5fa' }]}>SERGEANT — £4.99 ONE-TIME</Text>
               </View>
-              <Text style={{ color: '#60a5fa', fontSize: 11, fontStyle: 'italic', marginBottom: 8, marginTop: -4 }}>Full operational system unlock. No limits, no subscriptions.</Text>
+              <View style={styles.welcomeRow}>
+                <MaterialCommunityIcons name="barcode-scan" size={16} color="#60a5fa" />
+                <Text style={styles.welcomeRowText}>Quick Scan & Entry Tools</Text>
+              </View>
               <View style={styles.welcomeRow}>
                 <MaterialCommunityIcons name="infinity" size={16} color="#60a5fa" />
-                <Text style={styles.welcomeRowText}>Unlimited cabinets, categories &amp; item types</Text>
-              </View>
-              <View style={styles.welcomeRow}>
-                <MaterialCommunityIcons name="snowflake" size={16} color="#60a5fa" />
-                <Text style={styles.welcomeRowText}>Full freezer logistics — age-based tracking</Text>
-              </View>
-              <View style={styles.welcomeRow}>
-                <MaterialCommunityIcons name="cached" size={16} color="#60a5fa" />
-                <Text style={styles.welcomeRowText}>Stock Rotation — periodic movement cycles</Text>
+                <Text style={styles.welcomeRowText}>Unlimited Bulk & Scalable Storage</Text>
               </View>
               <View style={styles.welcomeDivider} />
               <View style={styles.tierHeader}>
-                <Text style={[styles.tierLabel, { color: '#fbbf24' }]}>GENERAL — £1.49/MONTH OR £9.99/YEAR</Text>
-              </View>
-              <Text style={{ color: '#fbbf24', fontSize: 11, fontStyle: 'italic', marginBottom: 8, marginTop: -4 }}>High-Command intelligence layer. AI-powered resilience.</Text>
-              <Text style={styles.tierInheritNote}>Everything in Sergeant, plus:</Text>
-              <View style={styles.welcomeRow}>
-                <MaterialCommunityIcons name="bell-ring" size={16} color="#fbbf24" />
-                <Text style={styles.welcomeRowText}>Automated rotation & expiry alerts</Text>
+                <Text style={[styles.tierLabel, { color: '#fbbf24' }]}>GENERAL — £2.49/MONTH</Text>
               </View>
               <View style={styles.welcomeRow}>
-                <MaterialCommunityIcons name="chef-hat" size={16} color="#fbbf24" />
-                <Text style={styles.welcomeRowText}>The Mess Hall — waste-conscious AI recipes</Text>
+                <MaterialCommunityIcons name="trending-up" size={16} color="#fbbf24" />
+                <Text style={styles.welcomeRowText}>Price & Supply Insights</Text>
               </View>
               <View style={styles.welcomeRow}>
-                <MaterialCommunityIcons name="file-sync" size={16} color="#fbbf24" />
-                <Text style={styles.welcomeRowText}>Automated backups &amp; disaster recovery</Text>
+                <MaterialCommunityIcons name="bell-outline" size={16} color="#fbbf24" />
+                <Text style={styles.welcomeRowText}>Smart Notifications & AI Suggestions</Text>
               </View>
             </>)}
 
             {/* ── PAGE 2: Begin Deployment ── */}
             {welcomePage === 2 && (<>
-              <MaterialCommunityIcons name="rocket-launch" size={40} color="#22c55e" style={{ alignSelf: 'center', marginBottom: 12 }} />
-              <Text style={styles.welcomeTitle}>Ready for Deployment</Text>
+              <MaterialCommunityIcons name="shield-lock" size={40} color="#6366f1" style={{ alignSelf: 'center', marginBottom: 12 }} />
+              <Text style={styles.welcomeTitle}>Privacy First</Text>
               <Text style={styles.welcomeSub}>
-                You have 7 days of full clearance to master every tool in this tactical Swiss Army Knife. Good luck.
+                Your data stays on your device by default—private and completely in your control.
               </Text>
               <View style={styles.welcomeDivider} />
-              {/* ── Paragraph 1: Private ── */}
               <View style={{ marginBottom: 16 }}>
-                <Text style={{ color: '#f8fafc', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, textAlign: 'left', marginBottom: 2 }}>RESERVE PIPELINE</Text>
+                <Text style={{ color: '#f8fafc', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, textAlign: 'left', marginBottom: 2 }}>LOCAL SOVEREIGNTY</Text>
                 <Text style={{ color: '#64748b', fontSize: 11, textAlign: 'left', lineHeight: 17 }}>
-                  After 7 days, you will be automatically promoted to the <Text style={{ color: '#94a3b8', fontWeight: 'bold' }}>Private</Text> rank. 
-                  You can also self-promote early (FREE) for an immediate capacity uplift.
+                  We don't sell your data or track your habits. The system is built for your resilience, not our analytics.
                 </Text>
               </View>
 
-              {/* ── Paragraph 2: Sergeant/General ── */}
               <View style={{ marginBottom: 16 }}>
-                <Text style={{ color: '#f8fafc', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, textAlign: 'left', marginBottom: 2 }}>PROMOTIONS</Text>
+                <Text style={{ color: '#f8fafc', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, textAlign: 'left', marginBottom: 2 }}>OPTIONAL CLOUD</Text>
                 <Text style={{ color: '#64748b', fontSize: 11, textAlign: 'left', lineHeight: 17 }}>
-                  Commission <Text style={{ color: '#60a5fa', fontWeight: 'bold' }}>Sergeant</Text> (One-time fee) for operational scale. 
-                  Attain <Text style={{ color: '#fbbf24', fontWeight: 'bold' }}>General</Text> (Subscription) for full security clearance, adding automation and AI intelligence.
+                  Enable Cloud Sync only if you want convenience across multiple devices. It remains encrypted and under your command.
                 </Text>
               </View>
 
-              {/* ── Paragraph 3: Promotion Centre ── */}
-              <View style={{ marginBottom: 20 }}>
-                <Text style={{ color: '#f8fafc', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, textAlign: 'left', marginBottom: 2 }}>SERVICE RECORDS</Text>
-                <Text style={{ color: '#64748b', fontSize: 11, textAlign: 'left', lineHeight: 17 }}>
-                  Manage your service records and adjust your rank at any time in the <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>Promotion Centre</Text>.
-                </Text>
-              </View>
             </>)}
 
             {/* ── PAGE 3: Message from the Developer (Allied Intel) ── */}
@@ -482,13 +453,13 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               </Text>
               <View style={styles.welcomeDivider} />
               <Text style={{ color: '#cbd5e1', fontSize: 13, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
-                High Command wishes you luck with your deployment. 
+                I hope this system helps you bring a bit more order and confidence to your household logistics. 
                 {"\n\n"}
-                P.S. If you like the tactical precision here, you might also find <Text style={{ color: '#818cf8', fontWeight: 'bold' }}>Reestit</Text> useful—it's a sister service from my tactical lab that provides pithy AI summaries of holiday rental reviews.
+                P.S. If you like the precision here, you might also find <Text style={{ color: '#818cf8', fontWeight: 'bold' }}>Reestit</Text> useful—it's a sister service from my lab that provides pithy AI summaries of holiday rental reviews.
               </Text>
               
               <TouchableOpacity testID="welcome-dismiss-btn" style={[styles.welcomeBtn, { marginBottom: 12 }]} onPress={dismissWelcome}>
-                <Text style={styles.welcomeBtnText}>BEGIN MISSION  →</Text>
+                <Text style={styles.welcomeBtnText}>GET STARTED  →</Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => {  import('react-native').then(rn => rn.Linking.openURL('https://reestit.com')); }}>
@@ -527,7 +498,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             <Text style={styles.lockHint}>
               Requires the <Text style={{ fontWeight: 'bold', color: lockTier === 'GENERAL' ? '#fbbf24' : '#60a5fa' }}>
                 {TIER_NAME[lockTier]}
-              </Text> rank —{lockTier === 'GENERAL' ? ' £1.49/mo or £9.99/yr' : ' a one-time £2.99 licence'}.
+              </Text> tier —{lockTier === 'GENERAL' ? ' £2.49/mo or £19.99/yr' : ' a one-time £4.99 purchase'}.
             </Text>
             <TouchableOpacity
               testID="feature-lock-upgrade-btn"
@@ -608,7 +579,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     <Text style={styles.trialBadgeText}>CADET EVALUATION ACTIVE — {trialLabel} remaining</Text>
                   </View>
                 ) : (
-                  <Text style={styles.subtitle}>Your trial has expired. Re-establish command now.</Text>
+                  <Text style={styles.subtitle}>Select the commission that fits your household.</Text>
                 )}
               </View>
 
@@ -617,25 +588,25 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 <View style={styles.tierCardHeader}>
                   <MaterialCommunityIcons name="chevron-triple-up" size={20} color="#60a5fa" />
                   <Text style={[styles.tierCardTitle, { color: '#60a5fa' }]}>SERGEANT</Text>
-                  <Text style={styles.tierCardPrice}>£2.99</Text>
+                  <Text style={styles.tierCardPrice}>£4.99</Text>
                 </View>
-                <Text style={styles.tierCardSub}>One-time licence · No subscription</Text>
+                <Text style={styles.tierCardSub}>One-time purchase · Less effort</Text>
                 <View style={styles.tierCardBenefits}>
                   <View style={styles.benefitRow}>
+                    <MaterialCommunityIcons name="barcode-scan" size={18} color="#60a5fa" />
+                    <Text style={styles.benefitSub}>Quick Scan & Entry Tools</Text>
+                  </View>
+                  <View style={styles.benefitRow}>
                     <MaterialCommunityIcons name="infinity" size={18} color="#60a5fa" />
-                    <Text style={styles.benefitSub}>Unlimited cabinets, categories & item types</Text>
+                    <Text style={styles.benefitSub}>Unlimited Bulk & Scalable Storage</Text>
                   </View>
                   <View style={styles.benefitRow}>
-                    <MaterialCommunityIcons name="snowflake" size={18} color="#60a5fa" />
-                    <Text style={styles.benefitSub}>Freezer cabinet mode — age-based tracking</Text>
-                  </View>
-                  <View style={styles.benefitRow}>
-                    <MaterialCommunityIcons name="cached" size={18} color="#60a5fa" />
-                    <Text style={styles.benefitSub}>Tactical Stock Rotation — audit secondary storage</Text>
+                    <MaterialCommunityIcons name="check-decagram-outline" size={18} color="#60a5fa" />
+                    <Text style={styles.benefitSub}>Data Accuracy & Inconsistency Tools</Text>
                   </View>
                 </View>
                 <TouchableOpacity testID="paywall-buy-sergeant-btn" style={styles.buyBtnSergeant} onPress={() => handleSimulatedPurchase('SERGEANT')}>
-                  <Text style={styles.buyBtnText}>ENLIST AS SERGEANT — £2.99</Text>
+                  <Text style={styles.buyBtnText}>UPGRADE — £4.99</Text>
                 </TouchableOpacity>
               </View>
 
@@ -644,32 +615,31 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 <View style={styles.tierCardHeader}>
                   <MaterialCommunityIcons name="star-four-points" size={20} color="#fbbf24" />
                   <Text style={[styles.tierCardTitle, { color: '#fbbf24' }]}>GENERAL</Text>
-                  <Text style={styles.tierCardPrice}>£1.49<Text style={{ fontSize: 12, color: '#94a3b8' }}>/mo</Text></Text>
+                  <Text style={styles.tierCardPrice}>£2.49<Text style={{ fontSize: 12, color: '#94a3b8' }}>/mo</Text></Text>
                 </View>
-                <Text style={styles.tierCardSub}>£9.99 / year · Cancel any time</Text>
-                <Text style={styles.tierInheritNote}>Everything in Sergeant, plus:</Text>
+                <Text style={styles.tierCardSub}>£19.99 / year · Cancel any time</Text>
+                <Text style={styles.tierInheritNote}>Everything in essentials and more:</Text>
                 <View style={styles.tierCardBenefits}>
                   <View style={styles.benefitRow}>
-                    <MaterialCommunityIcons name="file-sync" size={18} color="#fbbf24" />
-                    <Text style={styles.benefitSub}>Automated backups & disaster recovery</Text>
+                    <MaterialCommunityIcons name="trending-up" size={18} color="#fbbf24" />
+                    <Text style={styles.benefitSub}>Price & Supply Insights</Text>
                   </View>
                   <View style={styles.benefitRow}>
-                    <MaterialCommunityIcons name="bell-ring" size={18} color="#fbbf24" />
-                    <Text style={styles.benefitSub}>Low stock & expiry alerts</Text>
+                    <MaterialCommunityIcons name="bell-ring-outline" size={18} color="#fbbf24" />
+                    <Text style={styles.benefitSub}>Smart Notifications & AI Suggestions</Text>
                   </View>
                   <View style={styles.benefitRow}>
-                    <MaterialCommunityIcons name="bell-ring" size={18} color="#fbbf24" />
-                    <Text style={styles.benefitSub}>Automated rotation & expiry alerts</Text>
+                    <MaterialCommunityIcons name="cloud-sync-outline" size={18} color="#fbbf24" />
+                    <Text style={styles.benefitSub}>Secure Backup & Sync Options</Text>
                   </View>
-
                 </View>
                 <TouchableOpacity testID="paywall-buy-general-btn" style={styles.buyBtnGeneral} onPress={() => handleSimulatedPurchase('GENERAL')}>
-                  <Text style={styles.buyBtnText}>COMMISSION AS GENERAL — £1.49/mo</Text>
+                  <Text style={styles.buyBtnText}>ENLIST AS GENERAL — £2.49/mo</Text>
                 </TouchableOpacity>
               </View>
 
               <TouchableOpacity testID="paywall-close-btn" style={styles.closeBtn} onPress={() => setShowPaywall(false)}>
-                <Text style={styles.closeBtnText}>Return to base</Text>
+                <Text style={styles.closeBtnText}>Dismiss</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>

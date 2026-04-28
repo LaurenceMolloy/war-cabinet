@@ -241,8 +241,7 @@ export default function CatalogScreen() {
 
   const handleEnableCloudSyncWithToken = async (accessToken: string, refreshToken?: string) => {
     try {
-      // Save tokens
-      await GoogleDriveService.saveTokens(accessToken, refreshToken);
+      // Tokens are managed natively by GoogleSignin, no manual save required
       
       // Fetch user info
       const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
@@ -1703,7 +1702,53 @@ export default function CatalogScreen() {
             await testStockAlert(db);
             Alert.alert('System Armed', 'A test alert has been dispatched.');
           }}><MaterialCommunityIcons name="bell-ring" size={24} color="white" /><Text style={styles.testBtnText}>TEST STOCK ALERT</Text></TouchableOpacity></View>
-<TouchableOpacity testID="debug-purge-db" style={{ backgroundColor: '#ef4444', padding: 16, borderRadius: 12, marginTop: 40, alignItems: 'center' }} onPress={async () => {try {await db.runAsync('DELETE FROM Inventory');await db.runAsync('DELETE FROM ItemTypes');await db.runAsync('DELETE FROM Categories');await db.runAsync('DELETE FROM Settings');await SecureStore.deleteItemAsync('google_access_token');await SecureStore.deleteItemAsync('google_refresh_token');if (typeof window !== 'undefined') window.location.reload();} catch (e) {console.error("Purge Error:", e);}}}><Text style={{fontSize: 14, color: 'white', fontWeight: 'bold'}}>DEVELOPER: WIPE SYSTEM & LICENSE</Text></TouchableOpacity>
+<TouchableOpacity 
+  testID="debug-purge-db" 
+  style={{ backgroundColor: '#ef4444', padding: 16, borderRadius: 12, marginTop: 40, alignItems: 'center' }} 
+  onPress={async () => {
+    Alert.alert(
+      "HARD SYSTEM RESET",
+      "This will WIPE all data, settings, and license tokens from this device. Are you sure?",
+      [
+        { text: "CANCEL", style: "cancel" },
+        { 
+          text: "WIPE EVERYTHING", 
+          style: "destructive", 
+          onPress: async () => {
+            try {
+              // 1. Wipe Database
+              await db.runAsync('DELETE FROM Inventory');
+              await db.runAsync('DELETE FROM ItemTypes');
+              await db.runAsync('DELETE FROM Categories');
+              await db.runAsync('DELETE FROM Settings');
+              
+              // 2. Wipe License/Auth Tokens
+              if (Platform.OS === 'web') {
+                localStorage.removeItem('google_access_token');
+                localStorage.removeItem('google_refresh_token');
+              } else {
+                await SecureStore.deleteItemAsync('google_access_token');
+                await SecureStore.deleteItemAsync('google_refresh_token');
+              }
+
+              // 3. Force Reload
+              if (typeof window !== 'undefined') {
+                window.location.reload();
+              } else {
+                Alert.alert("System Reset", "All local data has been purged. Restart the app.");
+              }
+            } catch (e) {
+              console.error("Purge Error:", e);
+              Alert.alert("Purge Failed", "Critical failure during system wipe.");
+            }
+          }
+        }
+      ]
+    );
+  }}
+>
+  <Text style={{fontSize: 14, color: 'white', fontWeight: 'bold'}}>DEVELOPER: WIPE SYSTEM & LICENSE</Text>
+</TouchableOpacity>
         </View>
       ) : activeTab === 'backups' ? (
         <ScrollView style={{padding: 10, flex: 1}} contentContainerStyle={{paddingBottom: 60}}>
@@ -2130,7 +2175,7 @@ export default function CatalogScreen() {
               <Text style={[styles.tierCardRank, { color: '#60a5fa' }]}>RANK: SERGEANT</Text>
               {isSergeant && <View style={[styles.activeRankBadge, { backgroundColor: '#3b82f6' }]}><Text style={styles.activeRankText}>CURRENT</Text></View>}
             </View>
-            <Text style={[styles.tierPrice, { color: '#60a5fa' }]}>£2.99 — ONE-TIME LICENCE</Text>
+            <Text style={[styles.tierPrice, { color: '#60a5fa' }]}>£4.99 — ONE-TIME LICENCE</Text>
             <View style={styles.featureItem}><MaterialCommunityIcons name="infinity" size={16} color="#60a5fa" /><Text style={styles.featureText}>Unlimited cabinets, categories & items</Text></View>
             <View style={styles.featureItem}><MaterialCommunityIcons name="snowflake" size={16} color="#60a5fa" /><Text style={styles.featureText}>Full freezer logistics — age-based tracking</Text></View>
             <View style={styles.featureItem}><MaterialCommunityIcons name="truck-delivery" size={16} color="#60a5fa" /><Text style={styles.featureText}>The Quartermaster — low-stock reports & sharing</Text></View>
@@ -2147,7 +2192,7 @@ export default function CatalogScreen() {
               <Text style={[styles.tierCardRank, { color: '#fbbf24' }]}>RANK: GENERAL</Text>
               {isGeneral && <View style={[styles.activeRankBadge, { backgroundColor: '#fbbf24' }]}><Text style={[styles.activeRankText, { color: '#000' }]}>CURRENT</Text></View>}
             </View>
-            <Text style={[styles.tierPrice, { color: '#fbbf24' }]}>£1.49/MONTH · £9.99/YEAR — HIGH COMMAND</Text>
+            <Text style={[styles.tierPrice, { color: '#fbbf24' }]}>£2.49/MONTH · £19.99/YEAR — HIGH COMMAND</Text>
             <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginBottom: 8 }}>Everything in Sergeant, plus:</Text>
             <View style={styles.featureItem}><MaterialCommunityIcons name="bell-ring" size={16} color="#fbbf24" /><Text style={styles.featureText}>Automated low-stock & expiry alerts</Text></View>
             <View style={styles.featureItem}><MaterialCommunityIcons name="chef-hat" size={16} color="#fbbf24" /><Text style={styles.featureText}>The Mess Hall — waste-conscious AI recipes</Text></View>
@@ -2163,13 +2208,31 @@ export default function CatalogScreen() {
             <TouchableOpacity 
               style={{ backgroundColor: '#ef4444', padding: 16, borderRadius: 8, marginTop: 24, alignItems: 'center' }} 
               onPress={async () => {
-                await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key');
-                await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key_general');
-                await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key_sergeant');
-                Alert.alert('Demoted', 'Licenses revoked. Completely reload the app to reflect as Cadet.');
+                try {
+                  // 1. Revoke Licenses
+                  await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key');
+                  await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key_general');
+                  await db.runAsync('DELETE FROM Settings WHERE key = ?', 'license_key_sergeant');
+
+                  // 2. Reset Onboarding Flags
+                  if (Platform.OS === 'web') {
+                    localStorage.removeItem('war_cabinet_welcome_seen');
+                    localStorage.removeItem('war_cabinet_recon_start');
+                  } else {
+                    await SecureStore.deleteItemAsync('war_cabinet_welcome_seen');
+                    await SecureStore.deleteItemAsync('war_cabinet_recon_start');
+                  }
+
+                  Alert.alert('Demoted & Reset', 'Licenses revoked and onboarding flags cleared. Reloading system...');
+                  if (typeof window !== 'undefined') {
+                    window.location.reload();
+                  }
+                } catch (e) {
+                  console.error("Demote Error:", e);
+                }
               }}
             >
-              <Text style={{ color: 'white', fontWeight: 'bold' }}>DEVELOPER DEMOTE (CLEAR LICENSES)</Text>
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>DEVELOPER DEMOTE & RESET ONBOARDING</Text>
             </TouchableOpacity>
           )}
 

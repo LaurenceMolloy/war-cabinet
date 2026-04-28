@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>War Cabinet - Household Logistics (Print Version)</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap');
+
+        :root {
+            --bg-print: #ffffff;
+            --text-main: #000000;
+            --text-muted: #4b5563;
+            --border-heavy: #000000;
+            --border-light: #e5e7eb;
+            --accent-tint: #f3f4f6;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-print);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+        }
+
+        .a4-container {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 25px; /* Slightly reduced padding to 'widen' the content */
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 10px;
+            border-bottom: 2px solid var(--border-heavy);
+            padding-bottom: 20px;
+        }
+
+        .hero-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin: 0;
+            letter-spacing: -2px;
+            color: var(--text-main);
+        }
+
+        .hero-subtitle {
+            color: var(--text-main);
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            font-weight: 700;
+            margin-top: 5px;
+        }
+
+        .intro-text {
+            color: var(--text-main);
+            max-width: 750px;
+            margin: 15px auto 0;
+            line-height: 1.5;
+            font-size: 1.1rem;
+        }
+
+        .panels-wrapper {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            flex: 1;
+        }
+
+        .panel {
+            background: var(--bg-print);
+            border: 1.5px solid var(--border-heavy);
+            border-radius: 8px;
+            padding: 20px 15px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .rank-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 700;
+            padding: 4px 8px;
+            border: 1px solid var(--border-heavy);
+            display: inline-block;
+            margin-bottom: 15px;
+            background: var(--accent-tint);
+        }
+
+        .price-block {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px dashed var(--border-heavy);
+        }
+
+        .price {
+            font-size: 2.2rem;
+            font-weight: 800;
+            margin: 0;
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .price span {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .pitch {
+            font-size: 0.9rem;
+            font-weight: 700;
+            margin-top: 8px;
+            line-height: 1.3;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            flex: 1;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 15px;
+            font-size: 0.85rem;
+            line-height: 1.3;
+        }
+
+        .feature-icon {
+            flex-shrink: 0;
+            margin-top: 3px;
+            color: var(--text-main);
+        }
+
+        .feature-title {
+            font-weight: 700;
+            display: block;
+            margin-bottom: 1px;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+
+        .feature-desc {
+            color: var(--text-main);
+            display: block;
+        }
+
+        footer {
+            margin-top: auto;
+            text-align: center;
+            padding: 15px;
+            border-top: 2px solid var(--border-heavy);
+            color: var(--text-main);
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        @media print {
+            body { padding: 0; margin: 0; }
+            .a4-container { width: 100%; height: 100%; padding: 10mm; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="a4-container">
+        <header>
+            <h1 class="hero-title">WAR CABINET</h1>
+            <div class="hero-subtitle">Household Logistics & Resilience</div>
+            <p class="intro-text">
+                In a world where prices shift and supply isn’t always predictable, staying organised at home matters more than ever. Reduce waste, keep track of what you have, and stop finding "lockdown flour" three years too late.
+                <br><br>
+                <strong>Turn your home into a well-run system—with total confidence in your stock.</strong>
+            </p>
+        </header>
+
+        <div class="panels-wrapper">
+            <!-- PRIVATE TIER -->
+            <div class="panel">
+                <div>
+                    <span class="rank-badge">RANK: PRIVATE</span>
+                    <div class="price-block">
+                        <h2 class="price">Free<span> forever</span></h2>
+                        <p class="pitch">Establish the Perimeter: Total visibility for the focused household.</p>
+                    </div>
+                </div>
+                <ul class="feature-list">
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Unlimited Product Cataloging</span>
+                            <span class="feature-desc">Unlimited Cabinets, Categories, and Products. Build your full household taxonomy without limits.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Limited Inventory</span>
+                            <span class="feature-desc">Track 40 Batches and 80 physical Items—sufficient for a household Squad.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Tactical Freezer Monitoring</span>
+                            <span class="feature-desc">Dedicated freezer mode that tracks storage duration instead of just expiry dates.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Stock Movement & Rotation</span>
+                            <span class="feature-desc">Move items between cabinets and storage zones with ease to ensure older stock is used first.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Secure, Local-First Architecture</span>
+                            <span class="feature-desc">Your data stays on your device—private, permanent, and fully functional in cellars, garages, or mobile black spots where cloud apps fail.</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- SERGEANT TIER -->
+            <div class="panel" style="position: relative;">
+                <div style="position: absolute; top: 0; right: 0; background: #0056b3; color: white; font-size: 0.7rem; font-weight: bold; padding: 4px 12px; border-bottom-left-radius: 8px;">MOST POPULAR</div>
+                <div>
+                    <span class="rank-badge">RANK: SERGEANT</span>
+                    <div class="price-block">
+                        <h2 class="price">£3.99<span> one-time</span></h2>
+                        <p class="pitch">Logistical Authority: Efficiency, precision, reporting and unlimited scale for serious stock managers</p>
+                    </div>
+                </div>
+                <ul class="feature-list">
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Unlimited Inventory</span>
+                            <span class="feature-desc">Remove all stockpiling caps. Track enough for an entire Battalion.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">The Quartermaster Hub</span>
+                            <span class="feature-desc">Command total visibility of your entire stock—resupply reports, rotation status, and "swipe-to-confirm" cabinet audits ensure nothing runs out, goes stale, or gets missed.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">High-Velocity Field Entry</span>
+                            <span class="feature-desc">Eliminate tedious on-screen typing with effortless, one-handed entry. Barcode scanning and smart, auto-complete suggestions that adapt to your household’s unique vocabulary—ensuring your supplies are deployed swiftly and consistently.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Portion & Batch Logistics</span>
+                            <span class="feature-desc">Maximise your savings on bulk and wholesale buys. Track fractional consumption as you use your supplies to maintain a lean, accurate inventory.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Logistical Integrity Guard</span>
+                            <span class="feature-desc">Keep your digital records a reliable source of truth—active sentinels catch typos, mismatches, and missing expiry dates in real-time to enforce total data quality and logical consistency.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Manual Off-Device Backups</span>
+                            <span class="feature-desc">Ensure your inventory survives device failure or upgrades with total hardware independence via manual "push-to-cloud" snapshots of your data.</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- GENERAL TIER -->
+            <div class="panel" style="position: relative;">
+                <div style="position: absolute; top: 0; right: 0; background: #856404; color: white; font-size: 0.7rem; font-weight: bold; padding: 4px 12px; border-bottom-left-radius: 8px;">BEST VALUE</div>
+                <div>
+                    <span class="rank-badge">RANK: GENERAL</span>
+                    <div class="price-block">
+                        <h2 class="price">£1.99<span> / month</span></h2>
+                        <p class="pitch">Strategic Supremacy: Predictive intelligence that automates your resilience.</p>
+                        <p style="font-size: 0.8rem; color: #856404; margin: 5px 0 0 0; font-weight: bold;">Or £15.99 / year</p>
+                        <p style="font-size: 0.7rem; color: #856404; margin: 0;">(Save 33% over monthly)</p>
+                    </div>
+                </div>
+                <ul class="feature-list">
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Expiry & Supply Forecasting</span>
+                            <span class="feature-desc">Know before it's too late—identify stock that won't be consumed before it expires, and exactly when supplies will run dry. Powered by 90-day BurnRate and "Days of Cover" forecasting, including the Intersection Model.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Personalised Inflation Tracking</span>
+                            <span class="feature-desc">Beat inflation with smarter buying decisions—track price trends for the items that matter most to you and know exactly when to stock up.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Proactive Supply Alerts</span>
+                            <span class="feature-desc">Notifications for low-stock, overstock, and expiries—plus smart, cabinet-specific reminders ensuring disciplined stock rotation and audit accuracy.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">The Mess Hall: AI Chef</span>
+                            <span class="feature-desc">A personalized AI Chef that respects your dietary needs and allergies, suggesting meals from expiring stock while handling your restock nudges.</span>
+                        </div>
+                    </li>
+                    <li class="feature-item">
+                        <svg class="feature-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div>
+                            <span class="feature-title">Automated Rolling Backups</span>
+                            <span class="feature-desc">Frictionless hardware independence. Your entire inventory is automatically secured off-device in the background, surviving phone loss or failure with zero effort.</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <footer>
+            Built for resilience. Controlled by you.
+        </footer>
+    </div>
+
+</body>
+</html>

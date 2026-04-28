@@ -94,7 +94,8 @@ To empower user agency, Cadets may choose to "Graduate Early" within the Promoti
 - [✓] **Experimental Protocol**: Limited Freezer Mode (1 Cabinet / 4 Item Types and Batches).
 
 ### RANK: PRIVATE (Post-Trial Free)
-- [✓] **Earned Scale**: 4 Cabinets / 10 Categories / 25 item types / 25 batches / 50 units
+- [✓] **Unlimited Modelling**: Unlimited Cabinets, Categories & Item Types
+- [✓] **Logistics Allowance**: 40 Batches / 80 Units
 - [✓] **Core Ops**: Basic MANUAL stock tracking only, incl. freezer mode intelligence
 - [✓] No AI, data integrity engine, batch consolidation, partial consumption or Alerts.
 
