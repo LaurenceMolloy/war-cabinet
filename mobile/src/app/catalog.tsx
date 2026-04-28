@@ -88,11 +88,8 @@ export default function CatalogScreen() {
   const [expandedCatId, setExpandedCatId] = useState<number | null>(null);
   const [newItemFreezeMonths, setNewItemFreezeMonths] = useState('');
   const [editingTypeFreezeMonths, setEditingTypeFreezeMonths] = useState('');
-  const [showInlineAddCabinet, setShowInlineAddCabinet] = useState(false);
-  const [inlineCabContext, setInlineCabContext] = useState<'new_item' | 'edit_item'>('new_item');
-  const [inlineCabName, setInlineCabName] = useState('');
-  const [inlineCabLoc, setInlineCabLoc] = useState('');
-  const [inlineCabType, setInlineCabType] = useState<'standard' | 'freezer'>('standard');
+  const [showInlineAddCabinet, setShowInlineAddCabinet] = useState(false); // Kept temporarily if needed for other refs, but we'll remove usage
+  const [cabinetModalContext, setCabinetModalContext] = useState<'tab' | 'new_item' | 'edit_item'>('tab');
 
   const [cloudBackupEnabled, setCloudBackupEnabled] = useState(false);
   const [cloudSchedule, setCloudSchedule] = useState('Daily');
@@ -736,31 +733,7 @@ export default function CatalogScreen() {
   };
 
   const handleCreateInlineCabinet = async () => {
-    if (!inlineCabName.trim()) return;
-
-    if (cabinets.length >= limits.cabinets && !hasFullAccess) {
-      checkEntitlement('CABINET_LIMIT');
-      return;
-    }
-    if (inlineCabType === 'freezer' && freezerCabCount >= limits.freezer_cabs && !hasFullAccess) {
-      checkEntitlement('FREEZER_CABINET_LIMIT');
-      return;
-    }
-    const res = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', [inlineCabName.trim(), inlineCabLoc.trim(), inlineCabType]);
-    const newCabId = res.lastInsertRowId;
-    await logTacticalAction(db, 'ADD', 'CABINET', Number(newCabId), inlineCabName.trim());
-    
-    setShowInlineAddCabinet(false);
-    setInlineCabName('');
-    setInlineCabLoc('');
-    setInlineCabType('standard');
-    
-    if (inlineCabContext === 'new_item') {
-       setNewItemDefaultCabinet(Number(newCabId));
-    } else {
-       setEditingTypeDefaultCabinet(Number(newCabId));
-    }
-    load();
+    // This is now handled by CabinetFormModal via handleCabinetModalSuccess
   };
 
   const toggleAlerts = async (val: boolean) => {
@@ -1297,7 +1270,11 @@ export default function CatalogScreen() {
                             ))}
                             <TouchableOpacity 
                               style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: '#0f172a' }]} 
-                              onPress={() => { setInlineCabContext('edit_item'); setShowInlineAddCabinet(true); }}
+                              onPress={() => { 
+                                setCabinetModalContext('edit_item');
+                                setSelectedCabinetForEdit(null);
+                                setShowCabinetModal(true);
+                              }}
                             >
                                 <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CABINET</Text>
                             </TouchableOpacity>
@@ -1505,7 +1482,11 @@ export default function CatalogScreen() {
                         ))}
                         <TouchableOpacity 
                           style={[styles.chip, { borderColor: '#3b82f6', borderWidth: 1, backgroundColor: '#0f172a' }]} 
-                          onPress={() => { setInlineCabContext('new_item'); setShowInlineAddCabinet(true); }}
+                          onPress={() => { 
+                            setCabinetModalContext('new_item');
+                            setSelectedCabinetForEdit(null);
+                            setShowCabinetModal(true); 
+                          }}
                         >
                             <Text style={[styles.chipText, { color: '#3b82f6' }]}>+ NEW CABINET</Text>
                         </TouchableOpacity>
@@ -1559,6 +1540,7 @@ export default function CatalogScreen() {
             <View style={styles.catActions}>
               <TouchableOpacity 
                 onPress={() => { 
+                  setCabinetModalContext('tab');
                   setSelectedCabinetForEdit(cab);
                   setShowCabinetModal(true);
                 }} 
@@ -1673,6 +1655,7 @@ export default function CatalogScreen() {
               <TouchableOpacity 
                 style={[styles.addSaveBtnFull, { backgroundColor: '#1e293b', borderColor: '#3b82f6', borderWidth: 1, height: 50 }]} 
                 onPress={() => {
+                  setCabinetModalContext('tab');
                   setSelectedCabinetForEdit(null);
                   setShowCabinetModal(true);
                 }}
@@ -2449,40 +2432,6 @@ export default function CatalogScreen() {
           </KeyboardAvoidingView>
         </Modal>
 
-        {/* INLINE ADD CABINET MODAL */}
-        <Modal visible={showInlineAddCabinet} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>NEW STORAGE CABINET</Text>
-              
-              <View style={{ marginBottom: 16, width: '100%' }}>
-                <Text style={styles.miniLabel}>CABINET NAME</Text>
-                <TextInput style={styles.inputSmall} value={inlineCabName} onChangeText={setInlineCabName} placeholder="e.g. Garage Freezer" placeholderTextColor="#64748b" autoFocus />
-              </View>
-
-              <View style={{ marginBottom: 16, width: '100%' }}>
-                <Text style={styles.miniLabel}>LOCATION</Text>
-                <TextInput style={styles.inputSmall} value={inlineCabLoc} onChangeText={setInlineCabLoc} placeholder="e.g. Garage" placeholderTextColor="#64748b" />
-              </View>
-
-              <View style={{ marginBottom: 24, width: '100%' }}>
-                <Text style={styles.miniLabel}>CABINET TYPE</Text>
-                <View style={styles.unitChipRowMini}>
-                  <TouchableOpacity style={[styles.unitChip, inlineCabType === 'standard' && styles.unitChipActive]} onPress={() => setInlineCabType('standard')}><Text style={[styles.unitChipText, inlineCabType === 'standard' && styles.unitChipTextActive]}>Standard</Text></TouchableOpacity>
-                  <TouchableOpacity style={[styles.unitChip, inlineCabType === 'freezer' && styles.unitChipActive]} onPress={() => { if (inlineCabType === 'freezer') setInlineCabType('standard'); else if (checkEntitlement('FREEZER')) setInlineCabType('freezer'); }}><Text style={[styles.unitChipText, inlineCabType === 'freezer' && styles.unitChipTextActive]}>Freezer</Text></TouchableOpacity>
-                </View>
-              </View>
-
-              <TouchableOpacity style={styles.saveButton} onPress={handleCreateInlineCabinet}>
-                <Text style={styles.saveText}>CREATE CABINET</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.modalClose} onPress={() => setShowInlineAddCabinet(false)}>
-                <Text style={styles.modalCloseText}>CANCEL</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
         
         {/* OPERATIONAL HISTORY MODAL */}
         <Modal visible={showActivityModal} transparent animationType="fade">
@@ -2854,9 +2803,14 @@ export default function CatalogScreen() {
         visible={showCabinetModal}
         initialData={selectedCabinetForEdit}
         allCabinets={cabinets}
-        onSuccess={() => {
+        onSuccess={(id) => {
           setShowCabinetModal(false);
           load();
+          if (id && cabinetModalContext === 'new_item') {
+            setNewItemDefaultCabinet(id);
+          } else if (id && cabinetModalContext === 'edit_item') {
+            setEditingTypeDefaultCabinet(id);
+          }
         }}
         onCancel={() => setShowCabinetModal(false)}
       />

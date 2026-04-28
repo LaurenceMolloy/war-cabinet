@@ -9,7 +9,7 @@ interface CabinetFormModalProps {
   visible: boolean;
   initialData?: any; // null for 'New', cabinet object for 'Edit'
   allCabinets: any[];
-  onSuccess: () => void;
+  onSuccess: (id?: number) => void;
   onCancel: () => void;
 }
 
@@ -71,11 +71,11 @@ export const CabinetFormModal: React.FC<CabinetFormModalProps> = ({
 
       if (initialData) {
         await Database.Cabinets.update(db, initialData.id, params);
+        onSuccess(initialData.id);
       } else {
-        await Database.Cabinets.create(db, params);
+        const newId = await Database.Cabinets.create(db, params);
+        onSuccess(newId);
       }
-      
-      onSuccess();
     } catch (e: any) {
       setError(e.message || 'Failed to save cabinet');
     } finally {
