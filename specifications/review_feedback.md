@@ -98,3 +98,27 @@ This document tracks items that were strictly specified in the `requirements.md`
     1.  **Context Extraction**: Implemented cross-category selection within the `catalog.tsx` item edit UI.
     2.  **State Fluidity**: Enabled the `category_id` attribute to be mutable via an interactive chip row, allowing seamless reassignment in the database.
     3.  **UI Integrity**: Maintains proper list rendering behavior where updated items instantly vanish from their old category block and populate their new designated category.
+
+---
+
+## Iteration 100: OCR Expiry Scanning (Logistical Date Intel)
+*   **Tactical Goal**: Implement a high-speed, noise-robust "Logistical Date" extraction engine to eliminate manual typing during resupply.
+*   **Implementation**: 
+    1.  **Coordinate-Based Filtering**: Restricts OCR processing to a center viewfinder area to ignore peripheral "serving suggestion" noise without requiring image cropping.
+    2.  **Strict Year Validation**: Enforces that years must be 2 or 4 digits. 4-digit years must start with `20`; 2-digit years must be `≥ 25` (the 2025 relevance threshold).
+    3.  **Ambiguity Logic**: Handles both UK (`DD/MM`) and US (`MM/DD`) numeric formats by requiring at least one value to be `≤ 12`. Defaults to UK if both are low (e.g., `05/06` → June).
+    4.  **Noise Handlers**: Uses digit-based boundaries (instead of word boundaries) to extract dates from cluttered strings like `BBE30/03/2026` or `12MAY359Leppc`.
+
+### 📡 TEST RANGE (DATE VARIATIONS)
+| Category | Format Examples | Expected Output (Logistical Date) |
+| :--- | :--- | :--- |
+| **Standard Numeric** | `30/03/2026`, `30-03-26`, `30.03.26` | `03/2026` |
+| **US Format** | `03/30/2026`, `03/30/26` | `03/2026` |
+| **Full Text Month** | `23 January 2027`, `Jan 23 2027` | `01/2027` |
+| **Yearless** | `23 JUN`, `07 MAY` | `06/2026` (Presumes current year) |
+| **Month-Year Only** | `JUN 27`, `MAY/2027`, `MAY/27` | `06/2027`, `05/2027` |
+| **Threshold Logic** | `MAY 07` (7 < 25 threshold) | `05/2026` (Treated as Day, current year) |
+| **Threshold Logic** | `MAY 26` (26 >= 25 threshold) | `05/2026` (Treated as Year) |
+| **Noise Recovery** | `BBE JUN 27`, `DRe30/03/26` | `06/2027`, `03/2026` |
+| **Invalid/Rejected** | `13/14/26`, `12 May 359` | `NO DATE DETECTED` (or `05/2026` fallback) |
+

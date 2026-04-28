@@ -2207,7 +2207,7 @@ export default function CatalogScreen() {
             <Text style={[styles.tierPrice, { color: '#fbbf24' }]}>£2.49/MONTH · £19.99/YEAR — HIGH COMMAND</Text>
             <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginBottom: 8 }}>Everything in Sergeant, plus:</Text>
             <View style={styles.featureItem}><MaterialCommunityIcons name="bell-ring" size={16} color="#fbbf24" /><Text style={styles.featureText}>Automated low-stock & expiry alerts</Text></View>
-            <View style={styles.featureItem}><MaterialCommunityIcons name="chef-hat" size={16} color="#fbbf24" /><Text style={styles.featureText}>The Mess Hall — waste-conscious AI recipes</Text></View>
+            <View style={styles.featureItem}><MaterialCommunityIcons name="chef-hat" size={16} color="#fbbf24" /><Text style={styles.featureText}>The Mess Hall — AI Chef & Dietitian (Health & Allergies)</Text></View>
             <View style={styles.featureItem}><MaterialCommunityIcons name="file-sync" size={16} color="#fbbf24" /><Text style={styles.featureText}>Automated backups & disaster recovery</Text></View>
             {!isGeneralOrAbove && (
               <TouchableOpacity style={[styles.upgradeBtn, { backgroundColor: '#fbbf24' }]} onPress={() => requestPurchase('GENERAL')}>

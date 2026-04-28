@@ -82,7 +82,7 @@ MOBILE TESTING FEEDBACK
 9. I can enter a batch WITHOUT a storage cabinet and the app says "Global - Storage". 
    I think we need to pick this up as an error of omission (like expiry date) 
 10. I need to understand why location conflicts aren't always triggered when they should be.
-11. batch add centrealisation can include an expiry date OCR capability experiment.
+11. batch add centralisation can include an expiry date OCR capability experiment (we have a working PoC).
 12. recipes can take account of medical conditions or health focus (low fat, high protein etc...)
 13. legal exclusions/warmings re. expired food and where responsibility lies!!!
 
