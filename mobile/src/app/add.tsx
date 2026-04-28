@@ -7,6 +7,7 @@ import { markModified, recordActivity, logTacticalAction } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
 import SUPPLIERS_DATA from '../data/suppliers.json';
 import BRANDS_DATA from '../data/brands.json';
+import { ExpiryScannerModal } from '../components/ExpiryScannerModal';
 
 function getLevenshteinDistance(a: string, b: string): number {
   const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
@@ -57,6 +58,8 @@ export default function AddInventoryScreen() {
   
   const [expiryMonth, setExpiryMonth] = useState(currentMonth.toString());
   const [expiryYear, setExpiryYear] = useState(currentYear.toString());
+  const [showExpiryScanner, setShowExpiryScanner] = useState(false);
+  const [wasScanned, setWasScanned] = useState(false);
   const [customChips, setCustomChips] = useState<string[]>([]);
   const [unitType, setUnitType] = useState('weight');
   const [batchIntel, setBatchIntel] = useState("");
@@ -1518,15 +1521,24 @@ export default function AddInventoryScreen() {
               <MaterialCommunityIcons name="calendar-clock" size={18} color="#3b82f6" />
               <Text style={styles.label}>Expiry Date</Text>
             </View>
-            {(expiryMonth !== '' || expiryYear !== '') && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                onPress={() => { setExpiryMonth(''); setExpiryYear(''); }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(59, 130, 246, 0.1)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#3b82f633' }}
+                onPress={() => setShowExpiryScanner(true)}
               >
-                <MaterialCommunityIcons name="calendar-remove" size={14} color="#ef4444" />
-                <Text style={styles.clearDateText}>NO DATE MARK</Text>
+                <MaterialCommunityIcons name="camera" size={16} color="#3b82f6" />
+                <Text style={{ color: '#3b82f6', fontSize: 11, fontWeight: 'bold' }}>SCAN</Text>
               </TouchableOpacity>
-            )}
+              {(expiryMonth !== '' || expiryYear !== '') && (
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                  onPress={() => { setExpiryMonth(''); setExpiryYear(''); setWasScanned(false); }}
+                >
+                  <MaterialCommunityIcons name="calendar-remove" size={14} color="#ef4444" />
+                  <Text style={styles.clearDateText}>NO DATE MARK</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           {/* PROMINENT SELECTED DATE DISPLAY */}
@@ -1537,11 +1549,23 @@ export default function AddInventoryScreen() {
             backgroundColor: '#0f172a',
             borderRadius: 12,
             borderWidth: 1.5,
-            borderColor: (expiryMonth && expiryYear) ? '#3b82f6' : '#334155',
+            borderColor: wasScanned ? '#3b82f6' : (expiryMonth && expiryYear) ? '#334155' : '#1e293b',
+            shadowColor: '#3b82f6',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: wasScanned ? 0.5 : 0,
+            shadowRadius: 10,
+            elevation: wasScanned ? 5 : 0,
             padding: 14,
             marginBottom: 12,
-            gap: 6
+            gap: 6,
+            position: 'relative'
           }}>
+            {wasScanned && (
+              <View style={{ position: 'absolute', top: -8, right: 12, backgroundColor: '#3b82f6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <MaterialCommunityIcons name="eye-check" size={10} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 8, fontWeight: 'bold', letterSpacing: 0.5 }}>SCANNED</Text>
+              </View>
+            )}
             <Text style={{
               color: expiryMonth ? '#f8fafc' : '#475569',
               fontSize: 26,
@@ -1567,13 +1591,13 @@ export default function AddInventoryScreen() {
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 8 }}>
             <TouchableOpacity
               style={[styles.input, { flex: 1, alignItems: 'center', borderColor: showMonthPicker ? '#3b82f6' : '#334155' }]}
-              onPress={() => { setShowMonthPicker(!showMonthPicker); setShowYearPicker(false); }}
+              onPress={() => { setShowMonthPicker(!showMonthPicker); setShowYearPicker(false); setWasScanned(false); }}
             >
               <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>MONTH</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.input, { flex: 1, alignItems: 'center', borderColor: showYearPicker ? '#3b82f6' : '#334155' }]}
-              onPress={() => { setShowYearPicker(!showYearPicker); setShowMonthPicker(false); }}
+              onPress={() => { setShowYearPicker(!showYearPicker); setShowMonthPicker(false); setWasScanned(false); }}
             >
               <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>YEAR</Text>
             </TouchableOpacity>
@@ -2380,6 +2404,19 @@ export default function AddInventoryScreen() {
         </View></View>
       )}
 
+      {/* SCANNER MODAL */}
+      <ExpiryScannerModal 
+        isVisible={showExpiryScanner} 
+        onClose={() => setShowExpiryScanner(false)}
+        onResult={(m, y) => {
+          setExpiryMonth(m);
+          setExpiryYear(y);
+          setWasScanned(true);
+          expiryTouched.current = true;
+          // Visual feedback
+          // Alert.alert("Date Captured", `Expiry set to ${m.padStart(2, '0')}/${y} based on optical intel.`);
+        }}
+      />
     </View>
   );
 }

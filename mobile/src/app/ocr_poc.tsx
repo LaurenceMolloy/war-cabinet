@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 // IMPORTANT: This PoC requires a text recognition library.
 // For this experiment, we are using 'react-native-mlkit-ocr'.
-import MlkitOcr from 'react-native-mlkit-ocr'; 
+import { OCRExpiryService } from '../services/OCRExpiryService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,89 +33,6 @@ export default function OCRExpiryPoC() {
       </View>
     );
   }
-
-  const parseExpiryDate = (text: string) => {
-    const formatYear = (y: string) => (y.length === 2 ? '20' + y : y);
-    const isYearValid = (y: string) => {
-      if (y.length === 4) return y.startsWith('20');
-      if (y.length === 2) return parseInt(y) >= 25;
-      return false;
-    };
-
-    const monthsMap: { [key: string]: string } = {
-      JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06',
-      JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12',
-    };
-
-    const monthPattern = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*';
-
-    // 1. First, check for unambiguous Text Months (Jan, February etc.)
-    // Check Month Day Year first: JAN 23 2027
-    const mdy = new RegExp(`(?:^|[^A-Z0-9])${monthPattern}[./\\-\\s,]+\\d{1,2}[./\\-\\s,]+(\\d{2,4})(?![0-9])`, 'i');
-    let tMatch = text.match(mdy);
-    if (tMatch && isYearValid(tMatch[2])) return `${monthsMap[tMatch[1].toUpperCase().substring(0, 3)]}/${formatYear(tMatch[2])}`;
-
-    // Check [Day] Month Year: 23 JUN 2027 or JUN 2027 or MAY/27
-    const dmy = new RegExp(`(?:^|[^A-Z0-9])(?:(\\d{1,2})[./\\-\\s,]+)?${monthPattern}[./\\-\\s,]+(\\d{2,4})(?![0-9])`, 'i');
-    tMatch = text.match(dmy);
-    if (tMatch) {
-      const day = tMatch[1];
-      const month = monthsMap[tMatch[2].toUpperCase().substring(0, 3)];
-      const yearStr = tMatch[3];
-      
-      if (isYearValid(yearStr)) {
-        if (!day) {
-          // If no day provided, ensure it's not a low 2-digit number (handled by isYearValid threshold)
-          return `${month}/${formatYear(yearStr)}`;
-        }
-        return `${month}/${formatYear(yearStr)}`;
-      }
-      
-      // If year is invalid but we have "Day Month", it might be a Day-Month capture with trailing noise
-      if (day && parseInt(day) <= 31) {
-        return `${month}/${new Date().getFullYear()}`;
-      }
-    }
-
-    // Check Day Month (No Year): 23 JUN -> Presume current year
-    const dm = new RegExp(`(?:^|[^A-Z0-9])(\\d{1,2})[./\\-\\s,]+${monthPattern}(?![A-Z0-9])`, 'i');
-    tMatch = text.match(dm);
-    if (tMatch) {
-      const month = monthsMap[tMatch[2].toUpperCase().substring(0, 3)];
-      const currentYear = new Date().getFullYear();
-      return `${month}/${currentYear}`;
-    }
-
-    // 2. Generic Numeric Pattern: \d{2}.?\d{2}.?\d{2,4}
-    // Constraints: d1 <= 31, d2 <= 31, year prefix 20 or 21 if 4-digit
-    // Use a digit-based boundary instead of \b to handle cases where OCR joins text and numbers (e.g. "DRe30/03/2026")
-    const genericNumeric = /(?:^|[^0-9])(\d{2})[./\-\s]?(\d{2})[./\-\s]?(\d{2,4})(?![0-9])/g;
-    const matches = Array.from(text.matchAll(genericNumeric));
-    
-    for (const m of matches) {
-      const d1 = parseInt(m[1]);
-      const d2 = parseInt(m[2]);
-      const yearStr = m[3];
-      const yearPrefix = yearStr.length === 4 ? yearStr.substring(0, 2) : '';
-      
-      const isYearValid = yearStr.length === 2 || (yearPrefix === '20' || yearPrefix === '21');
-      
-      // Validation: One must be <= 31, the other must be <= 31.
-      // Crucially: At least one of them MUST be <= 12 to be a valid month.
-      if (d1 <= 31 && d2 <= 31 && (d1 <= 12 || d2 <= 12) && isYearValid) {
-        // If d1 is > 12, then d2 MUST be the month (UK format: 30/03)
-        if (d1 > 12) return `${m[2].padStart(2, '0')}/${formatYear(yearStr)}`;
-        // If d2 is > 12, then d1 MUST be the month (US format: 03/30)
-        if (d2 > 12) return `${m[1].padStart(2, '0')}/${formatYear(yearStr)}`;
-        
-        // If both are <= 12, we are in an ambiguous zone (e.g. 05/06).
-        // Per user request, we presume second pair is month (UK format).
-        return `${m[2].padStart(2, '0')}/${formatYear(yearStr)}`;
-      }
-    }
-
-    return null;
-  };
 
   const handleScan = async () => {
     if (!cameraRef.current || isScanning) return;
@@ -180,11 +97,12 @@ export default function OCRExpiryPoC() {
         detectedText = "BEST BEFORE 12/26 (SIMULATED)";
       }
       
-      const parsed = parseExpiryDate(detectedText);
+      const result = OCRExpiryService.parseExpiryDate(detectedText);
+      const parsedStr = result ? `${result.month}/${result.year}` : "NO DATE DETECTED";
 
       setScannedResult({
         raw: detectedText,
-        parsed: parsed || "NO DATE DETECTED"
+        parsed: parsedStr
       });
 
     } catch (error) {
