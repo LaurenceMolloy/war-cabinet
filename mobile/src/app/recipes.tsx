@@ -52,6 +52,24 @@ const ALLERGENS = [
   "Molluscs", "Mustard", "Tree Nuts", "Peanuts", "Sesame", "Soya", "Sulphites"
 ];
 
+const MEDICAL_GUIDELINES = [
+  "Hypertension (Low Sodium)",
+  "Diabetes (Low GI/Carb)",
+  "IBS (Low FODMAP)",
+  "Heart Disease (Low Fat)",
+  "Kidney Disease (Renal)"
+];
+
+const HEALTH_GOALS = [
+  "Weight Loss",
+  "High Protein",
+  "Mediterranean",
+  "Keto / Low Carb",
+  "High Fiber",
+  "Gut Health",
+  "Sugar-Free"
+];
+
 const FRIDGE_STAPLES_PRESETS = []; // Rule 1: Must start empty
 
 export default function RecipesScreen() {
@@ -70,6 +88,8 @@ export default function RecipesScreen() {
   const [preferred, setPreferred] = useState("");
   const [avoid, setAvoid] = useState("");
   const [extraRequests, setExtraRequests] = useState("");
+  const [selectedMedical, setSelectedMedical] = useState<string[]>([]);
+  const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
   const [recipeMode, setRecipeMode] = useState<"experimental" | "inspired" | "authentic">("experimental");
   const [selectedChef, setSelectedChef] = useState("Gordon Ramsay");
   const [lastCustomChef, setLastCustomChef] = useState<string | null>(null);
@@ -95,7 +115,8 @@ export default function RecipesScreen() {
   useEffect(() => { staplesInputRef.current = staplesInput; }, [staplesInput]);
   useEffect(() => { customExpInputRef.current = customExpInput; }, [customExpInput]);
   const chefs = [
-    "BBC Good Food", "Gordon Ramsay", "Ina Garten", "Jamie Oliver", "Nigella Lawson", "Ottolenghi", "Rachael Ray"
+    "BBC Good Food", "Gordon Ramsay", "Ina Garten", "Jamie Oliver", "Nigella Lawson", "Ottolenghi", "Rachael Ray",
+    "Clinical Dietician", "Sports Nutritionist", "Gut-Health Guru"
   ];
 
   const CHEF_PHILOSOPHIES: Record<string, string> = {
@@ -105,7 +126,10 @@ export default function RecipesScreen() {
     "Jamie Oliver": "Rebelliously simple cooking that celebrates fresh produce and vibrant, rustic flavors.",
     "Nigella Lawson": "Home-style comfort that prioritizes the pure pleasure of eating over technical perfection.",
     "Ottolenghi": "Vibrant, Middle-Eastern-inspired fusion celebrating bold spices and abundant vegetables.",
-    "Rachael Ray": "High-speed, practical '30-minute' meals focused on big flavor and common supermarket finds."
+    "Rachael Ray": "High-speed, practical '30-minute' meals focused on big flavor and common supermarket finds.",
+    "Clinical Dietician": "Prioritizes strict adherence to medical thresholds and safety over culinary flair. Explains the 'why' behind ingredient choices.",
+    "Sports Nutritionist": "Focuses on high-performance fueling, optimal macro-balancing, and protein-centric recovery meals.",
+    "Gut-Health Guru": "Specializes in probiotics, fiber-rich produce, and gentle digestion for microbiome optimization."
   };
   const [wildcardChef, setWildcardChef] = useState<string | null>(null);
   const [suggestedChefs, setSuggestedChefs] = useState<string[]>([]);
@@ -135,6 +159,10 @@ export default function RecipesScreen() {
   const [fuzzyChefMatches, setFuzzyChefMatches] = useState<string[]>([]);
   const [pendingChefVal, setPendingChefVal] = useState("");
   const [ignoredFuzzyChefs, setIgnoredFuzzyChefs] = useState<Set<string>>(new Set());
+
+  // --- SAFETY WAIVER STATE ---
+  const [showSafetyWaiver, setShowSafetyWaiver] = useState(false);
+  const [waiverAccepted, setWaiverAccepted] = useState(false);
 
   const statusAnim = React.useRef(new Animated.Value(0)).current;
 
@@ -168,8 +196,8 @@ export default function RecipesScreen() {
       const cabs = await Database.Cabinets.getAll(db);
       setCabinets(cabs);
 
-      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_excluded_expiring', 'recipe_excluded_pantry', 'recipe_excluded_freezer', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs', 'recipe_fridge_staples_selected', 'recipe_fridge_staples_persistent', 'recipe_active_accordion', 'recipe_expiring_history', 'recipe_silo_cabinet'
+      const rows = await db.getAllAsync<{key: string, value: string}>('SELECT * FROM Settings WHERE key LIKE ? OR key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+        'recipe_deploy_%', 'dietary_pref', 'recipe_preferred', 'recipe_avoided', 'recipe_allergens', 'recipe_medical', 'recipe_goals', 'recipe_excluded_expiring', 'recipe_excluded_pantry', 'recipe_excluded_freezer', 'recipe_extra', 'recipe_mode', 'recipe_chef', 'recipe_hide_deploy_guide', 'recipe_custom_chefs', 'recipe_fridge_staples_selected', 'recipe_fridge_staples_persistent', 'recipe_active_accordion', 'recipe_expiring_history', 'recipe_silo_cabinet'
       );
       rows.forEach(r => {
         if (r.key === 'recipe_expiring_history') {
@@ -196,6 +224,8 @@ export default function RecipesScreen() {
           setLastCustomChef(tempCustomChefs[tempCustomChefs.length - 1] || null);
         }
         if (r.key === 'recipe_allergens') setSelectedAllergens(r.value ? r.value.split(',') : []);
+        if (r.key === 'recipe_medical') setSelectedMedical(r.value ? r.value.split(',') : []);
+        if (r.key === 'recipe_goals') setSelectedGoals(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_expiring') setExcludedExpiring(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_pantry') setExcludedPantry(r.value ? r.value.split(',') : []);
         if (r.key === 'recipe_excluded_freezer') setExcludedFreezer(r.value ? r.value.split(',') : []);
@@ -356,6 +386,22 @@ export default function RecipesScreen() {
       : [...selectedAllergens, a];
     setSelectedAllergens(next);
     savePref('recipe_allergens', next.join(','));
+  };
+
+  const toggleMedical = (m: string) => {
+    const next = selectedMedical.includes(m) 
+      ? selectedMedical.filter(x => x !== m)
+      : [...selectedMedical, m];
+    setSelectedMedical(next);
+    savePref('recipe_medical', next.join(','));
+  };
+
+  const toggleGoal = (g: string) => {
+    const next = selectedGoals.includes(g) 
+      ? selectedGoals.filter(x => x !== g)
+      : [...selectedGoals, g];
+    setSelectedGoals(next);
+    savePref('recipe_goals', next.join(','));
   };
 
   const toggleExpiring = (name: string) => {
@@ -748,6 +794,8 @@ export default function RecipesScreen() {
       .replace('[LIST_FREEZER]', freezerListPrompt ? '\n' + freezerListPrompt : "None recorded.")
       .replace('[LIST_PREFERRED]', preferred ? '\n' + formatCsvList(preferred) : "None recorded.")
       .replace('[LIST_AVOID]', avoid ? '\n' + formatCsvList(avoid) : "None recorded.")
+      .replace('[MEDICAL_GUIDELINES]', selectedMedical.length > 0 ? selectedMedical.join(', ') : "None mandated.")
+      .replace('[HEALTH_GOALS]', selectedGoals.length > 0 ? selectedGoals.join(', ') : "None specified.")
       .replace('[EXTRA_REQUESTS]', extraRequests ? '\n- ' + extraRequests : "None recorded.")
       .replace('[RECIPE_MODE]', recipeMode.toUpperCase())
       .replace('[CHEF_STRATEGY_LINE]', (selectedChef && (CHEF_PHILOSOPHIES[selectedChef] || (CHEFS_DATA[selectedChef as keyof typeof CHEFS_DATA] as any)?.philosophy)) 
@@ -794,6 +842,12 @@ export default function RecipesScreen() {
 
     // We no longer auto-add half-typed items to session/history during submission,
     // they must be explicitly added by the + button, Enter, or suggested chip.
+
+    const hasHealthConstraints = selectedAllergens.length > 0 || selectedMedical.length > 0;
+    if (hasHealthConstraints && !waiverAccepted) {
+      setShowSafetyWaiver(true);
+      return;
+    }
 
     if (activeExpiringList.length === 0 && sessionCustomExp.length === 0 && !showConfirm) {
       setShowConfirm(true);
@@ -1008,6 +1062,69 @@ export default function RecipesScreen() {
               </TouchableOpacity>
               <TouchableOpacity accessibilityRole="button" style={[styles.btnBase, styles.btnPrimary, {flex: 1, padding: 12}]} onPress={() => { setShowConfirm(false); handleView(); }}>
                 <Text style={[styles.btnTextPrimary, {fontSize: 13}]}>CONTINUE</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* --- SAFETY WAIVER MODAL (HUMAN-CENTRIC) --- */}
+      {showSafetyWaiver && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 420, backgroundColor: '#0f172a', borderColor: '#3b82f6', borderWidth: 2 }]}>
+            <View style={[styles.cardHeader, { borderBottomWidth: 1, borderBottomColor: '#334155', pb: 10, mb: 16 }]}>
+              <MaterialCommunityIcons name="heart-pulse" size={24} color="#3b82f6" style={{ marginRight: 10 }} />
+              <Text style={[styles.textHighlightTitle, { fontSize: 16, marginTop: 0, marginBottom: 0, color: '#3b82f6' }]}>SAFETY & HEALTH NOTICE</Text>
+            </View>
+            
+            <View style={{ marginBottom: 20 }}>
+              <Text style={[styles.textSecondary, { fontSize: 14, lineHeight: 20 }]}>
+                Because you have <Text style={{ color: '#3b82f6', fontWeight: 'bold' }}>Allergies</Text> or <Text style={{ color: '#3b82f6', fontWeight: 'bold' }}>Medical Guidelines</Text> active, we need to ensure you're aware of how this feature works.
+                {"\n\n"}
+                This recipe briefing is generated by an AI. While it tries to be helpful, it is <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>NOT a substitute</Text> for professional medical advice or a doctor's care.
+                {"\n\n"}
+                Please use your own best judgment and consult a healthcare professional before making significant changes to your diet.
+              </Text>
+            </View>
+
+            <TouchableOpacity 
+              activeOpacity={0.7}
+              style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                backgroundColor: '#111827', 
+                padding: 16, 
+                borderRadius: 8, 
+                marginBottom: 24, 
+                borderWidth: 1, 
+                borderColor: waiverAccepted ? '#3b82f6' : '#334155' 
+              }}
+              onPress={() => setWaiverAccepted(!waiverAccepted)}
+              testID="waiver-checkbox"
+            >
+              <MaterialCommunityIcons 
+                name={waiverAccepted ? "checkbox-marked-circle-outline" : "checkbox-blank-circle-outline"} 
+                size={24} 
+                color={waiverAccepted ? "#3b82f6" : "#64748b"} 
+              />
+              <Text style={{ color: '#cbd5e1', fontSize: 13, marginLeft: 12, flex: 1, fontWeight: '500' }}>
+                I understand that I use this guidance at my own risk.
+              </Text>
+            </TouchableOpacity>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity 
+                style={[styles.btnBase, { flex: 1, backgroundColor: '#1e293b', padding: 14, borderWidth: 1, borderColor: '#334155' }]} 
+                onPress={() => setShowSafetyWaiver(false)}
+              >
+                <Text style={[styles.textMuted, { fontWeight: 'bold', fontSize: 13 }]}>GO BACK</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                disabled={!waiverAccepted}
+                style={[styles.btnBase, styles.btnPrimary, { flex: 2, padding: 14, backgroundColor: waiverAccepted ? '#fbbf24' : '#334155', opacity: waiverAccepted ? 1 : 0.5 }]} 
+                onPress={() => { setShowSafetyWaiver(false); handleView(); }}
+              >
+                <Text style={[styles.btnTextPrimary, { fontSize: 14 }]}>I UNDERSTAND, PROCEED</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1674,11 +1791,13 @@ export default function RecipesScreen() {
             testID="protocols-ribbon"
           >
             <View style={{flex: 1}}>
-              <Text style={styles.textHighlightTitle}>DIETARY & SAFETY</Text>
+              <Text style={styles.textHighlightTitle}>HEALTH & DIETARY PROFILE</Text>
               <Text style={[styles.textSecondary, { fontSize: 12, marginTop: 4 }]}>
                 {[
-                  selectedDietary.length > 0 ? `${selectedDietary.length} Dietary` : null,
+                  selectedDietary.length > 0 ? `${selectedDietary.length} Diet` : null,
                   selectedAllergens.length > 0 ? `${selectedAllergens.length} Allergens` : null,
+                  selectedMedical.length > 0 ? `${selectedMedical.length} Medical` : null,
+                  selectedGoals.length > 0 ? `${selectedGoals.length} Goals` : null,
                 ].filter(Boolean).join('  ·  ') || 'Standard Protocols'}
               </Text>
             </View>
@@ -1768,6 +1887,34 @@ export default function RecipesScreen() {
                       testID={`allergen-chip-${a.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       <Text style={[styles.textChip, selectedAllergens.includes(a) && styles.textChipActive]}>{a}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>MEDICAL GUIDELINES <Text style={styles.textMutedItalic}>(doctor's orders)</Text></Text>
+                <View style={styles.allergenGrid}>
+                  {MEDICAL_GUIDELINES.map(m => (
+                    <TouchableOpacity 
+                      key={m}
+                      style={[styles.chipBase, styles.allergenChip, selectedMedical.includes(m) && styles.chipActiveRed]}
+                      onPress={() => toggleMedical(m)}
+                      testID={`medical-chip-${m.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <Text style={[styles.textChip, selectedMedical.includes(m) && styles.textChipActive]}>{m}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={[styles.textHighlightTitle, { marginBottom: 15, marginTop: 10 }]}>HEALTH & LIFESTYLE GOALS <Text style={styles.textMutedItalic}>(optimise for)</Text></Text>
+                <View style={styles.allergenGrid}>
+                  {HEALTH_GOALS.map(g => (
+                    <TouchableOpacity 
+                      key={g}
+                      style={[styles.chipBase, styles.allergenChip, selectedGoals.includes(g) && styles.chipActiveBlue]}
+                      onPress={() => toggleGoal(g)}
+                      testID={`goal-chip-${g.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <Text style={[styles.textChip, selectedGoals.includes(g) && styles.textChipActive]}>{g}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -2018,6 +2165,11 @@ const styles = StyleSheet.create({
   statusBanner: { position: 'absolute', bottom: 100, left: 20, right: 20, backgroundColor: '#1e293b', borderRadius: 8, padding: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#fbbf24' },
   protocolRibbon: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', borderRadius: 10, borderWidth: 1, borderColor: '#334155', paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4, marginTop: 8 },
   protocolBody: { overflow: 'hidden', paddingHorizontal: 16 },
+  
+  /* --- MODALS --- */
+  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(2, 6, 23, 0.9)', justifyContent: 'center', alignItems: 'center', padding: 20, zIndex: 1000 },
+  modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 24, width: '100%', borderWidth: 1, borderColor: '#334155' },
+  modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold' },
 });
 
 
