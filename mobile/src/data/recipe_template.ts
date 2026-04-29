@@ -53,6 +53,7 @@ export const RECIPE_PROMPT_TEMPLATE = `## Tactical Task
 6. Available ingredients (pantry, freezer, and fridge) are optional support only  
 7. Assume fresh ingredients (veg, protein, etc.) can be added if needed  
 8. **Health Alignment Explanation:** You MUST provide a clear rationale for how the recipe adheres to the user's Medical Guidelines and Health Goals. If a mandatory expiring item makes a recipe less than perfect (e.g. higher sodium in a DASH diet), you MUST highlight this and suggest a corrective substitution or portion adjustment.
+9. **Creative Substitution Protocol:** When managing health-driven restrictions (especially Low Carb, Diabetic-Friendly, or Low Sodium), prioritize **culinary creativity** over simple reduction. Instead of just "using less," suggest high-volume, satisfying alternatives like cauliflower rice, courgetti/zoodles, or "hybrid" 50/50 blends (e.g., half rice, half riced vegetables). Aim for satiety through texture and volume.
 
 ---
 
@@ -143,8 +144,8 @@ using the following Markdown structure:
 
 
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-(Repeat for exactly 3 results, ensuring you output the bold separating line above between each recipe)
+---
+(Repeat for exactly 3 results, ensuring you output the horizontal rule '---' above between each recipe)
 `
 };
 
@@ -194,11 +195,11 @@ List ingredients in this exact order: 1. Expiring, 2. Preferred, 3. Available, 4
 [time]
 
 ### Health & Alignment Note
-- **Medical Rationale:** [How it meets [MEDICAL_GUIDELINES]]
-- **Goal Optimization:** [How it supports [HEALTH_GOALS]]
+> **Medical Rationale:** [How it meets [MEDICAL_GUIDELINES]]
+> **Goal Optimization:** [How it supports [HEALTH_GOALS]]
 
 ### ⚠️ Safety & Conflict Warning
-[IF APPLICABLE: Note any 'Must Use' items that were discarded or substituted due to health risks. If no conflicts, state "No safety conflicts detected."]
+> [IF APPLICABLE: Note any 'Must Use' items that were discarded or substituted due to health risks. If no conflicts, state "No safety conflicts detected."]
 
 [CHEF_NOTE_SECTION]
 
