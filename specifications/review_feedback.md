@@ -121,4 +121,12 @@ This document tracks items that were strictly specified in the `requirements.md`
 | **Threshold Logic** | `MAY 26` (26 >= 25 threshold) | `05/2026` (Treated as Year) |
 | **Noise Recovery** | `BBE JUN 27`, `DRe30/03/26` | `06/2027`, `03/2026` |
 | **Invalid/Rejected** | `13/14/26`, `12 May 359` | `NO DATE DETECTED` (or `05/2026` fallback) |
-
+## Iteration 101: Strategic Preparedness Dashboard (The Command Ledger)
+*   **Tactical Goal**: Surface global stock health and categorical preparedness through a centralized, honest command interface.
+*   **Implementation**:
+    1.  **Honest Preparedness Pulse**: Implemented "Pessimistic Averaging" for global and category scores. Item-level readiness is capped at 100% for the aggregate calculation, ensuring that massive surpluses in one area cannot mask critical deficits in another.
+    2.  **Category Drill-Down**: Interactive Heat Map tiles that allow deep-diving into specific sectors to identify individual item strengths and shortfalls.
+    3.  **Tactical Threshold Scaling**: Item bars feature a **Brilliant White** center line representing the Minimum Target. The bar scales to **200%**, turning into a "Dark Green" surplus once the target is exceeded, and reaching full width at the Max Desired level.
+    4.  **Zero-Threshold Neutrality**: Items with a Minimum Stock of `0` are excluded from all readiness measures to ensure the dashboard reflects only active tactical requirements.
+    5.  **Priority Sorting**: The dashboard and drill-down views automatically order assets by their readiness level (**Lowest First**), with alphabetical tie-breaking, ensuring that critical supply gaps always float to the top of the "Command Ledger."
+    6.  **"White Heat" Surplus Logic**: Refined surplus triggers to strictly target levels **above** the defined Maximum Desired stock, preventing optimal inventory from being flagged as over-stock.

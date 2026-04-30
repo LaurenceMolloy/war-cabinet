@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
  *    script is lagging and requires an audit.
  * 4. Only after auditing BackupService.ts should the versions be re-aligned.
  */
-export const CURRENT_SCHEMA_VERSION = 108;
+export const CURRENT_SCHEMA_VERSION = 109;
 
 // Helper to record last action for backup context
 export const recordActivity = async (db: any, description: string) => {
@@ -136,6 +136,12 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       entity_id INTEGER,
       entity_name TEXT,
       details TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS Missions (
+      id TEXT PRIMARY KEY,
+      completed_at INTEGER NOT NULL,
+      points INTEGER NOT NULL
     );
   `);
 
@@ -364,6 +370,19 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v108_complete', '1']);
     }
 
+    // Iteration 109: Mission Initialization
+    const i109Migrated = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'migration_v109_complete');
+    if (!i109Migrated || (i109Migrated as any).count === 0) {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS Missions (
+          id TEXT PRIMARY KEY,
+          completed_at INTEGER NOT NULL,
+          points INTEGER NOT NULL
+        );
+      `);
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v109_complete', '1']);
+    }
+
 
     // Migration: Silently populate freezer expiry (Iteration 102)
     const legacyFreezer = await db.getAllAsync<any>(`
@@ -441,4 +460,69 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
 
 export async function markModified(db: any) {
   await db.runAsync("UPDATE Settings SET value = ? WHERE key = 'last_modified_time'", [Date.now().toString()]);
+}
+
+/**
+ * MISSION DEFINITIONS & POINT VALUES
+ */
+export const MISSION_DATA = {
+  FIRST_BATCH: { id: 'FIRST_BATCH', points: 10, label: 'Add First Batch' },
+  FIRST_SCAN: { id: 'FIRST_SCAN', points: 15, label: 'Intelligence Scan (Barcode)' },
+  FIRST_OCR: { id: 'FIRST_OCR', points: 20, label: 'Surveillance (OCR Expiry)' },
+  FIRST_HEALTH: { id: 'FIRST_HEALTH', points: 15, label: 'Medical Clearance (Health Profile)' },
+  FIRST_RECIPE: { id: 'FIRST_RECIPE', points: 20, label: 'Mess Hall Deployment (Recipe)' },
+  FIRST_RECRUIT: { id: 'FIRST_RECRUIT', points: 20, label: 'Field Recruitment (Share)' }
+};
+
+export type MissionId = keyof typeof MISSION_DATA;
+
+/**
+ * Record a mission as completed if it hasn't been already.
+ */
+export async function completeMission(db: any, missionId: MissionId) {
+  try {
+    const existing = await db.getFirstAsync('SELECT id FROM Missions WHERE id = ?', [missionId]);
+    if (!existing) {
+      const mission = MISSION_DATA[missionId];
+      await db.runAsync(
+        'INSERT INTO Missions (id, completed_at, points) VALUES (?, ?, ?)',
+        [mission.id, Date.now(), mission.points]
+      );
+      console.log(`[MISSION] ${mission.label} COMPLETED!`);
+      return true; // Newly completed
+    }
+    return false;
+  } catch (e) {
+    console.error('[MISSION] Failed to record mission:', e);
+    return false;
+  }
+}
+
+/**
+ * Calculate the current rank and readiness score.
+ */
+export async function getReadinessStats(db: any) {
+  try {
+    const res = await db.getFirstAsync<{ total_points: number }>('SELECT SUM(points) as total_points FROM Missions');
+    const points = res?.total_points || 0;
+    
+    let rank = 'CADET';
+    let icon = 'chevron-triple-down';
+    
+    if (points >= 90) { rank = 'VETERAN'; icon = 'crown'; }
+    else if (points >= 60) { rank = 'SERGEANT'; icon = 'account-star'; }
+    else if (points >= 40) { rank = 'CORPORAL'; icon = 'chevron-double-up'; }
+    else if (points >= 20) { rank = 'PRIVATE'; icon = 'chevron-up'; }
+    else if (points >= 10) { rank = 'RECRUIT'; icon = 'chevron-down'; }
+    
+    return {
+      points,
+      percent: Math.min(points, 100),
+      rank,
+      icon
+    };
+  } catch (e) {
+    console.error('[MISSION] Failed to calculate readiness:', e);
+    return { points: 0, percent: 0, rank: 'CADET', icon: 'chevron-triple-down' };
+  }
 }

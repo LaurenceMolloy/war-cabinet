@@ -1,5 +1,6 @@
 import { Cabinets } from './Cabinets';
 import { Ledger } from './Ledger';
+import { ItemTypes } from './ItemTypes';
 
 /**
  * The Database Layer (DAL) for the War Cabinet.
@@ -8,4 +9,5 @@ import { Ledger } from './Ledger';
 export const Database = {
   Cabinets,
   Ledger,
+  ItemTypes,
 };

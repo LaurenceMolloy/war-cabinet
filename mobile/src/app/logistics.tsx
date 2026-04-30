@@ -8,6 +8,7 @@ import { useBilling } from '../context/BillingContext';
 import { Database } from '../database';
 
 import * as MailComposer from 'expo-mail-composer';
+import { ReadinessCommandView } from '../components/ReadinessCommandView';
 
 export default function LogisticsScreen() {
   const router = useRouter();
@@ -18,7 +19,7 @@ export default function LogisticsScreen() {
   const [loading, setLoading] = useState(true);
   const [logisticsEmail, setLogisticsEmail] = useState('');
   const [collapsedCabinets, setCollapsedCabinets] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'resupply' | 'rotation'>('resupply');
+  const [activeTab, setActiveTab] = useState<'resupply' | 'rotation' | 'readiness'>('resupply');
   const [rotationFilter, setRotationFilter] = useState<'3m' | '1m'>('3m');
   const [selectedBatches, setSelectedBatches] = useState<Map<number, number | null>>(new Map());
   const [showTargetModal, setShowTargetModal] = useState<number | null>(null);
@@ -690,7 +691,7 @@ export default function LogisticsScreen() {
           <View style={styles.headerSideCol} />
           <View style={styles.headerCenterCol}>
             <View style={{ paddingLeft: 12 }}>
-              <Text style={styles.subtitle}>{activeTab === 'resupply' ? 'Low stocks shopping list' : 'Tactical movement roster'}</Text>
+              <Text style={styles.subtitle}>{activeTab === 'resupply' ? 'Low stocks shopping list' : activeTab === 'rotation' ? 'Tactical movement roster' : 'Operational Readiness'}</Text>
             </View>
           </View>
           <View style={[styles.headerSideCol, { width: 60 }]} />
@@ -712,10 +713,16 @@ export default function LogisticsScreen() {
               <Text style={{color: activeTab === 'rotation' ? '#fbbf24' : '#64748b', fontSize: 11, fontWeight: 'bold'}}>ROTATION</Text>
             </View>
           </TouchableOpacity>
+          <TouchableOpacity 
+            style={[{flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8}, activeTab === 'readiness' && {backgroundColor: '#1e293b'}]}
+            onPress={() => setActiveTab('readiness')}
+          >
+            <Text style={{color: activeTab === 'readiness' ? '#fbbf24' : '#64748b', fontSize: 11, fontWeight: 'bold'}}>READINESS</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {loading ? (
+      {loading && activeTab !== 'readiness' ? (
         <View style={styles.loader}>
           <ActivityIndicator size="large" color="#3b82f6" />
         </View>
@@ -739,166 +746,170 @@ export default function LogisticsScreen() {
             </View>
           )}
 
-          <FlatList
-            data={activeTab === 'resupply' ? data : rotationData}
-            keyExtractor={item => item.title}
-            renderItem={activeTab === 'resupply' ? renderItem : renderRotationItem}
-            contentContainerStyle={{padding: 16, paddingBottom: 100}}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <MaterialCommunityIcons name="check-decagram" size={64} color="#1e293b" />
-              <Text style={styles.emptyTitle}>War-Footing Maintained</Text>
-              <Text style={styles.emptyText}>
-                {activeTab === 'resupply' 
-                  ? 'All tracked stockpiles are at or above their designated thresholds.' 
-                  : 'No items currently require tactical rotation in this cycle.'}
-              </Text>
-            </View>
-          }
-          ListHeaderComponent={
-            <View style={styles.emailFooter}>
-              <Text style={styles.emailFooterLabel}>STRATEGIC BRIEFING RECIPIENT</Text>
-              <TextInput
-                style={styles.emailInput}
-                value={logisticsEmail}
-                onChangeText={async (val) => {
-                  setLogisticsEmail(val);
-                  await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', 'logistics_email', val);
-                }}
-                placeholder="Pre-fill email for sharing (optional)"
-                placeholderTextColor="#475569"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
-          }
-
-        />
-
-        {activeTab === 'rotation' && selectedBatches.size > 0 && (() => {
-          // Check for any deficient items in the selection
-          const allItems = rotationData.flatMap(g => g.data);
-          let hasDeficiency = false;
-          for (const [id, targetId] of selectedBatches.entries()) {
-            const item = allItems.find(i => i.id === id);
-            if (!item) continue;
-            const finalT = targetId || item.default_rotation_cabinet_id;
-            if (!finalT || finalT === item.cabinet_id) {
-              hasDeficiency = true;
-              break;
-            }
-          }
-
-          return (
-            <View style={{position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#0f172a', borderTopWidth: 2, borderTopColor: hasDeficiency ? '#ef444433' : '#fbbf2433', padding: 16, paddingBottom: Platform.OS === 'ios' ? 36 : 20, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.5, shadowRadius: 15, elevation: 25}}>
-              <TouchableOpacity 
-                style={{backgroundColor: hasDeficiency ? '#334155' : '#fbbf24', paddingVertical: 16, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', shadowColor: hasDeficiency ? '#000' : '#fbbf24', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8}}
-                onPress={handleMarkRotated}
-                disabled={hasDeficiency}
-              >
-                <MaterialCommunityIcons name={hasDeficiency ? "alert-circle-outline" : "cached"} size={24} color={hasDeficiency ? "#94a3b8" : "#0f172a"} />
-                <Text style={{color: hasDeficiency ? "#94a3b8" : "#0f172a", fontWeight: 'bold', fontSize: 17, marginLeft: 10}}>
-                  {hasDeficiency ? 'DESTINATION REQUIRED' : `COMPLETE ROTATION (${selectedBatches.size})`}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          );
-        })()}
-
-        <Modal visible={showTargetModal !== null} transparent animationType="fade">
-          <View style={{flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20}}>
-            <View style={{backgroundColor: '#1e293b', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#334155'}}>
-              <Text style={{color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 20}}>SELECT DESTINATION</Text>
-              {cabinets.filter(c => {
-                const currentGroup = rotationData.find(g => g.data.some((i: any) => i.id === showTargetModal));
-                const currentItem = currentGroup?.data.find((i: any) => i.id === showTargetModal);
-                return c.id !== currentItem?.cabinet_id;
-              }).map(cab => {
-                const currentGroup = rotationData.find(g => g.data.some((i: any) => i.id === showTargetModal));
-                const currentItem = currentGroup?.data.find((i: any) => i.id === showTargetModal);
-                const isDefault = cab.id === currentItem?.default_rotation_cabinet_id;
-                
-                return (
-                  <TouchableOpacity 
-                    key={cab.id}
-                    style={{paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#334155', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}
-                    onPress={() => {
-                      const next = new Map(selectedBatches);
-                      next.set(showTargetModal!, cab.id);
-                      setSelectedBatches(next);
-                      setShowTargetModal(null);
-                    }}
-                  >
-                    <Text style={{color: isDefault ? '#fbbf24' : 'white', fontWeight: isDefault ? 'bold' : 'normal'}}>{cab.name}</Text>
-                    {isDefault && <Text style={{color: '#fbbf24', fontSize: 8, fontWeight: 'bold'}}>DEFAULT</Text>}
-                  </TouchableOpacity>
-                );
-              })}
-              <TouchableOpacity 
-                style={{marginTop: 20, paddingVertical: 12, backgroundColor: '#334155', borderRadius: 8, alignItems: 'center'}}
-                onPress={() => setShowTargetModal(null)}
-              >
-                <Text style={{color: 'white', fontWeight: 'bold'}}>CANCEL</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-
-        {/* DAILY LOG MODAL */}
-        <Modal visible={showDailyLog} transparent animationType="slide">
-          <View style={{flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', padding: 20}}>
-            <View style={{backgroundColor: '#1e293b', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#fbbf2433', maxHeight: '80%'}}>
-              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
-                <View>
-                  <Text style={{color: 'white', fontSize: 18, fontWeight: 'bold'}}>MISSION SUMMARY</Text>
-                  <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>ROTATIONS COMPLETED TODAY</Text>
-                </View>
-                <TouchableOpacity onPress={() => setShowDailyLog(false)}>
-                  <MaterialCommunityIcons name="close" size={24} color="#64748b" />
-                </TouchableOpacity>
-              </View>
-
+          {activeTab === 'readiness' ? (
+            <ReadinessCommandView />
+          ) : (
+            <>
               <FlatList
-                data={dailyLog}
-                keyExtractor={(_, index) => `log-${index}`}
-                renderItem={({ item }) => (
-                  <View style={{paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#334155'}}>
-                    <Text style={{color: 'white', fontWeight: 'bold'}}>{item.type_name}</Text>
-                    <Text style={{color: '#94a3b8', fontSize: 10, marginTop: 2}}>
-                      {item.quantity} × {formatQtyStr(parseFloat(item.size) || 0, item.unit_type)}
-                      {item.expiry_month && ` · Exp: ${item.expiry_month.toString().padStart(2, '0')}/${item.expiry_year}`}
-                    </Text>
-                    <View style={{flexDirection: 'row', marginTop: 8, alignItems: 'center', gap: 6}}>
-                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#334155'}}>
-                        <Text style={{color: '#64748b', fontSize: 9, fontWeight: 'bold'}}>{item.source_name.toUpperCase()}</Text>
-                      </View>
-                      <MaterialCommunityIcons name="arrow-right" size={12} color="#fbbf24" />
-                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#fbbf241a', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#fbbf2433'}}>
-                        <Text style={{color: '#fbbf24', fontSize: 9, fontWeight: 'bold'}}>{item.target_name.toUpperCase()}</Text>
-                      </View>
-                    </View>
-                  </View>
-                )}
+                data={activeTab === 'resupply' ? data : rotationData}
+                keyExtractor={item => item.title}
+                renderItem={activeTab === 'resupply' ? renderItem : renderRotationItem}
+                contentContainerStyle={{padding: 16, paddingBottom: 100}}
                 ListEmptyComponent={
-                  <View style={{padding: 40, alignItems: 'center'}}>
-                    <MaterialCommunityIcons name="clipboard-text-outline" size={48} color="#334155" />
-                    <Text style={{color: '#64748b', textAlign: 'center', marginTop: 12}}>No rotations have been logged today.</Text>
+                  <View style={styles.emptyState}>
+                    <MaterialCommunityIcons name="check-decagram" size={64} color="#1e293b" />
+                    <Text style={styles.emptyTitle}>War-Footing Maintained</Text>
+                    <Text style={styles.emptyText}>
+                      {activeTab === 'resupply' 
+                        ? 'All tracked stockpiles are at or above their designated thresholds.' 
+                        : 'No items currently require tactical rotation in this cycle.'}
+                    </Text>
+                  </View>
+                }
+                ListHeaderComponent={
+                  <View style={styles.emailFooter}>
+                    <Text style={styles.emailFooterLabel}>STRATEGIC BRIEFING RECIPIENT</Text>
+                    <TextInput
+                      style={styles.emailInput}
+                      value={logisticsEmail}
+                      onChangeText={async (val) => {
+                        setLogisticsEmail(val);
+                        await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', 'logistics_email', val);
+                      }}
+                      placeholder="Pre-fill email for sharing (optional)"
+                      placeholderTextColor="#475569"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
                   </View>
                 }
               />
 
-              <TouchableOpacity 
-                style={{marginTop: 20, paddingVertical: 16, backgroundColor: '#fbbf24', borderRadius: 12, alignItems: 'center'}}
-                onPress={() => setShowDailyLog(false)}
-              >
-                <Text style={{color: '#0f172a', fontWeight: 'bold'}}>DISMISS</Text>
+              {activeTab === 'rotation' && selectedBatches.size > 0 && (() => {
+                const allItems = rotationData.flatMap(g => g.data);
+                let hasDeficiency = false;
+                for (const [id, targetId] of selectedBatches.entries()) {
+                  const item = allItems.find(i => i.id === id);
+                  if (!item) continue;
+                  const finalT = targetId || item.default_rotation_cabinet_id;
+                  if (!finalT || finalT === item.cabinet_id) {
+                    hasDeficiency = true;
+                    break;
+                  }
+                }
+
+                return (
+                  <View style={{position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#0f172a', borderTopWidth: 2, borderTopColor: hasDeficiency ? '#ef444433' : '#fbbf2433', padding: 16, paddingBottom: Platform.OS === 'ios' ? 36 : 20, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.5, shadowRadius: 15, elevation: 25}}>
+                    <TouchableOpacity 
+                      style={{backgroundColor: hasDeficiency ? '#334155' : '#fbbf24', paddingVertical: 16, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', shadowColor: hasDeficiency ? '#000' : '#fbbf24', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8}}
+                      onPress={handleMarkRotated}
+                      disabled={hasDeficiency}
+                    >
+                      <MaterialCommunityIcons name={hasDeficiency ? "alert-circle-outline" : "cached"} size={24} color={hasDeficiency ? "#94a3b8" : "#0f172a"} />
+                      <Text style={{color: hasDeficiency ? "#94a3b8" : "#0f172a", fontWeight: 'bold', fontSize: 17, marginLeft: 10}}>
+                        {hasDeficiency ? 'DESTINATION REQUIRED' : `COMPLETE ROTATION (${selectedBatches.size})`}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })()}
+            </>
+          )}
+        </View>
+      )}
+
+      <Modal visible={showTargetModal !== null} transparent animationType="fade">
+        <View style={{flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20}}>
+          <View style={{backgroundColor: '#1e293b', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#334155'}}>
+            <Text style={{color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 20}}>SELECT DESTINATION</Text>
+            {cabinets.filter(c => {
+              const currentGroup = rotationData.find(g => g.data.some((i: any) => i.id === showTargetModal));
+              const currentItem = currentGroup?.data.find((i: any) => i.id === showTargetModal);
+              return c.id !== currentItem?.cabinet_id;
+            }).map(cab => {
+              const currentGroup = rotationData.find(g => g.data.some((i: any) => i.id === showTargetModal));
+              const currentItem = currentGroup?.data.find((i: any) => i.id === showTargetModal);
+              const isDefault = cab.id === currentItem?.default_rotation_cabinet_id;
+              
+              return (
+                <TouchableOpacity 
+                  key={cab.id}
+                  style={{paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#334155', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}
+                  onPress={() => {
+                    const next = new Map(selectedBatches);
+                    next.set(showTargetModal!, cab.id);
+                    setSelectedBatches(next);
+                    setShowTargetModal(null);
+                  }}
+                >
+                  <Text style={{color: isDefault ? '#fbbf24' : 'white', fontWeight: isDefault ? 'bold' : 'normal'}}>{cab.name}</Text>
+                  {isDefault && <Text style={{color: '#fbbf24', fontSize: 8, fontWeight: 'bold'}}>DEFAULT</Text>}
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity 
+              style={{marginTop: 20, paddingVertical: 12, backgroundColor: '#334155', borderRadius: 8, alignItems: 'center'}}
+              onPress={() => setShowTargetModal(null)}
+            >
+              <Text style={{color: 'white', fontWeight: 'bold'}}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* DAILY LOG MODAL */}
+      <Modal visible={showDailyLog} transparent animationType="slide">
+        <View style={{flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', padding: 20}}>
+          <View style={{backgroundColor: '#1e293b', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#fbbf2433', maxHeight: '80%'}}>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+              <View>
+                <Text style={{color: 'white', fontSize: 18, fontWeight: 'bold'}}>MISSION SUMMARY</Text>
+                <Text style={{color: '#94a3b8', fontSize: 10, fontWeight: 'bold'}}>ROTATIONS COMPLETED TODAY</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowDailyLog(false)}>
+                <MaterialCommunityIcons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
+
+            <FlatList
+              data={dailyLog}
+              keyExtractor={(_, index) => `log-${index}`}
+              renderItem={({ item }) => (
+                <View style={{paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#334155'}}>
+                  <Text style={{color: 'white', fontWeight: 'bold'}}>{item.type_name}</Text>
+                  <Text style={{color: '#94a3b8', fontSize: 10, marginTop: 2}}>
+                    {item.quantity} × {formatQtyStr(parseFloat(item.size) || 0, item.unit_type)}
+                    {item.expiry_month && ` · Exp: ${item.expiry_month.toString().padStart(2, '0')}/${item.expiry_year}`}
+                  </Text>
+                  <View style={{flexDirection: 'row', marginTop: 8, alignItems: 'center', gap: 6}}>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#334155'}}>
+                      <Text style={{color: '#64748b', fontSize: 9, fontWeight: 'bold'}}>{item.source_name.toUpperCase()}</Text>
+                    </View>
+                    <MaterialCommunityIcons name="arrow-right" size={12} color="#fbbf24" />
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#fbbf241a', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#fbbf2433'}}>
+                      <Text style={{color: '#fbbf24', fontSize: 9, fontWeight: 'bold'}}>{item.target_name.toUpperCase()}</Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={{padding: 40, alignItems: 'center'}}>
+                  <MaterialCommunityIcons name="clipboard-text-outline" size={48} color="#334155" />
+                  <Text style={{color: '#64748b', textAlign: 'center', marginTop: 12}}>No rotations have been logged today.</Text>
+                </View>
+              }
+            />
+
+            <TouchableOpacity 
+              style={{marginTop: 20, paddingVertical: 16, backgroundColor: '#fbbf24', borderRadius: 12, alignItems: 'center'}}
+              onPress={() => setShowDailyLog(false)}
+            >
+              <Text style={{color: '#0f172a', fontWeight: 'bold'}}>DISMISS</Text>
+            </TouchableOpacity>
           </View>
-        </Modal>
-      </View>
-    )}
-  </SafeAreaView>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 

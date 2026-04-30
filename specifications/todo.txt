@@ -86,6 +86,12 @@ MOBILE TESTING FEEDBACK
 12. recipes can take account of medical conditions or health focus (low fat, high protein etc...)
 13. legal exclusions/warmings re. expired food and where responsibility lies!!!
 
+Readiness Report
+1. I think we need to report current weight/volume vs desired weight/volume (not counts) 
+   I have 1 3l bottle of wine + 2 x 500ml bottles - count not equal
+2. 175mlml (we need to understand where items are missing units on display and where they are duplicated)
+
+
 I think we need to create standalone modals for the following, and I think we 
 need to port existig ones over to the new ones, one at a time. we also need to
 consider the state that may be caaried into the modal and the source of the call
