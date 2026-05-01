@@ -9,10 +9,40 @@ This skill file defines the mandatory **Project Governance Rules (PGR)** for the
 *   **Prohibition**: No inline forms or fragmented state-management logic within the main app screens (e.g., `catalog.tsx`, `index.tsx`).
 
 ### 2. Unified Database Access Layer (DAL)
-*   **Rule**: All database interactions (SQL queries, transaction logic) must be encapsulated within the DAL.
-*   **Location**: `src/database/`
-*   **Structure**: Follow the modular pattern established in `src/database/Cabinets.ts` and `src/database/Ledger.ts`.
-*   **Prohibition**: No direct `db.runAsync`, `db.getAllAsync`, or `db.execAsync` calls within UI components.
+
+**Location**: `src/database/`
+
+#### 2a. No Raw DB Calls in UI Components
+*   **Rule**: No `db.runAsync`, `db.getAllAsync`, `db.getFirstAsync`, or `db.execAsync` calls are permitted directly inside UI components or screens.
+*   **Action**: All such calls must be extracted into the appropriate DAL module and called via `Database.<Entity>.<method>(db)`.
+*   **Prohibition**: This applies to ALL components — including `ReadinessCommandView`, `logistics.tsx`, `catalog.tsx`, `add.tsx`, and `index.tsx`.
+
+#### 2b. Entity-Based Module Structure (No Screen Aliases)
+*   **Rule**: DAL modules are named after **entities** (domain objects), never after screens or features.
+*   **Correct**: `ItemTypes.ts`, `Inventory.ts`, `Cabinets.ts`
+*   **Prohibited**: `ReadinessDAL.ts`, `ResupplyService.ts`, `CatalogQueries.ts` — these are screen-aliased buckets that guarantee duplication.
+*   **Test**: If a method name makes no sense outside the context of one specific screen, it belongs in the wrong module.
+
+#### 2c. Read Methods vs Write Methods
+*   **Reads** (queries): Live in entity modules as plain `async` methods, e.g. `ItemTypes.getWithCategories(db)`, `Inventory.getAll(db)`.
+*   **Writes** (mutations): Must pass all inputs through the **DAL Bouncer** (`normalizeNumericInput`) before touching the database, and must call `logTacticalAction` + `markModified` after every successful write.
+*   **Prohibition**: No write method may skip the Bouncer or Ledger steps.
+
+#### 2d. The DAL Bouncer Pattern (Data Integrity)
+*   **Rule**: Any DAL write method that accepts a numeric value from the UI (size, quantity, threshold) must sanitize it via `normalizeNumericInput()` from `src/utils/measurements.ts` before the SQL call.
+*   **Purpose**: Prevents unit-string corruption (e.g. `"500g"`) from being persisted to the database regardless of what the UI layer does or does not validate.
+*   **Scope**: This applies even when `keyboardType="numeric"` is set on the input — paste and programmatic assignment can bypass keyboard-level enforcement.
+
+#### 2e. Reusability Over Completeness
+*   **Rule**: A DAL method should do **one logical thing** that any screen might need. It should not fetch data in a shape that only one screen can consume.
+*   **Correct**: `Inventory.getAll(db)` — returns raw batches. All callers aggregate in their own JS.
+*   **Prohibited**: `Inventory.getResupplyGroupedByCabinet(db)` — pre-shaped for one screen; useless to others.
+*   **Pattern**: Computation (aggregation, ratios, physical quantity maths) belongs in the component or a utility function, not in SQL or the DAL.
+
+#### 2f. Central DAL Export
+*   **Rule**: All entity modules must be registered in `src/database/index.ts` and accessed via the `Database` namespace.
+*   **Format**: `import { Database } from '../database';` then `Database.ItemTypes.getWithCategories(db)`.
+*   **Prohibition**: Do not import individual DAL modules directly (e.g. `import { ItemTypes } from '../database/ItemTypes'`) — always go through the central `Database` object.
 
 ### 3. Bi-Directional Event Sourcing
 *   **Rule**: Every database "Write" operation must be accompanied by an entry in the Command Ledger.

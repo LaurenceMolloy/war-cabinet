@@ -18,6 +18,7 @@ import { Database } from '../database';
 import { CabinetFormModal } from '../components/CabinetFormModal';
 import { CommandLedgerView } from '../components/CommandLedgerView';
 import { CloudRestoreModal } from '../components/CloudRestoreModal';
+import { formatQuantity } from '../utils/measurements';
 
 export default function CatalogScreen() {
   const router = useRouter();
@@ -1307,7 +1308,7 @@ export default function CatalogScreen() {
                         <View style={styles.statBadge}>
                           <MaterialCommunityIcons name="package-variant-closed" size={12} color="#94a3b8" />
                           <Text style={styles.statBadgeText}>
-                            {type.default_size}{type.unit_type === 'weight' ? 'g' : type.unit_type === 'volume' ? 'ml' : ''}
+                            {formatQuantity(type.default_size, type.unit_type)}
                           </Text>
                         </View>
                       ) : null}

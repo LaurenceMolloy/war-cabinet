@@ -130,3 +130,60 @@ This document tracks items that were strictly specified in the `requirements.md`
     4.  **Zero-Threshold Neutrality**: Items with a Minimum Stock of `0` are excluded from all readiness measures to ensure the dashboard reflects only active tactical requirements.
     5.  **Priority Sorting**: The dashboard and drill-down views automatically order assets by their readiness level (**Lowest First**), with alphabetical tie-breaking, ensuring that critical supply gaps always float to the top of the "Command Ledger."
     6.  **"White Heat" Surplus Logic**: Refined surplus triggers to strictly target levels **above** the defined Maximum Desired stock, preventing optimal inventory from being flagged as over-stock.
+
+---
+
+## Iteration 102: Centralised Measurement Architecture (Unit Display Integrity)
+
+*   **Tactical Goal**: Eliminate all instances of double-unit display (`gg`, `mlml`), missing units on history chips, and scattered manual unit concatenation logic across the codebase.
+
+*   **Root Cause**: Unit suffixes were being appended manually at the render layer in multiple screens using inline ternary expressions (e.g. `item.size + (unit_type === 'weight' ? 'g' : 'ml')`). Simultaneously, quantity values fetched from the database sometimes already contained the suffix (legacy "dirty" data), causing double-suffix rendering. History-based smart chips also stored raw numerics and rendered them without any suffix.
+
+*   **Implementation**:
+    1.  **`src/utils/measurements.ts`** *(New — Single Source of Truth)*: Created a centralised measurement utility module containing:
+        -   `normalizeNumericInput(val)` — DAL bouncer that strips all non-numeric characters before any database write.
+        -   `formatQuantity(val, unitType)` — Display formatter that pairs a raw numeric with the correct suffix (`g`, `ml`, `kg`, `L`), with auto-abbreviation for values ≥ 1000.
+        -   `getUnitSuffix(unitType)` — Returns the plain suffix string for use in placeholders and labels.
+        -   `formatStockLabel(qty, size, unitType)` — Formats a batch count × pack size into a total weight/volume string.
+    2.  **`src/database/ItemTypes.ts`** *(DAL Bouncer)*: All `updateThresholds` and `updateDefaultSize` calls now pass through `normalizeNumericInput`, ensuring no dirty string data (`500g`, `1kg`) can be persisted to `default_size` columns.
+    3.  **`src/app/add.tsx`** *(Smart Chips Fix)*: Refactored `allChips` from a flat `string[]` to a typed `{ label: string; value: string }[]` array. History-sourced chips (`customChips`) now render via `formatQuantity()`, ensuring `500` displays as `500g` for a weight item. Generic chips (`50g`, `100ml`) retain their pre-labelled strings. The numeric `value` used for state and deduplication is always clean.
+    4.  **`src/app/logistics.tsx`** *(Resupply & Rotation Screens)*: Replaced a broken `formatQtyStr` reference and two manual inline ternary concatenations with `formatQuantity()`. Also updated the "Suggested Unit Size" label to render with correct units via `formatQuantity()`.
+    5.  **`src/app/index.tsx`** *(Inventory Modals)*: Replaced manual unit concatenation in three confirmation modals (Delete Batch, Move Batch, Confirm Consumption) with `formatQuantity()`.
+    6.  **`src/app/catalog.tsx`** *(Catalog Stat Badges)*: Replaced manual string concatenation on default size badges with `formatQuantity()`.
+    7.  **`src/components/ReadinessCommandView.tsx`** *(Readiness Dashboard)*: Replaced local `getUnitSuffix` duplicate and all manual unit expressions with centralised imports.
+
+---
+
+### 🧪 TEST RANGE — Unit Display
+
+> All tests below should be performed with items covering **all three unit types**: `weight` (g/kg), `volume` (ml/L), and `count` (no suffix).
+
+| Screen / Feature | Navigation Path | What to Test | Pass Condition |
+| :--- | :--- | :--- | :--- |
+| **Add Batch — History Chips** | Home → `+` → Select existing item type | Smart chips drawn from past batch history | History chips show units (e.g. `500g`, `250ml`) — not bare numbers (`500`, `250`) |
+| **Add Batch — Generic Chips** | Home → `+` → Select existing item type | Preset chips for weight/volume/count | Chips show `50g`, `100g`, `1kg` / `50ml`, `1l` / `1`, `6`, `12` — no doubles |
+| **Add Batch — Active Chip** | Home → `+` → Tap any chip | Chip selection highlights and populates text input | Text input shows raw numeric only (e.g. `500`), chip label shows units |
+| **Add Batch — Mixed Chips** | Home → `+` → Select item with 1–3 past batches | Both generic and history chips visible | No duplicate entries for same value; history chips not missing units |
+| **Delete Batch Modal** | Home → Inventory List → Long-press or swipe batch → Delete | Pack size shown in confirmation modal | Displays `500g` / `250ml` — not `500g g` or bare `500` |
+| **Move Batch Modal** | Home → Inventory List → Move batch action | Pack size shown in move confirmation | Displays correct formatted quantity with unit |
+| **Confirm Consumption Modal** | Home → Inventory List → Consume/use batch | Pack size shown in consumption confirmation | Displays correct formatted quantity with unit |
+| **Catalog — Default Size Badge** | Catalog tab → Any item type with a default size | Stat badge on item type card | Shows `500g` / `1L` — not `500gg` / `1Lml` or bare `500` |
+| **Catalog — Edit Item Type** | Catalog → Edit item type → Save | Default size persisted after editing | Saved value is numeric only in DB; display shows units |
+| **Catalog — Add Item Type** | Catalog → Add new item type | Default size field for new type | Input accepts numeric; unit suffix displayed alongside, not inside, the field |
+| **Logistics — Resupply Tab** | Logistics → Resupply tab | "Current Stock" and "Pack size" labels per item | Displays formatted quantity (e.g. `1.5kg`, `2L`); "Pack size:" label shows units |
+| **Logistics — Rotation Tab (Freezer)** | Logistics → Rotation tab → Freezer items | Batch size in frozen item rows | Shows `500g` / `250ml` not double-suffixed or bare |
+| **Logistics — Deficit Badges** | Logistics → Resupply → Items below min/max target | MIN / MAX deficit badges | Values formatted correctly with unit suffix |
+| **Readiness Dashboard — Pip Array** | Logistics → Readiness tab | Asset health pips and drill-down deficit list | All quantities show correct unit; no `gg` / `mlml` |
+| **Readiness Dashboard — Drill-down** | Logistics → Readiness → Tap category tile | Per-item stock level and deficit values | Formatted via `formatQuantity`; suffix appears exactly once |
+| **Large Value Abbreviation** | Any screen with items ≥ 1000g or ≥ 1000ml | Display of 1000g / 2000g / 1000ml items | Auto-abbreviates: `1000g` → `1kg`, `1000ml` → `1L`, `2000g` → `2kg` |
+| **Count Items (No Units)** | Any screen with a `count` unit type item | All display locations listed above | No unit suffix appended — shows bare number only (e.g. `6`) |
+
+---
+
+### ⚠️ PENDING: One-Time DB Scrub
+
+> The DAL bouncer prevents **new** dirty data from entering the database. However, any `size` or `default_size` values entered **before** this fix may still contain embedded unit suffixes (e.g. `"500g"`, `"1L"`).
+
+**Recommended action**: Run a one-time migration sweep against `ItemTypes.default_size` and `Inventory.size` to strip non-numeric characters from existing rows. This should be implemented as an idempotent migration in `sqlite.ts` and guarded by a version check to ensure it runs only once.
+
+Until this scrub is performed, the `normalizeNumericInput` call in the DAL bouncer and the `.replace(/[^0-9.]/g, '')` calls in `add.tsx` act as runtime guards to prevent dirty legacy data from causing display issues.

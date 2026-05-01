@@ -11,6 +11,7 @@ import { BackupService } from '../services/BackupService';
 import { useBilling } from '../context/BillingContext';
 import { CabinetFormModal } from '../components/CabinetFormModal';
 import { Database } from '../database';
+import { formatQuantity } from '../utils/measurements';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
@@ -1408,7 +1409,7 @@ export default function HomeScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
                   <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
                   <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                    {deleteBatch.size}{deleteTarget.unit_type === 'weight' ? 'g' : deleteTarget.unit_type === 'volume' ? 'ml' : ' Units'}
+                    {formatQuantity(deleteBatch.size, deleteTarget.unit_type)}
                   </Text>
                 </View>
               )}
@@ -1492,7 +1493,7 @@ export default function HomeScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
                       <MaterialCommunityIcons name="weight" size={16} color="#64748b" style={{ marginRight: 10 }} />
                       <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: 'bold' }}>
-                        {moveBatch.size}{moveType?.unit_type === 'weight' ? 'g' : moveType?.unit_type === 'volume' ? 'ml' : ' Units'}
+                        {formatQuantity(moveBatch.size, moveType?.unit_type)}
                       </Text>
                     </View>
                   )}
@@ -1660,7 +1661,7 @@ export default function HomeScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
                   <MaterialCommunityIcons name="weight" size={14} color="#64748b" style={{ marginRight: 8 }} />
                   <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                    {confirmBatch.size}{confirmTarget.unit_type === 'weight' ? 'g' : confirmTarget.unit_type === 'volume' ? 'ml' : ' Units'}
+                    {formatQuantity(confirmBatch.size, confirmTarget.unit_type)}
                   </Text>
                 </View>
               )}

@@ -9,6 +9,7 @@ import { Database } from '../database';
 
 import * as MailComposer from 'expo-mail-composer';
 import { ReadinessCommandView } from '../components/ReadinessCommandView';
+import { formatQuantity } from '../utils/measurements';
 
 export default function LogisticsScreen() {
   const router = useRouter();
@@ -19,7 +20,7 @@ export default function LogisticsScreen() {
   const [loading, setLoading] = useState(true);
   const [logisticsEmail, setLogisticsEmail] = useState('');
   const [collapsedCabinets, setCollapsedCabinets] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'resupply' | 'rotation' | 'readiness'>('resupply');
+  const [activeTab, setActiveTab] = useState<'resupply' | 'rotation' | 'readiness'>('readiness');
   const [rotationFilter, setRotationFilter] = useState<'3m' | '1m'>('3m');
   const [selectedBatches, setSelectedBatches] = useState<Map<number, number | null>>(new Map());
   const [showTargetModal, setShowTargetModal] = useState<number | null>(null);
@@ -473,7 +474,7 @@ export default function LogisticsScreen() {
             <View key={`freeze-${item.batch_id}`} style={[styles.resupplyRow, { borderLeftWidth: 3, borderLeftColor: overdue ? '#b91c1c' : '#fde047' }]}>
               <View style={{flex: 1}}>
                 <Text style={[styles.itemName, { color: overdue ? '#ef4444' : '#f8fafc' }]}>{item.type_name}</Text>
-                <Text style={styles.itemMeta}>{item.cab_name} · {item.quantity} × {item.size ? item.size + (item.unit_type === 'weight' ? 'g' : item.unit_type === 'volume' ? 'ml' : '') : 'unit'}</Text>
+                <Text style={styles.itemMeta}>{item.cab_name} · {item.quantity} × {item.size ? formatQuantity(item.size, item.unit_type) : 'unit'}</Text>
                 <Text style={{color: '#60a5fa', fontSize: 11, marginTop: 2}}>Frozen {item.age_months} {item.age_months === 1 ? 'month' : 'months'} ago</Text>
               </View>
               <View style={styles.deficitCol}>
@@ -495,10 +496,10 @@ export default function LogisticsScreen() {
           <View key={item.type_id} style={styles.resupplyRow} testID={`resupply-row-${item.type_id}`}>
             <View style={{flex: 1}}>
               <Text style={[styles.itemName, item.is_critical && {color: '#ef4444'}]}>{item.type_name}</Text>
-              <Text style={styles.itemMeta} testID={`stored-text-${item.type_id}`}>Current Stock: {item.default_size ? formatQtyStr(item.total_stored, item.unit_type) : `${item.total_stored} ${item.total_stored === 1 ? 'unit' : 'units'}`}</Text>
+              <Text style={styles.itemMeta} testID={`stored-text-${item.type_id}`}>Current Stock: {formatQuantity(item.total_stored * (item.def_size_val || 1), item.default_size ? item.unit_type : null) || `${item.total_stored} ${item.total_stored === 1 ? 'unit' : 'units'}`}</Text>
               {item.default_size && (
                 <Text style={{color: '#94a3b8', fontSize: 10, marginTop: 2, fontStyle: 'italic'}}>
-                   Suggested Unit Size: {item.default_size}
+                   Pack size: {formatQuantity(item.default_size, item.unit_type)}
                 </Text>
               )}
             </View>
@@ -699,6 +700,12 @@ export default function LogisticsScreen() {
 
         <View style={{flexDirection: 'row', backgroundColor: '#0f172a', padding: 4, marginHorizontal: 16, marginBottom: 12, borderRadius: 10}}>
           <TouchableOpacity 
+            style={[{flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8}, activeTab === 'readiness' && {backgroundColor: '#1e293b'}]}
+            onPress={() => setActiveTab('readiness')}
+          >
+            <Text style={{color: activeTab === 'readiness' ? '#fbbf24' : '#64748b', fontSize: 11, fontWeight: 'bold'}}>READINESS</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
             style={[{flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8}, activeTab === 'resupply' && {backgroundColor: '#1e293b'}]}
             onPress={() => setActiveTab('resupply')}
           >
@@ -712,12 +719,6 @@ export default function LogisticsScreen() {
               <MaterialCommunityIcons name="cached" size={14} color={activeTab === 'rotation' ? '#fbbf24' : '#64748b'} />
               <Text style={{color: activeTab === 'rotation' ? '#fbbf24' : '#64748b', fontSize: 11, fontWeight: 'bold'}}>ROTATION</Text>
             </View>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[{flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8}, activeTab === 'readiness' && {backgroundColor: '#1e293b'}]}
-            onPress={() => setActiveTab('readiness')}
-          >
-            <Text style={{color: activeTab === 'readiness' ? '#fbbf24' : '#64748b', fontSize: 11, fontWeight: 'bold'}}>READINESS</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -747,22 +748,22 @@ export default function LogisticsScreen() {
           )}
 
           {activeTab === 'readiness' ? (
-            <ReadinessCommandView />
+            <ReadinessCommandView mode="readiness" />
+          ) : activeTab === 'resupply' ? (
+            <ReadinessCommandView mode="resupply" />
           ) : (
             <>
               <FlatList
-                data={activeTab === 'resupply' ? data : rotationData}
+                data={rotationData}
                 keyExtractor={item => item.title}
-                renderItem={activeTab === 'resupply' ? renderItem : renderRotationItem}
+                renderItem={renderRotationItem}
                 contentContainerStyle={{padding: 16, paddingBottom: 100}}
                 ListEmptyComponent={
                   <View style={styles.emptyState}>
                     <MaterialCommunityIcons name="check-decagram" size={64} color="#1e293b" />
                     <Text style={styles.emptyTitle}>War-Footing Maintained</Text>
                     <Text style={styles.emptyText}>
-                      {activeTab === 'resupply' 
-                        ? 'All tracked stockpiles are at or above their designated thresholds.' 
-                        : 'No items currently require tactical rotation in this cycle.'}
+                      No items currently require tactical rotation in this cycle.
                     </Text>
                   </View>
                 }

@@ -10,6 +10,7 @@ import SUPPLIERS_DATA from '../data/suppliers.json';
 import BRANDS_DATA from '../data/brands.json';
 import { ExpiryScannerModal } from '../components/ExpiryScannerModal';
 import { CabinetFormModal } from '../components/CabinetFormModal';
+import { getUnitSuffix, formatQuantity } from '../utils/measurements';
 
 function getLevenshteinDistance(a: string, b: string): number {
   const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
@@ -101,12 +102,6 @@ export default function AddInventoryScreen() {
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [mergeCandidate, setMergeCandidate] = useState<any>(null);
   const [deferredSave, setDeferredSave] = useState<any>(null);
-  const getUnitSuffix = (type: string) => {
-    if (type === 'weight') return 'g';
-    if (type === 'volume') return 'ml';
-    if (type === 'count') return 'Units';
-    return '';
-  };
 
   const isAutoSavePipeline = useRef(false);
   const handleSaveRef = useRef<(() => Promise<void>) | null>(null);
@@ -993,12 +988,18 @@ export default function AddInventoryScreen() {
   else if (unitType === 'count') genericChips = ['1', '6', '12', '24'];
   else genericChips = ['50g', '100g', '250g', '500g', '1kg'];
 
-  const allChipsRaw = Array.from(new Set([...genericChips, ...customChips]));
-  const seenValues = new Set();
+  // Each chip is { label: string (display), value: string (numeric) }
+  // History chips lead so the user's most-used sizes are always visible first.
+  const allChipsRaw: { label: string; value: string }[] = [
+    ...customChips
+      .map(r => ({ label: formatQuantity(r, unitType), value: r.replace(/[^0-9.]/g, '') }))
+      .filter(c => c.label !== '' && c.value !== ''),
+    ...genericChips.map(c => ({ label: c, value: getChipValue(c) })),
+  ];
+  const seenValues = new Set<string>();
   const allChips = allChipsRaw.filter(c => {
-    const val = getChipValue(c);
-    if (seenValues.has(val)) return false;
-    seenValues.add(val);
+    if (seenValues.has(c.value)) return false;
+    seenValues.add(c.value);
     return true;
   });
 
@@ -1340,15 +1341,15 @@ export default function AddInventoryScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
           {allChips.map(c => (
             <TouchableOpacity 
-              key={c} 
-              style={[styles.chip, size === getChipValue(c) && styles.chipActive]} 
+              key={c.value} 
+              style={[styles.chip, size === c.value && styles.chipActive]} 
               onPress={() => {
-                setSize(getChipValue(c));
+                setSize(c.value);
                 setErrorField(null);
               }}
             >
-              <Text style={[styles.chipText, size === getChipValue(c) && styles.chipTextActive]}>
-                {c}
+              <Text style={[styles.chipText, size === c.value && styles.chipTextActive]}>
+                {c.label}
               </Text>
             </TouchableOpacity>
           ))}

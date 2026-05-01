@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { QuickThresholdModal } from './QuickThresholdModal';
 import { FuelGauge } from './FuelGauge';
+import { formatQuantity } from '../utils/measurements';
+import { Database } from '../database';
 
 interface SectorReadiness {
   id: number;
   name: string;
   icon: string;
-  readiness: number; // 0 to 1
+  readiness: number; // 0–1
   actual: number;
   required: number;
   itemsAtRisk: number;
@@ -18,13 +20,23 @@ interface SectorReadiness {
 
 interface Shortfall {
   name: string;
-  actual: number;
-  required: number;
+  actual: number;       // physical stock (g / ml / count)
+  required: number;     // physical min target
   maxRequired: number | null;
-  gap: number;
+  gap: number;          // physical shortfall
+  unitType: string;
+  packsNeeded: number | null;
+  packSizeLabel: string | null;
+  isDefaultSizePack: boolean;
+  batches: number[];
+  catName: string;
 }
 
-export function ReadinessCommandView() {
+interface ReadinessProps {
+  mode?: 'readiness' | 'resupply';
+}
+
+export function ReadinessCommandView({ mode = 'readiness' }: ReadinessProps) {
   const db = useSQLiteContext();
   const [sectors, setSectors] = useState<SectorReadiness[]>([]);
   const [shortfalls, setShortfalls] = useState<Shortfall[]>([]);
@@ -42,137 +54,158 @@ export function ReadinessCommandView() {
 
   const loadReadinessData = async () => {
     try {
-      const cats = await db.getAllAsync<any>(`
-        SELECT 
-          c.id, 
-          c.name, 
-          c.icon,
-          it.id as type_id,
-          it.name as type_name,
-          it.min_stock_level,
-          it.max_stock_level,
-          it.unit_type,
-          it.default_size,
-          (SELECT SUM(quantity) FROM Inventory WHERE item_type_id = it.id) as actual_stock
-        FROM Categories c
-        LEFT JOIN ItemTypes it ON it.category_id = c.id
-      `);
+      // ── DAL queries (entity-level) ───────────────────────────────────────
+      const rows        = await Database.ItemTypes.getWithCategories(db);
+      const inventory   = await Database.Inventory.getAll(db);
+      const commonSizes = await Database.Inventory.getCommonBatchSizes(db);
 
-      const sectorMap: Record<number, SectorReadiness> = {};
-      const shortfallList: Shortfall[] = [];
 
-      cats.forEach((row: any) => {
-        if (!sectorMap[row.id]) {
-          sectorMap[row.id] = {
-            id: row.id,
-            name: row.name,
-            icon: row.icon || 'box',
-            readiness: 0,
-            actual: 0,
-            required: 0,
-            itemsAtRisk: 0
-          };
-        }
+      // ── Helpers ──────────────────────────────────────────────────────────
+      const parseSize = (s: any): number => {
+        if (!s) return 0;
+        const m = String(s).match(/^(\d+(\.\d+)?)/);
+        return m ? parseFloat(m[0]) : 0;
+      };
 
-        if (row.min_stock_level > 0) {
-          const req = row.min_stock_level || 0;
-          const act = row.actual_stock || 0;
-          
-          sectorMap[row.id].required += req;
-          sectorMap[row.id].actual += act;
-          
-          if (act < req) {
-            sectorMap[row.id].itemsAtRisk += 1;
-            shortfallList.push({
-              name: row.type_name,
-              actual: act,
-              required: req,
-              maxRequired: row.max_stock_level,
-              gap: req - act
-            });
-          }
+      // type_id -> most common numeric batch size (fallback pack suggestion)
+      const commonSizeMap: Record<number, number> = {};
+      commonSizes.forEach((r: any) => {
+        if (!(r.item_type_id in commonSizeMap)) {
+          const v = parseSize(r.size);
+          if (v > 0) commonSizeMap[r.item_type_id] = v;
         }
       });
 
-      const sectorList = Object.values(sectorMap).map(s => {
-        const sectorItemsLocal = cats.filter((c: any) => c.id === s.id && c.min_stock_level > 0);
-        const honestSum = sectorItemsLocal.reduce((acc: number, row: any) => {
-          const min = row.min_stock_level || 0;
-          const actual = row.actual_stock || 0;
-          const ratio = min > 0 ? actual / min : 1;
-          return acc + Math.min(ratio, 1);
-        }, 0);
+      // type_id -> batch rows
+      const invByType: Record<number, any[]> = {};
+      inventory.forEach((r: any) => {
+        if (!invByType[r.item_type_id]) invByType[r.item_type_id] = [];
+        invByType[r.item_type_id].push(r);
+      });
 
-        return {
-          ...s,
-          readiness: sectorItemsLocal.length > 0 ? honestSum / sectorItemsLocal.length : 0,
-          isActive: sectorItemsLocal.length > 0
-        };
+      // ── Per-item computation ─────────────────────────────────────────────
+      const computeItem = (row: any) => {
+        const batches    = invByType[row.type_id] || [];
+        const defSizeVal = parseSize(row.default_size);
+        const isPhysical = defSizeVal > 0 && row.unit_type !== 'count';
+
+        const physicalStock = isPhysical
+          ? batches.reduce((s: number, b: any) => s + (b.quantity * (parseSize(b.size) || defSizeVal)), 0)
+          : batches.reduce((s: number, b: any) => s + b.quantity, 0);
+
+        const minTarget = row.min_stock_level > 0
+          ? (isPhysical ? row.min_stock_level * defSizeVal : row.min_stock_level)
+          : 0;
+        const maxTarget = row.max_stock_level > 0
+          ? (isPhysical ? row.max_stock_level * defSizeVal : row.max_stock_level)
+          : null;
+
+        const ratio = minTarget > 0 ? physicalStock / minTarget : 1;
+
+        // Pack suggestion: prefer default_size, fall back to most common batch
+        const fallbackSize     = commonSizeMap[row.type_id];
+        const packSize         = isPhysical ? defSizeVal : (fallbackSize ?? null);
+        const isDefaultSizePack = isPhysical;
+
+        return { physicalStock, minTarget, maxTarget, ratio, packSize, isDefaultSizePack };
+      };
+
+      // ── Build maps ───────────────────────────────────────────────────────
+      const sectorMap: Record<number, SectorReadiness> = {};
+      const shortfallList: Shortfall[] = [];
+      const itemsBySector: Record<number, any[]> = {};
+      const untargetedBySector: Record<number, any[]> = {};
+
+      // Seed sector map from all category rows
+      rows.forEach((row: any) => {
+        if (!sectorMap[row.cat_id]) {
+          sectorMap[row.cat_id] = {
+            id: row.cat_id, name: row.cat_name, icon: row.icon || 'box',
+            readiness: 0, actual: 0, required: 0, itemsAtRisk: 0, isActive: false
+          };
+        }
+      });
+
+      rows.forEach((row: any) => {
+        if (!row.type_id) return;
+        const { physicalStock, minTarget, maxTarget, ratio, packSize, isDefaultSizePack } = computeItem(row);
+
+        if (row.min_stock_level > 0) {
+          sectorMap[row.cat_id].required += minTarget;
+          sectorMap[row.cat_id].actual   += physicalStock;
+
+          if (!itemsBySector[row.cat_id]) itemsBySector[row.cat_id] = [];
+          itemsBySector[row.cat_id].push({
+            id: row.type_id, name: row.type_name,
+            actual: physicalStock, required: minTarget, maxRequired: maxTarget,
+            unitType: isDefaultSizePack ? row.unit_type : 'count', defaultSize: row.default_size, readiness: ratio
+          });
+
+          if (physicalStock < minTarget) {
+            sectorMap[row.cat_id].itemsAtRisk += 1;
+            const gap           = minTarget - physicalStock;
+            // If it's not a default size pack (meaning it's purely count-based math), gap IS the packs needed.
+            const packsNeeded   = isDefaultSizePack 
+                                   ? (packSize && packSize > 0 ? Math.ceil(gap / packSize) : null)
+                                   : gap;
+            // If we're tracking counts, we can still suggest the fallback size text
+            const packSizeLabel = packSize ? formatQuantity(packSize, row.unit_type) : null;
+            // Build pip data: one entry per physical unit
+            const defSizeVal = parseSize(row.default_size);
+            const isPhysical = defSizeVal > 0 && row.unit_type !== 'count';
+            const batchPips = (invByType[row.type_id] || []).flatMap((b: any) => {
+              const unitSize = isPhysical ? (parseSize(b.size) || defSizeVal) : 1;
+              return Array(b.quantity).fill(unitSize);
+            }).filter((v: number) => v > 0);
+            shortfallList.push({
+              name: row.type_name, actual: physicalStock,
+              required: minTarget, maxRequired: maxTarget, gap,
+              unitType: isDefaultSizePack ? row.unit_type : 'count', 
+              packsNeeded, packSizeLabel, isDefaultSizePack,
+              batches: batchPips,
+              catName: row.cat_name
+            });
+          }
+        } else {
+          if (!untargetedBySector[row.cat_id]) untargetedBySector[row.cat_id] = [];
+          untargetedBySector[row.cat_id].push({
+            id: row.type_id, name: row.type_name,
+            actual: physicalStock, required: null, maxRequired: null,
+            unitType: isDefaultSizePack ? row.unit_type : 'count', defaultSize: row.default_size, readiness: 0
+          });
+        }
+      });
+
+      // ── Sector readiness (honest pessimistic average) ────────────────────
+      const sectorList = Object.values(sectorMap).map(s => {
+        const items = itemsBySector[s.id] || [];
+        const honestSum = items.reduce((acc: number, it: any) => acc + Math.min(it.readiness, 1), 0);
+        return { ...s, readiness: items.length > 0 ? honestSum / items.length : 0, isActive: items.length > 0 };
       }).sort((a, b) => {
         if (a.isActive && !b.isActive) return -1;
         if (!a.isActive && b.isActive) return 1;
         const diff = a.readiness - b.readiness;
-        if (Math.abs(diff) < 0.0001) return a.name.localeCompare(b.name);
-        return diff;
+        return Math.abs(diff) < 0.0001 ? a.name.localeCompare(b.name) : diff;
       });
 
-      const itemsBySector: Record<number, any[]> = {};
-      const untargetedBySector: Record<number, any[]> = {};
-
-      cats.forEach((row: any) => {
-        if (row.type_id === null) return;
-        if (row.min_stock_level > 0) {
-          if (!itemsBySector[row.id]) itemsBySector[row.id] = [];
-          itemsBySector[row.id].push({
-            id: row.type_id,
-            name: row.type_name,
-            actual: row.actual_stock || 0,
-            required: row.min_stock_level,
-            maxRequired: row.max_stock_level,
-            unitType: row.unit_type,
-            defaultSize: row.default_size,
-            readiness: row.min_stock_level > 0 ? (row.actual_stock || 0) / row.min_stock_level : 1
-          });
-        } else {
-          if (!untargetedBySector[row.id]) untargetedBySector[row.id] = [];
-          untargetedBySector[row.id].push({
-            id: row.type_id,
-            name: row.type_name,
-            actual: row.actual_stock || 0,
-            required: null,
-            maxRequired: null,
-            unitType: row.unit_type,
-            defaultSize: row.default_size,
-            readiness: 0
-          });
-        }
-      });
-
-      Object.keys(itemsBySector).forEach(key => {
-        itemsBySector[Number(key)].sort((a, b) => {
+      Object.keys(itemsBySector).forEach(k =>
+        itemsBySector[Number(k)].sort((a, b) => {
           const diff = a.readiness - b.readiness;
-          if (Math.abs(diff) < 0.0001) return a.name.localeCompare(b.name);
-          return diff;
-        });
-      });
-      
-      Object.keys(untargetedBySector).forEach(key => {
-        untargetedBySector[Number(key)].sort((a, b) => a.name.localeCompare(b.name));
-      });
+          return Math.abs(diff) < 0.0001 ? a.name.localeCompare(b.name) : diff;
+        })
+      );
+      Object.keys(untargetedBySector).forEach(k =>
+        untargetedBySector[Number(k)].sort((a, b) => a.name.localeCompare(b.name))
+      );
 
-      const allTacticalItems = cats.filter((c: any) => c.min_stock_level > 0);
-      const globalHonestSum = allTacticalItems.reduce((acc: number, row: any) => {
-        const min = row.min_stock_level || 0;
-        const actual = row.actual_stock || 0;
-        const ratio = min > 0 ? actual / min : 1;
-        return acc + Math.min(ratio, 1);
-      }, 0);
-      
-      setOverallReadiness(allTacticalItems.length > 0 ? (globalHonestSum / allTacticalItems.length) * 100 : 100);
+      const allTactical    = Object.values(itemsBySector).flat();
+      const globalHonestSum = allTactical.reduce((acc: number, it: any) => acc + Math.min(it.readiness, 1), 0);
+
+      setOverallReadiness(allTactical.length > 0 ? (globalHonestSum / allTactical.length) * 100 : 100);
       setSectors(sectorList);
       setSectorItems(itemsBySector);
       setUntargetedItems(untargetedBySector);
-      setShortfalls(shortfallList.sort((a, b) => (b.required - b.actual) - (a.required - a.actual)).slice(0, 5));
+      setShortfalls(shortfallList.sort((a, b) => b.gap - a.gap).slice(0, 5));
       setLoading(false);
     } catch (e) {
       console.error('[READINESS] Calculation failed:', e);
@@ -180,15 +213,6 @@ export function ReadinessCommandView() {
     }
   };
 
-  const getUnitSuffix = (unitType?: string) => {
-    switch (unitType) {
-      case 'volume': return 'ml';
-      case 'weight': return 'g';
-      case 'length': return 'cm';
-      case 'count': return '';
-      default: return '';
-    }
-  };
 
   const getReadinessColor = (val: number, maxVal?: number) => {
     const percentage = Math.floor(val * 100);
@@ -205,6 +229,97 @@ export function ReadinessCommandView() {
     return (
       <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>CALCULATING SECTOR STRENGTH...</Text>
+      </View>
+    );
+  }
+  if (mode === 'resupply') {
+    const groupedShortfalls = shortfalls.reduce((acc, sf) => {
+      if (!acc[sf.catName]) acc[sf.catName] = [];
+      acc[sf.catName].push(sf);
+      return acc;
+    }, {} as Record<string, Shortfall[]>);
+
+    const catNames = Object.keys(groupedShortfalls).sort();
+
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+          {shortfalls.length === 0 ? (
+            <View style={styles.emptyAdvice}>
+              <MaterialCommunityIcons name="check-decagram" size={32} color="#22c55e" />
+              <Text style={styles.emptyText}>All tactical supply lines are meeting their minimum requirements.</Text>
+            </View>
+          ) : (
+            catNames.map(catName => (
+              <View key={catName} style={{ marginBottom: 24 }}>
+                <View style={styles.catHeader}>
+                  <MaterialCommunityIcons name="folder-outline" size={16} color="#3b82f6" style={{ marginRight: 8 }} />
+                  <Text style={styles.catTitle}>{catName.toUpperCase()}</Text>
+                </View>
+
+                {groupedShortfalls[catName].map((item, idx) => {
+                  const readiness = item.actual / item.required;
+                  const color = getReadinessColor(readiness);
+                  return (
+                    <View key={idx} style={[styles.triageCard, { borderLeftColor: color }]}>
+                      {/* Header row: name + readiness % */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <Text style={styles.triageName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={[styles.triagePercent, { color }]}>{Math.round(readiness * 100)}%</Text>
+                      </View>
+
+                      {/* PIP BAR — proportional-width pips per batch */}
+                      <View style={styles.pipBarTrack}>
+                        {item.batches.map((batchPhysical, i) => {
+                          const pipPct = Math.min((batchPhysical / item.required) * 100, 100);
+                          return (
+                            <View
+                              key={i}
+                              style={[
+                                styles.pipBarSegment,
+                                { width: `${pipPct}%` as any, backgroundColor: color }
+                              ]}
+                            />
+                          );
+                        })}
+                      </View>
+
+                      {/* Footer row: metric grid */}
+                      <View style={{ flexDirection: 'row', marginTop: 16, gap: 4 }}>
+                        <View style={styles.metricBox}>
+                          <Text style={[styles.metricValue, { color: '#f8fafc' }]} numberOfLines={1}>{formatQuantity(item.actual, item.unitType)}</Text>
+                          <Text style={styles.metricLabel}>Stocked</Text>
+                        </View>
+                        <View style={styles.metricBox}>
+                          <Text style={[styles.metricValue, { color: '#94a3b8' }]} numberOfLines={1}>{formatQuantity(item.required, item.unitType)}</Text>
+                          <Text style={styles.metricLabel}>Required</Text>
+                        </View>
+                        <View style={[styles.metricBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)' }]}>
+                          <Text style={[styles.metricValue, { color: '#ef4444' }]} numberOfLines={1}>{formatQuantity(item.gap, item.unitType)}</Text>
+                          <Text style={styles.metricLabel}>Shortfall</Text>
+                        </View>
+                        <View style={[styles.metricBox, { flex: 1.2, backgroundColor: 'rgba(34, 197, 94, 0.05)', borderColor: 'rgba(34, 197, 94, 0.2)' }]}>
+                          {item.packsNeeded !== null && item.packSizeLabel ? (
+                            <>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 2 }}>
+                                <Text style={[styles.metricValue, { color: '#22c55e', marginBottom: 0 }]} numberOfLines={1}>
+                                  {item.packsNeeded} × {item.packSizeLabel}{!item.isDefaultSizePack ? '*' : ''}
+                                </Text>
+                              </View>
+                              <Text style={styles.metricLabel}>To Buy</Text>
+                            </>
+                          ) : (
+                            <Text style={styles.metricLabel}>-</Text>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ))
+          )}
+        </ScrollView>
       </View>
     );
   }
@@ -295,26 +410,7 @@ export function ReadinessCommandView() {
         })}
       </View>
 
-      {/* CRITICAL SHORTFALLS */}
-      {shortfalls.length > 0 && (
-        <>
-          <Text style={styles.sectionLabel}>CRITICAL SUPPLY SHORTFALLS</Text>
-          <View style={styles.shortfallCard}>
-            {shortfalls.map((item, idx) => (
-              <View key={idx} style={[styles.shortfallRow, idx === shortfalls.length - 1 && { borderBottomWidth: 0 }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.shortfallName}>{item.name}</Text>
-                  <Text style={styles.shortfallMeta}>ACTUAL: {item.actual} / REQUIRED: {item.required}</Text>
-                </View>
-                <View style={styles.shortfallGap}>
-                  <Text style={styles.gapLabel}>GAP</Text>
-                  <Text style={styles.gapValue}>-{item.gap}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        </>
-      )}
+
 
       {sectors.every(s => s.required === 0) && (
         <View style={styles.emptyAdvice}>
@@ -366,11 +462,12 @@ export function ReadinessCommandView() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.detailName}>
                         {item.name}
-                        {item.defaultSize ? <Text style={styles.sizeText}> ({item.defaultSize}{getUnitSuffix(item.unitType)})</Text> : null}
+                        {item.defaultSize ? <Text style={styles.sizeText}> ({formatQuantity(item.defaultSize, item.unitType)})</Text> : null}
                       </Text>
                       <Text style={styles.detailStats}>
-                        {item.actual} / {item.required} <Text style={{ color: '#475569' }}>STOCKED</Text>
-                        {item.maxRequired && <Text style={{ color: '#475569' }}> (MAX: {item.maxRequired})</Text>}
+                        {formatQuantity(item.actual, item.unitType)} / {formatQuantity(item.required, item.unitType)}{' '}
+                        <Text style={{ color: '#475569' }}>STOCKED</Text>
+                        {item.maxRequired != null && <Text style={{ color: '#475569' }}> (MAX: {formatQuantity(item.maxRequired, item.unitType)})</Text>}
                       </Text>
                     </View>
                     <Text style={[styles.detailPercent, { color }]}>
@@ -391,7 +488,7 @@ export function ReadinessCommandView() {
                   <View key={idx} style={styles.untargetedRow}>
                     <Text style={styles.untargetedName}>
                       {item.name}
-                      {item.defaultSize ? <Text style={{ color: '#475569', fontSize: 11 }}> ({item.defaultSize}{getUnitSuffix(item.unitType)})</Text> : null}
+                      {item.defaultSize ? <Text style={{ color: '#475569', fontSize: 11 }}> ({formatQuantity(item.defaultSize, item.unitType)})</Text> : null}
                     </Text>
                     <TouchableOpacity 
                       onPress={() => {
@@ -457,9 +554,53 @@ const styles = StyleSheet.create({
   shortfallRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   shortfallName: { color: '#f8fafc', fontSize: 14, fontWeight: 'bold', marginBottom: 2 },
   shortfallMeta: { color: '#64748b', fontSize: 11 },
+  shortfallSuggestion: { color: '#22c55e', fontSize: 11, fontWeight: 'bold', marginTop: 3 },
   shortfallGap: { alignItems: 'flex-end' },
   gapLabel: { color: '#64748b', fontSize: 9, fontWeight: 'bold' },
   gapValue: { color: '#ef4444', fontSize: 16, fontWeight: 'bold' },
+
+  // Triage cards
+  triageCard: {
+    backgroundColor: '#0f172a',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    borderLeftWidth: 4,
+    padding: 14,
+    marginBottom: 10,
+  },
+  triageName: { color: '#f8fafc', fontSize: 14, fontWeight: 'bold', flex: 1, marginRight: 8 },
+  triagePercent: { fontSize: 13, fontWeight: 'bold' },
+  triageMeta: { color: '#64748b', fontSize: 11, marginBottom: 4 },
+  triageGap: { alignItems: 'flex-end', minWidth: 70 },
+  triageGapLabel: { color: '#64748b', fontSize: 9, fontWeight: 'bold', letterSpacing: 0.5 },
+  triageGapValue: { color: '#ef4444', fontSize: 18, fontWeight: 'bold' },
+
+  metricBox: { flex: 1, backgroundColor: '#020617', borderRadius: 8, borderWidth: 1, borderColor: '#1e293b', paddingVertical: 8, paddingHorizontal: 2, alignItems: 'center', justifyContent: 'center' },
+  metricValue: { fontSize: 13, fontWeight: 'bold', marginBottom: 2, textAlign: 'center' },
+  metricLabel: { fontSize: 9, color: '#64748b', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.5 },
+
+  // Proportional pip bar
+  pipBarTrack: {
+    flexDirection: 'row',
+    height: 10,
+    backgroundColor: '#1e293b',
+    borderRadius: 3,
+    overflow: 'hidden',
+    gap: 2,
+  },
+  pipBarSegment: { height: '100%', borderRadius: 2, minWidth: 3 },
+
+  // Buy suggestion badge
+  buyBadge: {
+    backgroundColor: '#052e16',
+    borderWidth: 1,
+    borderColor: '#16a34a',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  buyBadgeText: { color: '#22c55e', fontSize: 10, fontWeight: 'bold' },
 
   emptyAdvice: { padding: 40, alignItems: 'center', backgroundColor: '#0f172a', borderRadius: 16, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed' },
   emptyText: { color: '#64748b', fontSize: 13, textAlign: 'center', marginTop: 12, lineHeight: 20 },
@@ -483,5 +624,8 @@ const styles = StyleSheet.create({
   
   untargetedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   untargetedName: { color: '#94a3b8', fontSize: 13 },
-  pencilBtn: { padding: 8, backgroundColor: '#0f172a', borderRadius: 8, borderWidth: 1, borderColor: '#334155' }
+  pencilBtn: { padding: 8, backgroundColor: '#0f172a', borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
+
+  catHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#334155', paddingBottom: 6 },
+  catTitle: { color: '#3b82f6', fontSize: 12, fontWeight: 'bold' }
 });
