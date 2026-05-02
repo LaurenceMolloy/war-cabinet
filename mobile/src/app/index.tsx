@@ -196,7 +196,7 @@ export default function HomeScreen() {
     const allRows = await db.getAllAsync<any>(`
       SELECT c.id as cat_id, c.name as cat_name, c.icon as cat_icon, 
              i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count,
-             i.freeze_months as type_freeze_months,
+             i.freeze_months as type_freeze_months, i.default_cabinet_id,
              i.default_supplier as type_supplier, i.default_product_range as type_range,
              inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.batch_intel,
              inv.supplier as inv_supplier, inv.product_range as inv_product_range,
@@ -260,9 +260,7 @@ export default function HomeScreen() {
         // If an Expiry Filter is active, an item with no batches CANNOT match.
         if (filterExpiryMode !== 'ALL') return;
         
-        // If a Cabinet Filter is active, and the SQL join failed (effectiveCabinetId was passed), inv_id will be null.
-        // So this row shouldn't be here in the results because of the outer join if we want strict removal.
-        if (effectiveCabinetId) return;
+        if (effectiveCabinetId && row.default_cabinet_id !== effectiveCabinetId) return;
       }
 
       // 3. Populate accumulator

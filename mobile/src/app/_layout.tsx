@@ -21,30 +21,68 @@ function E2ESeeder() {
       const requestedSetup = params.get('setup')?.toLowerCase();
       
       const SCENARIOS: Record<string, { rank: string, apply: (db: any) => Promise<void> }> = {
+        'foundation_basic_cabinets_and_categories': { rank: 'SERGEANT', apply: async (db) => await SCENARIOS['foundation_basic_grid_with_types'].apply(db) },
         'foundation_basic_grid_with_types': {
           rank: 'SERGEANT',
           apply: async (db) => {
+            console.log('[E2E] STARTING FOUNDATION SEED...');
             try {
-              await db.execAsync(`
-                DELETE FROM Categories;
-                DELETE FROM Cabinets;
-                DELETE FROM ItemTypes;
-                DELETE FROM Inventory;
-                INSERT INTO Categories (id, name, icon, is_mess_hall) VALUES (1, 'TEST CATEGORY 1', 'wheat', 1);
-                INSERT INTO Categories (id, name, icon, is_mess_hall) VALUES (2, 'TEST CATEGORY 2', 'water', 1);
-                INSERT INTO Categories (id, name, icon, is_mess_hall) VALUES (3, 'TEST CATEGORY 3', 'leaf', 1);
-                INSERT INTO Categories (id, name, icon, is_mess_hall) VALUES (4, 'TEST CATEGORY 4', 'food-apple', 1);
-                INSERT INTO Cabinets (id, name, location, cabinet_type) VALUES (1, 'TEST CABINET 1', 'TEST LOCATION 1', 'standard');
-                INSERT INTO Cabinets (id, name, location, cabinet_type) VALUES (2, 'TEST CABINET 2', 'TEST LOCATION 2', 'standard');
-                INSERT INTO Cabinets (id, name, location, cabinet_type) VALUES (3, 'TEST FREEZER 1', 'TEST LOCATION 3', 'freezer');
-                INSERT INTO Cabinets (id, name, location, cabinet_type) VALUES (4, 'TEST FREEZER 2', 'TEST LOCATION 4', 'freezer');
-                INSERT INTO ItemTypes (id, name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range, freeze_months, vanguard_resolved) VALUES (1, 'TEST ITEM 1', 1, 'weight', '100', 1, 'TEST BRAND 1', 'TEST RANGE 1', 1, 1);
-                INSERT INTO ItemTypes (id, name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range, freeze_months, vanguard_resolved) VALUES (2, 'TEST ITEM 2', 2, 'volume', '100', 2, 'TEST BRAND 2', 'TEST RANGE 2', 2, 1);
-                INSERT INTO ItemTypes (id, name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range, freeze_months, vanguard_resolved) VALUES (3, 'TEST ITEM 3', 3, 'count', '100', 3, 'TEST BRAND 3', 'TEST RANGE 3', 3, 1);
-                INSERT INTO ItemTypes (id, name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range, freeze_months, vanguard_resolved) VALUES (4, 'TEST ITEM 4', 4, 'weight', '100', 4, 'TEST BRAND 4', 'TEST RANGE 4', 4, 1);
-              `);
+              // ... (rest of the logic remains same)
+              // 1. Full Tactical Wipe (Child-first to respect constraints)
+              await db.execAsync('DELETE FROM TacticalLogs;');
+              await db.execAsync('DELETE FROM Inventory;');
+              await db.execAsync('DELETE FROM BarcodeSignatures;');
+              await db.execAsync('DELETE FROM ItemTypes;');
+              await db.execAsync('DELETE FROM Categories;');
+              await db.execAsync('DELETE FROM Cabinets;');
+              console.log('[E2E] Database Purged.');
+
+              // 2. Deploy Cabinets
+              const cab1 = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', ['TEST CABINET 1', 'TEST LOCATION 1', 'standard']);
+              const cab2 = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', ['TEST CABINET 2', 'TEST LOCATION 2', 'standard']);
+              const cab3 = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', ['TEST FREEZER 1', 'TEST LOCATION 3', 'freezer']);
+              const cab4 = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', ['TEST FREEZER 2', 'TEST LOCATION 4', 'freezer']);
+
+              const cab1Id = cab1.lastInsertRowId;
+              const cab2Id = cab2.lastInsertRowId;
+              const cab3Id = cab3.lastInsertRowId;
+              const cab4Id = cab4.lastInsertRowId;
+              console.log(`[E2E] Cabinets Deployed. IDs: ${cab1Id}, ${cab2Id}, ${cab3Id}, ${cab4Id}`);
+
+              // 3. Deploy Categories & Bound Item Types
+              const cat1 = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', ['TEST CATEGORY 1', 'wheat', 1]);
+              await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range, freeze_months, vanguard_resolved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+                ['TEST ITEM 1', cat1.lastInsertRowId, 'weight', '100', cab1Id, 'TEST BRAND 1', 'TEST RANGE 1', 1, 1]);
+              console.log(`[E2E] Category 1 + Item 1 Deployed (CatID: ${cat1.lastInsertRowId})`);
+
+              const cat2 = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', ['TEST CATEGORY 2', 'water', 1]);
+              await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range, freeze_months, vanguard_resolved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+                ['TEST ITEM 2', cat2.lastInsertRowId, 'volume', '100', cab2Id, 'TEST BRAND 2', 'TEST RANGE 2', 2, 1]);
+              console.log(`[E2E] Category 2 + Item 2 Deployed (CatID: ${cat2.lastInsertRowId})`);
+
+              const cat3 = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', ['TEST CATEGORY 3', 'leaf', 1]);
+              await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range, freeze_months, vanguard_resolved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+                ['TEST ITEM 3', cat3.lastInsertRowId, 'count', '100', cab3Id, 'TEST BRAND 3', 'TEST RANGE 3', 3, 1]);
+              console.log(`[E2E] Category 3 + Item 3 Deployed (CatID: ${cat3.lastInsertRowId})`);
+
+              const cat4 = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', ['TEST CATEGORY 4', 'food-apple', 1]);
+              await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range, freeze_months, vanguard_resolved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+                ['TEST ITEM 4', cat4.lastInsertRowId, 'weight', '100', cab4Id, 'TEST BRAND 4', 'TEST RANGE 4', 4, 1]);
+              console.log(`[E2E] Category 4 + Item 4 Deployed (CatID: ${cat4.lastInsertRowId})`);
+
+              // Final Verification
+              const finalCats = await db.getAllAsync('SELECT id, name FROM Categories');
+              const finalTypes = await db.getAllAsync('SELECT id, name, category_id FROM ItemTypes');
+              console.log('[E2E] SEED VERIFICATION:', {
+                categories: finalCats.length,
+                itemTypes: finalTypes.length,
+                typesMapping: finalTypes.map((t: any) => `${t.name} -> CatID ${t.category_id}`)
+              });
+
               window.localStorage.setItem('E2E_SEED_STATUS', 'SUCCESS');
+              console.log('[E2E] FOUNDATION SEED COMPLETE - RELOADING...');
             } catch (e: any) {
+              console.error('[E2E] SEED FAILURE:', e);
               window.localStorage.setItem('E2E_SEED_ERROR', e.message || 'Unknown DB Error');
               throw e;
             }

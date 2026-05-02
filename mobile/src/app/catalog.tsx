@@ -652,7 +652,7 @@ export default function CatalogScreen() {
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
 
-    if (categories.length >= limits.categories && !hasFullAccess) {
+    if (categories.length >= (limits?.categories || 0) && !hasFullAccess) {
       checkEntitlement('CATEGORY_LIMIT');
       return;
     }
@@ -666,7 +666,7 @@ export default function CatalogScreen() {
   const handleAddItemType = async (catId: number) => {
     if (!newItemName.trim() || selectedCat !== catId) return;
 
-    if (totalItemCount >= limits.items && !hasFullAccess) {
+    if (totalItemCount >= (limits?.items || 0) && !hasFullAccess) {
       checkEntitlement('ITEM_LIMIT');
       return;
     }

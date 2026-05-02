@@ -60,9 +60,9 @@ const SECURE_KEY_WELCOME_SEEN = 'war_cabinet_welcome_seen';
 const SECURE_KEY_GRADUATED_EARLY = 'war_cabinet_graduated_early';
 
 export const RANK_LIMITS = {
-  CADET: { cabinets: 2, categories: 5, types: 15, batches: 15, units: 30 },
-  PRIVATE: { cabinets: 999, categories: 999, types: 999, batches: 40, units: 80 },
-  SERGEANT: { cabinets: 999, categories: 999, types: 999, batches: 999, units: 999 }
+  CADET: { cabinets: 2, categories: 5, items: 15, batches: 15, units: 30 },
+  PRIVATE: { cabinets: 999, categories: 999, items: 999, batches: 40, units: 80 },
+  SERGEANT: { cabinets: 999, categories: 999, items: 999, batches: 999, units: 999 }
 };
 
 // Which tier each feature requires
@@ -266,7 +266,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const hasFullAccess = isPremium; // ONLY paid tiers lift scale limits now
 
   const limits = isPremium 
-    ? RANK_LIMITS.ELITE 
+    ? RANK_LIMITS.SERGEANT 
     : (isCadet ? RANK_LIMITS.CADET : RANK_LIMITS.PRIVATE);
 
   const checkEntitlement = (featureName: string): boolean => {
