@@ -49,108 +49,23 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.execAsync('PRAGMA foreign_keys = ON;');
     }
   
-  await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS Categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      icon TEXT,
-      is_mess_hall INTEGER DEFAULT 1
-    );
+    // 1. Individual Table Initialization (More robust on Web)
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS Categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, icon TEXT, is_mess_hall INTEGER DEFAULT 1);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS ItemTypes (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT NOT NULL, unit_type TEXT DEFAULT 'weight', default_size TEXT, default_cabinet_id INTEGER, is_favorite INTEGER DEFAULT 0, interaction_count INTEGER DEFAULT 0, min_stock_level INTEGER, max_stock_level INTEGER, freeze_months INTEGER, default_supplier TEXT, default_product_range TEXT, vanguard_resolved INTEGER DEFAULT 0, FOREIGN KEY(category_id) REFERENCES Categories(id));`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS Inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type_id INTEGER, quantity INTEGER NOT NULL DEFAULT 1, size TEXT NOT NULL, expiry_month INTEGER, expiry_year INTEGER, entry_month INTEGER NOT NULL, entry_year INTEGER NOT NULL, entry_day INTEGER NOT NULL DEFAULT 1, cabinet_id INTEGER, batch_intel TEXT, supplier TEXT, product_range TEXT, portions_total INTEGER, portions_remaining INTEGER, last_rotated_at INTEGER, FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id));`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS Cabinets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, location TEXT, rotation_interval_months INTEGER, default_rotation_cabinet_id INTEGER);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS Settings (key TEXT PRIMARY KEY, value TEXT);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS BarcodeSignatures (barcode TEXT PRIMARY KEY, item_type_id INTEGER NOT NULL, supplier TEXT, size TEXT, FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS TacticalLogs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, action_type TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER, entity_name TEXT, details TEXT);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS Missions (id TEXT PRIMARY KEY, completed_at INTEGER NOT NULL, points INTEGER NOT NULL);`);
 
-    CREATE TABLE IF NOT EXISTS ItemTypes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      category_id INTEGER,
-      name TEXT NOT NULL,
-      unit_type TEXT DEFAULT 'weight',
-      default_size TEXT,
-      default_cabinet_id INTEGER,
-      is_favorite INTEGER DEFAULT 0,
-      interaction_count INTEGER DEFAULT 0,
-      min_stock_level INTEGER,
-      max_stock_level INTEGER,
-      freeze_months INTEGER,
-      default_supplier TEXT,
-      default_product_range TEXT,
-      vanguard_resolved INTEGER DEFAULT 0,
-      FOREIGN KEY(category_id) REFERENCES Categories(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS Inventory (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      item_type_id INTEGER,
-      quantity INTEGER NOT NULL DEFAULT 1,
-      size TEXT NOT NULL,
-      expiry_month INTEGER,
-      expiry_year INTEGER,
-      entry_month INTEGER NOT NULL,
-      entry_year INTEGER NOT NULL,
-      entry_day INTEGER NOT NULL DEFAULT 1,
-      cabinet_id INTEGER,
-      batch_intel TEXT,
-      supplier TEXT,
-      product_range TEXT,
-      portions_total INTEGER,
-      portions_remaining INTEGER,
-      last_rotated_at INTEGER,
-      FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS Cabinets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      location TEXT,
-      rotation_interval_months INTEGER,
-      default_rotation_cabinet_id INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS RotationLogs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      item_type_id INTEGER,
-      source_cabinet_id INTEGER,
-      target_cabinet_id INTEGER,
-      quantity REAL,
-      size TEXT,
-      expiry_month INTEGER,
-      expiry_year INTEGER,
-      rotated_at INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS Settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS BarcodeSignatures (
-      barcode TEXT PRIMARY KEY,
-      item_type_id INTEGER NOT NULL,
-      supplier TEXT,
-      size TEXT,
-      FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS TacticalLogs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      timestamp INTEGER NOT NULL,
-      action_type TEXT NOT NULL,
-      entity_type TEXT NOT NULL,
-      entity_id INTEGER,
-      entity_name TEXT,
-      details TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS Missions (
-      id TEXT PRIMARY KEY,
-      completed_at INTEGER NOT NULL,
-      points INTEGER NOT NULL
-    );
-  `);
 
   // Migration: add unit_type to ItemTypes if it does not exist
   try {
     const columnsRes = await db.getAllAsync<any>('PRAGMA table_info(ItemTypes)');
     const hasUnitType = columnsRes.some(col => col.name === 'unit_type');
     if (!hasUnitType) {
-      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN unit_type TEXT DEFAULT "weight"');
+      await db.execAsync("ALTER TABLE ItemTypes ADD COLUMN unit_type TEXT DEFAULT 'weight'");
       await db.execAsync(`
         UPDATE ItemTypes SET unit_type = 'volume' WHERE name LIKE '%Wine%' OR name LIKE '%Oil%' OR name LIKE '%Sauce%';
       `);
@@ -217,10 +132,10 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     const cabColsRes = await db.getAllAsync<any>('PRAGMA table_info(Cabinets)');
     const hasCabinetType = cabColsRes.some(col => col.name === 'cabinet_type');
     if (!hasCabinetType) {
-      await db.execAsync('ALTER TABLE Cabinets ADD COLUMN cabinet_type TEXT DEFAULT "standard"');
+      await db.execAsync("ALTER TABLE Cabinets ADD COLUMN cabinet_type TEXT DEFAULT 'standard'");
       // Intelligence: Auto-classify existing cabinets based on name patterns
       await db.execAsync("UPDATE Cabinets SET cabinet_type = 'freezer' WHERE name LIKE '%Freezer%' OR name LIKE '%Ice%'");
-      await db.execAsync('UPDATE Cabinets SET cabinet_type = "standard" WHERE cabinet_type IS NULL');
+      await db.execAsync("UPDATE Cabinets SET cabinet_type = 'standard' WHERE cabinet_type IS NULL");
     }
     const hasRotInterval = cabColsRes.some(col => col.name === 'rotation_interval_months');
     if (!hasRotInterval) {
@@ -504,7 +419,16 @@ export async function completeMission(db: any, missionId: MissionId) {
 export async function getReadinessStats(db: any) {
   try {
     const res = await db.getFirstAsync<{ total_points: number }>('SELECT SUM(points) as total_points FROM Missions');
-    const points = res?.total_points || 0;
+    let points = res?.total_points || 0;
+    
+    // E2E TESTING HOOK: Checks the database Settings table for an override.
+    // This is Worker-compatible (unlike localStorage).
+    try {
+      const forceRank = await db.getFirstAsync<{value: string}>("SELECT value FROM Settings WHERE key = 'force_rank'");
+      if (forceRank?.value === 'SERGEANT') points = Math.max(points, 60);
+      if (forceRank?.value === 'VETERAN') points = Math.max(points, 90);
+      if (forceRank?.value === 'GENERAL') points = Math.max(points, 500);
+    } catch (e) {}
     
     let rank = 'CADET';
     let icon = 'chevron-triple-down';

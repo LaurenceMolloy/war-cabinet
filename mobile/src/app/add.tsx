@@ -1172,7 +1172,12 @@ export default function AddInventoryScreen() {
                   <Text style={[styles.chipText, !quickAddDefaultCabinet && styles.chipTextActive]}>No Default</Text>
                 </TouchableOpacity>
                 {cabinets.map(cab => (
-                  <TouchableOpacity key={cab.id} style={[styles.chip, quickAddDefaultCabinet === cab.id && styles.chipActive]} onPress={() => setQuickAddDefaultCabinet(cab.id)}>
+                  <TouchableOpacity 
+                    key={cab.id} 
+                    testID={`cabinet-chip-${cab.id}`}
+                    style={[styles.chip, quickAddDefaultCabinet === cab.id && styles.chipActive]} 
+                    onPress={() => setQuickAddDefaultCabinet(cab.id)}
+                  >
                     <Text style={[styles.chipText, quickAddDefaultCabinet === cab.id && styles.chipTextActive]}>{cab.cabinet_type === 'freezer' ? '❄ ' : ''}{cab.name}</Text>
                   </TouchableOpacity>
                 ))}
@@ -1189,7 +1194,11 @@ export default function AddInventoryScreen() {
             </View>
           </View>
 
-          <TouchableOpacity style={[styles.saveButton, { marginTop: 10, backgroundColor: '#3b82f6' }]} onPress={handleQuickAddType}>
+          <TouchableOpacity 
+            style={[styles.saveButton, { marginTop: 10, backgroundColor: '#3b82f6' }]} 
+            onPress={handleQuickAddType}
+            testID="deploy-spec-btn"
+          >
             <Text style={styles.saveText}>DEPLOY SPECIFICATION</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -1342,6 +1351,7 @@ export default function AddInventoryScreen() {
           {allChips.map(c => (
             <TouchableOpacity 
               key={c.value} 
+              testID={size === c.value ? 'active-size-chip' : `size-chip-${c.value}`}
               style={[styles.chip, size === c.value && styles.chipActive]} 
               onPress={() => {
                 setSize(c.value);
@@ -1365,7 +1375,7 @@ export default function AddInventoryScreen() {
             testID="size-input"
           />
           {(unitType === 'weight' || unitType === 'volume') && (
-            <Text style={styles.unitLabel}>{getUnitSuffix(unitType)}</Text>
+            <Text style={styles.unitLabel} testID="unit-label">{getUnitSuffix(unitType)}</Text>
           )}
         </View>
         {errorField === 'size' && <Text style={styles.errorText}>{errorMsg}</Text>}
@@ -1402,6 +1412,7 @@ export default function AddInventoryScreen() {
           {cabinets.map(cab => (
             <TouchableOpacity 
               key={cab.id} 
+              testID={selectedCabinetId === cab.id ? 'active-cabinet-chip' : `cabinet-chip-${cab.id}`}
               style={[styles.chip, selectedCabinetId === cab.id && styles.chipActive]} 
               onPress={() => setSelectedCabinetId(cab.id)}
             >

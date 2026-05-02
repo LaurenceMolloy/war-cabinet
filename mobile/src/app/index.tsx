@@ -1044,7 +1044,12 @@ export default function HomeScreen() {
                       testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}`}
                     >
                       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
-                         <Text style={{color: '#60a5fa', fontSize: 12, fontWeight: 'bold'}}>{inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}</Text>
+                         <Text 
+                            style={{color: '#60a5fa', fontSize: 12, fontWeight: 'bold'}}
+                            testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}-location`}
+                          >
+                            {inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}
+                          </Text>
                       </View>
                       {(() => {
                         const cleanIntel = (inv.batch_intel || '').replace(/REMAINDER:\d+/, '').trim();
@@ -1053,17 +1058,26 @@ export default function HomeScreen() {
                             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
                               <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>•</Text>
                               {inv.supplier && (
-                                <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>
+                                <Text 
+                                  style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}
+                                  testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}-supplier`}
+                                >
                                   {inv.supplier.toUpperCase()}
                                 </Text>
                               )}
                               {inv.product_range && (
-                                <Text style={{ color: '#60a5fa', fontSize: 10, fontWeight: 'bold' }}>
+                                <Text 
+                                  style={{ color: '#60a5fa', fontSize: 10, fontWeight: 'bold' }}
+                                  testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}-range`}
+                                >
                                   [{inv.product_range.toUpperCase()}]
                                 </Text>
                               )}
                               {cleanIntel ? (
-                                <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic' }}>
+                                <Text 
+                                  style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic' }}
+                                  testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}-intel`}
+                                >
                                   {cleanIntel}
                                 </Text>
                               ) : null}
@@ -1075,23 +1089,29 @@ export default function HomeScreen() {
                       <View style={styles.rowMain}>
                         {inv.id === flashBatchId ? (
                           <Animated.View style={[styles.qtyBadge, { backgroundColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['#1e293b', '#166534'] }), borderWidth: 1.5, borderColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['transparent', '#22c55e'] }) }]}>
-                            <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
+                            <Text style={styles.qtyText} testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}-qty`}>{inv.quantity}</Text>
                           </Animated.View>
                         ) : (
                           inv.cab_type === 'freezer' ? (
                             <View style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
                               <MaterialCommunityIcons name="snowflake-variant" size={36} color="#3b82f6" style={{ position: 'absolute', opacity: 0.3 }} />
                               <View style={{ backgroundColor: '#1e293b', width: 25, height: 25, borderRadius: 12.5, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
-                                <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
+                                <Text style={styles.qtyText} testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}-qty`}>{inv.quantity}</Text>
                               </View>
                             </View>
                           ) : (
                             <View style={styles.qtyBadge}>
-                              <Text style={styles.qtyText} testID="qty-text">{inv.quantity}</Text>
+                              <Text style={styles.qtyText} testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}-qty`}>{inv.quantity}</Text>
                             </View>
                           )
                         )}
-                        <Text style={styles.sizeText} numberOfLines={1} testID="size-text">{formatSizeDisplay(inv.size, type.unit_type)}</Text>
+                        <Text 
+                          style={styles.sizeText} 
+                          numberOfLines={1} 
+                          testID={`batch-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}-size`}
+                        >
+                          {formatSizeDisplay(inv.size, type.unit_type)}
+                        </Text>
                         <View style={styles.actionsGroup}>
                           <TouchableOpacity 
                             onPress={() => router.push({ 
@@ -1733,7 +1753,7 @@ export default function HomeScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity 
-              testID="deploy-cabinet-btn"
+              testID="global-deploy-cabinet-btn"
               style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#1e293b' }}
               onPress={() => { setShowDeploymentHub(false); setShowCabinetModal(true); }}
             >

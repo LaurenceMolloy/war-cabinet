@@ -199,6 +199,7 @@ export const CabinetFormModal: React.FC<CabinetFormModalProps> = ({
 
           <View style={styles.footer}>
             <TouchableOpacity 
+              testID="deploy-cabinet-btn"
               style={styles.saveBtn} 
               onPress={handleCommit}
               disabled={isSaving}
