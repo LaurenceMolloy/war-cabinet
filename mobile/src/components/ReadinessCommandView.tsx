@@ -16,6 +16,7 @@ interface SectorReadiness {
   required: number;
   itemsAtRisk: number;
   isActive: boolean;
+  untargetedCount: number;
 }
 
 interface Shortfall {
@@ -121,7 +122,8 @@ export function ReadinessCommandView({ mode = 'readiness' }: ReadinessProps) {
         if (!sectorMap[row.cat_id]) {
           sectorMap[row.cat_id] = {
             id: row.cat_id, name: row.cat_name, icon: row.icon || 'box',
-            readiness: 0, actual: 0, required: 0, itemsAtRisk: 0, isActive: false
+            readiness: 0, actual: 0, required: 0, itemsAtRisk: 0, isActive: false,
+            untargetedCount: 0
           };
         }
       });
@@ -173,6 +175,7 @@ export function ReadinessCommandView({ mode = 'readiness' }: ReadinessProps) {
             actual: physicalStock, required: null, maxRequired: null,
             unitType: isDefaultSizePack ? row.unit_type : 'count', defaultSize: row.default_size, readiness: 0
           });
+          sectorMap[row.cat_id].untargetedCount += 1;
         }
       });
 
@@ -402,7 +405,26 @@ export function ReadinessCommandView({ mode = 'readiness' }: ReadinessProps) {
                     )}
                   </>
                 ) : (
-                  <Text style={{ color: '#64748b', fontSize: 9, fontWeight: 'bold', letterSpacing: 0.5, textAlign: 'center', marginVertical: 20 }}>NO TARGETS SET</Text>
+                  <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+                    <Text style={{ color: '#64748b', fontSize: 9, fontWeight: 'bold', letterSpacing: 0.5, textAlign: 'center', marginBottom: 12 }}>NO TARGETS SET</Text>
+                    {sector.untargetedCount > 0 && (
+                      <TouchableOpacity 
+                        style={styles.setTargetsBtn}
+                        onPress={() => {
+                          // @ts-ignore - expo-router typing
+                          import('expo-router').then(({ router }) => {
+                            router.push({
+                              pathname: '/catalog',
+                              params: { expandCatId: sector.id }
+                            });
+                          });
+                        }}
+                      >
+                        <MaterialCommunityIcons name="target" size={14} color="#000" />
+                        <Text style={styles.setTargetsText}>SET TARGETS</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 )}
               </View>
             </TouchableOpacity>
@@ -627,5 +649,23 @@ const styles = StyleSheet.create({
   pencilBtn: { padding: 8, backgroundColor: '#0f172a', borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
 
   catHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#334155', paddingBottom: 6 },
-  catTitle: { color: '#3b82f6', fontSize: 12, fontWeight: 'bold' }
+  catTitle: { color: '#3b82f6', fontSize: 12, fontWeight: 'bold' },
+
+  setTargetsBtn: {
+    backgroundColor: '#fbbf24',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#b45309'
+  },
+  setTargetsText: {
+    color: '#000',
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 0.5
+  }
 });

@@ -70,6 +70,22 @@ export default function CatalogScreen() {
       setActiveTab('rank');
     }
   }, [params.tab]);
+
+  // Deep-link expansion handler for "SET TARGETS" nudge
+  useEffect(() => {
+    if (params.expandCatId && categories.length > 0 && activeTab === 'catalog') {
+      const id = Number(params.expandCatId);
+      const index = categories.findIndex(c => c.id === id);
+      if (index !== -1) {
+        // Expand it
+        setExpandedCatId(id);
+        // Scroll to it (with a slight delay to allow the layout to stabilize)
+        setTimeout(() => {
+          flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+        }, 400);
+      }
+    }
+  }, [params.expandCatId, categories.length, activeTab]);
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
   const [logisticsEmail, setLogisticsEmail] = useState('');
