@@ -1,0 +1,44 @@
+Test for SCENARIO: Location Conflict & Intelligence-Driven Merging
+
+Preparation:
+1. Ensure a "Main Cabinet" and a "Secondary Pantry" exist in Cabinets.
+2. Create a new Item Type "Tactical Basmati" with specification:
+   Category: Carbohydrates
+   Unit Type: weight
+   Default Size: 500
+3. Add an initial "Anchor Batch" to "Main Cabinet":
+   Quantity: 1
+   Size: 500
+   Expiry: 12 / 2028
+   Supplier: "Global Grains"
+
+Test:
+1. Navigate to "Tactical Basmati" in the inventory list.
+2. Click on "ADD BATCH".
+3. Observe default state:
+   - Cabinet: "Main Cabinet" (Inherited from existing stock)
+   - Size: "500" (Inherited from Item Type default)
+   - Supplier: "Global Grains" (Inherited from most recent batch)
+
+4. Change Cabinet selection to "Secondary Pantry".
+5. Observe: "LOCATION CONFLICT" warning banner appears (detecting stock in "Main Cabinet").
+6. Click the "LOCATION CONFLICT" banner to view details.
+7. Observe: "Main Cabinet" is listed as a known storage site for this item.
+
+8. Set Expiry to 12 / 2028 (matching the Anchor Batch exactly).
+9. Set Quantity to "2".
+10. Click on "SAVE BATCH".
+
+11. Observe: "MERGE CANDIDATE DETECTED" modal appears.
+    - Logic: System detects identical Size/Expiry and offers to consolidate.
+12. Select "MERGE INTO EXISTING (MAIN CABINET)".
+
+13. Observe Final State:
+    - Navigation returns to the main list/dashboard.
+    - Item "Tactical Basmati" shows a single batch in "Main Cabinet".
+    - Batch Quantity is now "3" (1 anchor + 2 new).
+    - No stock exists in "Secondary Pantry" (as it was merged away).
+
+Tidy Up:
+1. Delete the "Tactical Basmati" batch.
+2. Delete the "Tactical Basmati" Item Type.

@@ -1,0 +1,14 @@
+# Enforce LF for all text files
+* text eol=lf
+
+# Explicitly handle common binary files to avoid corruption
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mov binary
+*.mp4 binary
+*.pdf binary
+*.db binary
+*.sqlite binary
