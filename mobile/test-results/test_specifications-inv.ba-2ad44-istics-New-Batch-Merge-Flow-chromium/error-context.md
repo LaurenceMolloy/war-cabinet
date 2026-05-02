@@ -1,0 +1,81 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e10]:
+  - generic [ref=e11]:
+    - generic [ref=e13] [cursor=pointer]: 󰔾
+    - generic [ref=e15] [cursor=pointer]: 󰭼
+    - generic [ref=e16]:
+      - generic [ref=e17]: War Cabinet
+      - generic [ref=e18] [cursor=pointer]:
+        - generic [ref=e19]: 󱄻
+        - generic [ref=e20]: "RANK: SERGEANT"
+    - link "󰋽" [ref=e21] [cursor=pointer]:
+      - /url: /briefing
+      - generic [ref=e22]: 󰋽
+    - link "󰒓" [ref=e23] [cursor=pointer]:
+      - /url: /catalog
+      - generic [ref=e24]: 󰒓
+    - generic [ref=e26] [cursor=pointer]: 󰁲
+  - generic [ref=e27]:
+    - generic [ref=e28]:
+      - generic [ref=e29]: 󰍉
+      - textbox "FIND STOCK..." [ref=e30]
+    - generic [ref=e32]:
+      - generic [ref=e34] [cursor=pointer]: 󰾁
+      - generic [ref=e36] [cursor=pointer]: 󰥌
+      - generic [ref=e39] [cursor=pointer]: 󰐕
+  - generic [ref=e43]:
+    - generic [ref=e45]:
+      - generic [ref=e48] [cursor=pointer]:
+        - generic [ref=e49]: 󰅀
+        - generic [ref=e50]: TEST CATEGORY 1
+        - generic [ref=e51]:
+          - generic [ref=e53]: 󰕎
+          - generic [ref=e55]: 󰐕
+      - generic [ref=e56]:
+        - generic [ref=e58] [cursor=pointer]:
+          - generic [ref=e59]:
+            - generic [ref=e60]: 󰅀
+            - generic [ref=e61]: TEST ITEM 1
+          - generic [ref=e63]: 󰐕
+        - generic [ref=e64]:
+          - generic [ref=e66]: TEST CABINET 1 • TEST LOCATION 1
+          - generic [ref=e67]:
+            - generic [ref=e69]: "3"
+            - generic [ref=e70]: 100g
+            - generic [ref=e71]:
+              - generic [ref=e73] [cursor=pointer]: 󰏫
+              - generic [ref=e75] [cursor=pointer]: 󱁥
+              - generic [ref=e77] [cursor=pointer]: 󰍴
+              - generic [ref=e79] [cursor=pointer]: 󰐕
+          - generic [ref=e80]:
+            - generic [ref=e81]: STORED 05/2026
+            - generic [ref=e82]:
+              - generic [ref=e84]: 󰅐
+              - generic [ref=e86]: 4 months
+    - generic [ref=e89] [cursor=pointer]:
+      - generic [ref=e90]:
+        - generic [ref=e91]: 󰍟
+        - generic [ref=e92]: TEST CATEGORY 2
+        - generic [ref=e93]:
+          - generic [ref=e95]: 󰭼
+          - generic [ref=e97]: 󰐕
+      - generic [ref=e100]: NO STOCK
+    - generic [ref=e103] [cursor=pointer]:
+      - generic [ref=e104]:
+        - generic [ref=e105]: 󰍟
+        - generic [ref=e106]: TEST CATEGORY 3
+        - generic [ref=e107]:
+          - generic [ref=e109]: 󰭼
+          - generic [ref=e111]: 󰐕
+      - generic [ref=e114]: NO STOCK
+    - generic [ref=e117] [cursor=pointer]:
+      - generic [ref=e118]:
+        - generic [ref=e119]: 󰍟
+        - generic [ref=e120]: TEST CATEGORY 4
+        - generic [ref=e121]:
+          - generic [ref=e123]: 󰭼
+          - generic [ref=e125]: 󰐕
+      - generic [ref=e128]: NO STOCK
+```

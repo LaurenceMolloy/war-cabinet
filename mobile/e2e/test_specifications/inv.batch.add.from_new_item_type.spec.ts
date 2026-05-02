@@ -6,18 +6,20 @@ import { test, expect } from '@playwright/test';
  * SCOPE: Inventory Management (Chained Creation Flow)
  * 
  * METADATA:
+ * Scenario: Chained Initialization
+ * Entity: Batch
+ * Foundation: foundation_basic_grid_with_types
+ * Last Amended: 2026-05-02
  * App Version: 1.0.0
  * Schema Version: 109
- * Last Amended: 2026-05-01
  * 
  * INTENT: Verify the "chained" deployment flow where creating a new Item Type
  * immediately triggers the Batch Add form with correctly propagated defaults.
  * 
  * TACTICAL VERIFICATIONS:
- * 1. [SCENARIO_SETUP] Deterministic seeding via E2ESeeder.
- * 2. [SPEC_PROPAGATION] Item Type defaults correctly pre-fill the Batch form.
- * 3. [DATE_INTELLIGENCE] Auto-calculation of Storage Date and Expiry Drift.
- * 4. [STATE_INTEGRITY] Inventory record correctly reflects input values and IDs.
+ * 1. [SPEC_PROPAGATION] Item Type defaults correctly pre-fill the Batch form.
+ * 2. [DATE_INTELLIGENCE] Auto-calculation of Storage Date and Expiry Drift.
+ * 3. [STATE_INTEGRITY] Inventory record correctly reflects input values and IDs.
  */
 
 test.use({
@@ -38,7 +40,8 @@ test('Tactical Logistics: New Product Initialization Flow', async ({ page }) => 
   });
 
   await test.step('STEP 2: Item Type Specification (Quick Add)', async () => {
-    await page.getByTestId('add-new-item-to-test-category-1').getByText('󰐕').click();
+    // Note: The add button inside the category card
+    await page.getByTestId('add-new-item-to-test-category-1').filter({ visible: true }).click();
     
     await page.getByRole('textbox', { name: 'Item Name' }).fill('TEST ITEM 5');
     await page.getByRole('textbox', { name: 'Size' }).fill('500');
@@ -68,10 +71,10 @@ test('Tactical Logistics: New Product Initialization Flow', async ({ page }) => 
     await page.getByTestId('batch-intel-input').fill('TEST INTEL 1');
     
     // Set Expiry to Dec 2028
-    await page.getByText('YEAR').click();
-    await page.getByText('2028').click();
-    await page.getByText('MONTH').click();
-    await page.getByText('12').click();
+    await page.getByTestId('expiry-year-trigger').click();
+    await page.getByTestId('expiry-year-option-2028').click();
+    await page.getByTestId('expiry-month-trigger').click();
+    await page.getByTestId('expiry-month-option-12').click();
     
     await page.getByTestId('save-stock-btn').click();
   });
@@ -85,18 +88,19 @@ test('Tactical Logistics: New Product Initialization Flow', async ({ page }) => 
     const monthsRemaining = (2028 - currentYear) * 12 + (12 - (now.getMonth() + 1));
     const expectedMonthsText = `${monthsRemaining} months`;
 
-    const batchId = 'batch-test-item-5-1';
+    // New Hierarchical ID Pattern
+    const batchPrefix = 'test-category-1-test-item-5-batch-1';
 
     await expect(page.getByTestId('type-header-test-item-5'), 'Audit: Item Group Header').toContainText('TEST ITEM 5');
-    await expect(page.getByTestId(`${batchId}-location`), 'Audit: Storage Site Label').toContainText('TEST CABINET 1 • TEST LOCATION 1');
-    await expect(page.getByTestId(`${batchId}-supplier`), 'Audit: Supplier Branding').toContainText('HÄAGEN-DAZS');
-    await expect(page.getByTestId(`${batchId}-range`), 'Audit: Product Range Indicator').toContainText('[ESSENTIAL]');
-    await expect(page.getByTestId(`${batchId}-intel`), 'Audit: Batch Tactical Intel').toContainText('TEST INTEL 1');
-    await expect(page.getByTestId(`${batchId}-size`), 'Audit: Physical Size Metric').toContainText('500g');
-    await expect(page.getByTestId(`${batchId}-qty`), 'Audit: Unit Quantity Count').toContainText('1');
+    await expect(page.getByTestId(`${batchPrefix}-location`).filter({ visible: true }), 'Audit: Storage Site Label').toContainText('TEST CABINET 1 • TEST LOCATION 1');
+    await expect(page.getByTestId(`${batchPrefix}-supplier`).filter({ visible: true }), 'Audit: Supplier Branding').toContainText('HÄAGEN-DAZS');
+    await expect(page.getByTestId(`${batchPrefix}-range`).filter({ visible: true }), 'Audit: Product Range Indicator').toContainText('[ESSENTIAL]');
+    await expect(page.getByTestId(`${batchPrefix}-intel`).filter({ visible: true }), 'Audit: Batch Tactical Intel').toContainText('TEST INTEL 1');
+    await expect(page.getByTestId(`${batchPrefix}-size`).filter({ visible: true }), 'Audit: Physical Size Metric').toContainText('500g');
+    await expect(page.getByTestId(`${batchPrefix}-qty`).filter({ visible: true }), 'Audit: Unit Quantity Count').toContainText('1');
     
-    await expect(page.getByTestId(batchId), 'Audit: Storage Date Recency').toContainText(expectedStoredDate);
-    await expect(page.getByTestId(batchId), 'Audit: Expiry Drift Calculation').toContainText(expectedMonthsText);
+    await expect(page.getByTestId(`${batchPrefix}-row`).filter({ visible: true }), 'Audit: Storage Date Recency').toContainText(expectedStoredDate);
+    await expect(page.getByTestId(`${batchPrefix}-row`).filter({ visible: true }), 'Audit: Expiry Drift Calculation').toContainText(expectedMonthsText);
   });
 
 });

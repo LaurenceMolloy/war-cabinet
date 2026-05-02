@@ -35,6 +35,7 @@ function E2ESeeder() {
               await db.execAsync('DELETE FROM ItemTypes;');
               await db.execAsync('DELETE FROM Categories;');
               await db.execAsync('DELETE FROM Cabinets;');
+              await db.execAsync('DELETE FROM sqlite_sequence;');
               console.log('[E2E] Database Purged.');
 
               // 2. Deploy Cabinets
@@ -52,7 +53,7 @@ function E2ESeeder() {
               // 3. Deploy Categories & Bound Item Types
               const cat1 = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', ['TEST CATEGORY 1', 'wheat', 1]);
               await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range, freeze_months, vanguard_resolved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-                ['TEST ITEM 1', cat1.lastInsertRowId, 'weight', '100', cab1Id, 'TEST BRAND 1', 'TEST RANGE 1', 1, 1]);
+                ['TEST ITEM 1', cat1.lastInsertRowId, 'weight', '100', cab1Id, null, null, 1, 1]);
               console.log(`[E2E] Category 1 + Item 1 Deployed (CatID: ${cat1.lastInsertRowId})`);
 
               const cat2 = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', ['TEST CATEGORY 2', 'water', 1]);
