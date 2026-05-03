@@ -5,7 +5,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { markModified, recordActivity, logTacticalAction } from '../db/sqlite';
 import { useBilling } from '../context/BillingContext';
-import { Database } from '../database';
+import { Database, ConsolidationCandidate, NewBatchData } from '../database';
+import { ConsolidationCarousel } from '../components/ConsolidationCarousel';
 import SUPPLIERS_DATA from '../data/suppliers.json';
 import BRANDS_DATA from '../data/brands.json';
 import { ExpiryScannerModal } from '../components/ExpiryScannerModal';
@@ -100,20 +101,8 @@ export default function AddInventoryScreen() {
   const [newCatName, setNewCatName] = useState('');
   const [newCatIsMessHall, setNewCatIsMessHall] = useState(true);
   const [showMergeModal, setShowMergeModal] = useState(false);
-  const [mergeCandidate, setMergeCandidate] = useState<any>(null);
-  const [deferredSave, setDeferredSave] = useState<any>(null);
-  const [mergeReasons, setMergeReasons] = useState<string[]>([]);
-  
-  const handleMergeAction = async (strategy: 'ADOPT' | 'STRIP' | 'NONE') => {
-    setShowMergeModal(false);
-    if (!deferredSave) return;
-    
-    if (strategy === 'NONE') {
-      await finalizeCommit(null, deferredSave);
-    } else {
-      await finalizeCommit(mergeCandidate.id, deferredSave, strategy);
-    }
-  };
+  const [mergeCandidates, setMergeCandidates] = useState<ConsolidationCandidate[]>([]);
+  const [deferredSave, setDeferredSave] = useState<NewBatchData | null>(null);
 
   const isAutoSavePipeline = useRef(false);
   const handleSaveRef = useRef<(() => Promise<void>) | null>(null);
@@ -745,96 +734,56 @@ export default function AddInventoryScreen() {
         }
       }
 
-      if (potentialMatches.length > 0) {
-        // 1. SILENT MERGE: All metadata (Supplier, Range, Intel) must match exactly
-        const exactMatch = potentialMatches.find(m => {
-          const intelMatch = (m.batch_intel?.trim() || null)?.toLowerCase() === cleanNewIntel?.toLowerCase();
-          const supplierMatch = (m.supplier || null)?.toLowerCase() === cleanNewSupplier?.toLowerCase();
-          const rangeMatch = (m.product_range || null)?.toLowerCase() === cleanNewRange?.toLowerCase();
-          const portionsMatch = (m.portions_total || null) === (finalPortionsTotal || null);
-          
-          if (!intelMatch || !supplierMatch || !rangeMatch || !portionsMatch) {
-            console.log(`[MERGE_DIAG] Match failed for ID ${m.id}:`, {
-              intel: { db: m.batch_intel, new: cleanNewIntel, match: intelMatch },
-              supplier: { db: m.supplier, new: cleanNewSupplier, match: supplierMatch },
-              range: { db: m.product_range, new: cleanNewRange, match: rangeMatch },
-              portions: { db: m.portions_total, new: finalPortionsTotal, match: portionsMatch }
-            });
-          }
-          return intelMatch && supplierMatch && rangeMatch && portionsMatch;
+      const savePayload: NewBatchData = {
+        typeId: Number(finalTypeId),
+        q,
+        finalSize,
+        expMVal,
+        expYVal,
+        batchIntel: cleanNewIntel || null,
+        supplier: cleanNewSupplier || null,
+        productRange: cleanNewRange || null,
+        portions_total: finalPortionsTotal,
+        portions_remaining: finalPortionsRemaining,
+        selectedCabinetId: Number(selectedCabinetId),
+        entryM,
+        entryY,
+        entryD: currentDay
+      };
+
+      if (finalTypeId && !editBatchId) {
+        const candidates = await Database.Consolidation.findCandidates(db, {
+          typeId: Number(finalTypeId),
+          size: finalSize,
+          cabinetId: Number(selectedCabinetId),
+          expiryMonth: expMVal,
+          expiryYear: expYVal,
+          excludeId: editBatchId ? Number(editBatchId) : undefined,
+          newSupplier: cleanNewSupplier || null,
+          newRange: cleanNewRange || null
         });
-        console.log(`[MERGE_DIAG] Exact match found:`, exactMatch ? exactMatch.id : 'NONE');
+
+        // Check for exact match (silent merge)
+        const exactMatch = candidates.find(m => {
+          const intelMatch = (m.batch_intel?.trim() || null)?.toLowerCase() === (cleanNewIntel || null)?.toLowerCase();
+          const supplierMatch = (m.supplier || null)?.toLowerCase() === (cleanNewSupplier || null)?.toLowerCase();
+          const rangeMatch = (m.product_range || null)?.toLowerCase() === (cleanNewRange || null)?.toLowerCase();
+          // We can't strictly check portions here since we don't return it in findCandidates yet.
+          // The old logic did, so let's just use the exact match on metadata.
+          return intelMatch && supplierMatch && rangeMatch;
+        });
 
         if (exactMatch) {
-          await finalizeCommit(exactMatch.id, { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
+          console.log(`[MERGE_DIAG] Exact match found:`, exactMatch.id);
+          await finalizeCommit(exactMatch.id, savePayload);
+        } else if (candidates.length > 0) {
+          console.log(`[MERGE_DIAG] ${candidates.length} candidates found for modal.`);
+          setMergeCandidates(candidates);
+          setDeferredSave(savePayload);
+          setShowMergeModal(true);
+          return;
         } else {
-          // 2. MODAL MERGE: Find a candidate that is MERGEABLE.
-          // A candidate is mergeable if it DOES NOT have a hard Brand/Range conflict.
-          // (Heinz vs Tesco = Different Batch. Heinz vs NULL = Consolidation Opportunity).
-          const mergeableCandidate = potentialMatches.find(m => {
-            const dbS = (m.supplier || null)?.toLowerCase();
-            const newS = cleanNewSupplier?.toLowerCase();
-            const isBrandConflict = dbS && newS && dbS !== newS;
-
-            const dbR = (m.product_range || null)?.toLowerCase();
-            const newR = cleanNewRange?.toLowerCase();
-            const isRangeConflict = dbR && newR && dbR !== newR;
-
-            const dbP = m.portions_total || null;
-            const newP = finalPortionsTotal || null;
-            const isPortionConflict = dbP && newP && dbP !== newP;
-
-            return !isBrandConflict && !isRangeConflict && !isPortionConflict;
-          });
-
-          if (mergeableCandidate) {
-            const reasons: string[] = [];
-
-            // Brand Check (Expansion/Underspecified only - Conflicts are already filtered out)
-            const dbS = (mergeableCandidate.supplier || null)?.toLowerCase();
-            const newS = cleanNewSupplier?.toLowerCase();
-            if (dbS !== newS) {
-              reasons.push(dbS ? 'BRAND_UNDERSPECIFIED' : 'BRAND_EXPANSION');
-            }
-
-            // Range Check (Expansion/Underspecified only)
-            const dbR = (mergeableCandidate.product_range || null)?.toLowerCase();
-            const newR = cleanNewRange?.toLowerCase();
-            if (dbR !== newR) {
-              reasons.push(dbR ? 'RANGE_UNDERSPECIFIED' : 'RANGE_EXPANSION');
-            }
-
-            // Intel Check (Includes CONFLICT because Intel is subjective/informational)
-            const dbI = (mergeableCandidate.batch_intel?.trim() || null)?.toLowerCase();
-            const newI = cleanNewIntel?.toLowerCase();
-            if (dbI !== newI) {
-              if (!dbI || !newI) reasons.push(dbI ? 'INTEL_UNDERSPECIFIED' : 'INTEL_EXPANSION');
-              else reasons.push('INTEL_CONFLICT');
-            }
-
-            // Portions Check (Expansion/Underspecified only)
-            const dbP = mergeableCandidate.portions_total || null;
-            const newP = finalPortionsTotal || null;
-            if (dbP !== newP) {
-              reasons.push('PORTION_UNDERSPECIFIED');
-            }
-
-            if (reasons.length > 0) {
-              setMergeReasons(reasons);
-              setMergeCandidate(mergeableCandidate);
-              setDeferredSave({ typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
-              setShowMergeModal(true);
-            } else {
-              // Safety fallback: should have been caught by exactMatch
-              await finalizeCommit(null, { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
-            }
-          } else {
-            // 3. NO MERGEABLE CANDIDATE: Hard metadata differs (e.g. different brands), so create new
-            await finalizeCommit(null, { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
-          }
-        }
-      } else {
-        // Only challenge if: No default, no manual override, stock exists in OTHER cabinets, and NO stock here.
+          // Only challenge if: No default, no manual override, stock exists in OTHER cabinets, and NO stock here.
         if (finalTypeId) {
           const typeRes = await db.getFirstAsync<{default_cabinet_id: number | null}>('SELECT default_cabinet_id FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
           if (!hasManuallyChangedCabinet && !typeRes?.default_cabinet_id) {
@@ -862,7 +811,10 @@ export default function AddInventoryScreen() {
             }
           }
         }
-        await finalizeCommit(null, { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
+          await finalizeCommit(null, savePayload);
+        }
+      } else {
+        await finalizeCommit(null, savePayload);
       }
     } catch (err: any) {
       console.error('Save failed:', err);
@@ -2122,152 +2074,21 @@ export default function AddInventoryScreen() {
         </View>
       </Modal>
 
-      {/* --- CONSOLIDATION MODAL --- */}
-      <Modal visible={showMergeModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { 
-            borderColor: mergeReasons.some(r => r.includes('CONFLICT')) ? '#ef4444' : '#3b82f6', 
-            borderWidth: 2, 
-            width: '90%', 
-            maxWidth: 450, 
-            maxHeight: '85%' 
-          }]}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <MaterialCommunityIcons name="content-copy" size={22} color="#3b82f6" />
-                <Text style={[styles.modalTitle, { marginBottom: 0, fontSize: 18 }]}>POSSIBLE DUPLICATE</Text>
-              </View>
-
-              <Text style={{ color: '#cbd5e1', fontSize: 13, textAlign: 'center', marginBottom: 20 }}>
-                A potentially matching batch has been found with minimally different metadata:
-              </Text>
-
-              {/* Dynamic Alerts based on Reasons */}
-              <View style={{ gap: 8, marginBottom: 16 }}>
-                {mergeReasons.map(reason => {
-                  const isConflict = reason.includes('CONFLICT');
-                  const isPortion = reason.includes('PORTION');
-                  const bgColor = isConflict ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)';
-                  const borderColor = isConflict ? '#ef4444' : '#3b82f6';
-                  const textColor = isConflict ? '#ef4444' : '#60a5fa';
-                  const subTextColor = isConflict ? '#fca5a5' : '#94a3b8';
-
-                  let label = reason.replace(/_/g, ' ');
-                  let detail = "";
-
-                  if (reason === 'BRAND_UNDERSPECIFIED') detail = <Text style={{ color: subTextColor, fontSize: 11, lineHeight: 15 }}>Existing batch already specifies <Text style={{color: '#f8fafc', fontWeight: 'bold'}}>{`'${mergeCandidate?.supplier}'`}</Text>. This new entry is generic.</Text>;
-                  if (reason === 'BRAND_EXPANSION') detail = <Text style={{ color: subTextColor, fontSize: 11, lineHeight: 15 }}>Existing batch has no value recorded for this field. New entry specifies <Text style={{color: '#f8fafc', fontWeight: 'bold'}}>{`'${deferredSave?.supplier}'`}</Text>.</Text>;
-                  if (reason === 'RANGE_UNDERSPECIFIED') detail = <Text style={{ color: subTextColor, fontSize: 11, lineHeight: 15 }}>Existing batch already specifies <Text style={{color: '#f8fafc', fontWeight: 'bold'}}>{`'${mergeCandidate?.product_range}'`}</Text>. This new entry is generic.</Text>;
-                  if (reason === 'RANGE_EXPANSION') detail = <Text style={{ color: subTextColor, fontSize: 11, lineHeight: 15 }}>Existing batch has no value recorded for this field. New entry specifies <Text style={{color: '#f8fafc', fontWeight: 'bold'}}>{`'${deferredSave?.productRange}'`}</Text>.</Text>;
-                  if (reason === 'INTEL_CONFLICT') detail = <Text style={{ color: subTextColor, fontSize: 11, lineHeight: 15 }}>Both entries specify different notes. Existing: <Text style={{color: '#f8fafc', fontWeight: 'bold'}}>{`'${mergeCandidate?.batch_intel}'`}</Text>. Incoming: <Text style={{color: '#f8fafc', fontWeight: 'bold'}}>{`'${deferredSave?.batchIntel}'`}</Text>.</Text>;
-                  if (reason === 'INTEL_EXPANSION' || reason === 'INTEL_UNDERSPECIFIED') detail = <Text style={{ color: subTextColor, fontSize: 11, lineHeight: 15 }}>One entry provides more detailed tactical notes than the other.</Text>;
-                  if (reason === 'PORTION_UNDERSPECIFIED') detail = <Text style={{ color: subTextColor, fontSize: 11, lineHeight: 15 }}>One entry includes portion math while the other does not.</Text>;
-
-                  if (!detail) return null;
-                  return (
-                    <View key={reason} style={{ backgroundColor: bgColor, padding: 12, borderRadius: 8, borderWidth: 1, borderColor }}>
-                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                         <MaterialCommunityIcons name={isConflict ? "alert-outline" : "information-outline"} size={16} color={textColor} />
-                         <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 11 }}>{label}</Text>
-                       </View>
-                       {detail}
-                    </View>
-                  );
-                })}
-              </View>
-              <View style={{ backgroundColor: '#0f172a', padding: 12, borderRadius: 12, marginBottom: 24, borderWidth: 1, borderColor: '#334155' }}>
-                <Text style={{ color: '#64748b', fontSize: 10, textTransform: 'uppercase', fontWeight: 'bold', marginBottom: 12 }}>CANDIDATE BATCH DETAILS</Text>
-                
-                {/* TOP ROW: SIZE & EXPIRY */}
-                <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#1e293b', paddingBottom: 8}}>
-                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
-                        <MaterialCommunityIcons name="scale" size={14} color="#94a3b8" />
-                        <Text style={{color: '#f8fafc', fontWeight: 'bold', fontSize: 13}}>
-                          {mergeCandidate?.size}{getUnitSuffix(unitType)}
-                        </Text>
-                    </View>
-                    {mergeCandidate?.expiry_month && (
-                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
-                            <MaterialCommunityIcons name="calendar-clock" size={14} color="#94a3b8" />
-                            <Text style={{color: '#f8fafc', fontWeight: 'bold', fontSize: 13}}>
-                              {String(mergeCandidate.expiry_month).padStart(2, '0')}/{mergeCandidate.expiry_year}
-                            </Text>
-                        </View>
-                    )}
-                </View>
-
-                {/* BRAND ROW */}
-                <View style={[{flexDirection: 'row', marginBottom: 6, padding: 4, borderRadius: 4}, mergeReasons.some(r => r.includes('BRAND')) && { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderWidth: 1, borderColor: '#3b82f6' }]}>
-                  <Text style={{color: '#94a3b8', width: 60, fontSize: 12}}>Brand</Text>
-                  <Text style={{color: mergeCandidate?.supplier ? '#f8fafc' : '#64748b', fontWeight: 'bold', fontSize: 12}}>{mergeCandidate?.supplier ? mergeCandidate.supplier.toUpperCase() : 'NO BRAND'}</Text>
-                </View>
-
-                {/* RANGE ROW */}
-                <View style={[{flexDirection: 'row', marginBottom: 6, padding: 4, borderRadius: 4}, mergeReasons.some(r => r.includes('RANGE')) && { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderWidth: 1, borderColor: '#3b82f6' }]}>
-                  <Text style={{color: '#94a3b8', width: 60, fontSize: 12}}>Range</Text>
-                  <Text style={{color: mergeCandidate?.product_range ? '#f8fafc' : '#64748b', fontWeight: 'bold', fontSize: 12}}>{mergeCandidate?.product_range ? mergeCandidate.product_range.toUpperCase() : 'NO RANGE'}</Text>
-                </View>
-
-                {/* INTEL ROW */}
-                <View style={[{flexDirection: 'row', padding: 4, borderRadius: 4}, mergeReasons.some(r => r.includes('INTEL')) && { backgroundColor: mergeReasons.includes('INTEL_CONFLICT') ? 'rgba(239, 68, 68, 0.15)' : 'rgba(59, 130, 246, 0.15)', borderWidth: 1, borderColor: mergeReasons.includes('INTEL_CONFLICT') ? '#ef4444' : '#3b82f6' }]}>
-                  <Text style={{color: '#94a3b8', width: 60, fontSize: 12}}>Intel</Text>
-                  <Text style={{color: mergeCandidate?.batch_intel ? '#94a3b8' : '#64748b', fontWeight: mergeCandidate?.batch_intel ? 'normal' : 'bold', fontStyle: mergeCandidate?.batch_intel ? 'italic' : 'normal', fontSize: 12, flex: 1}} numberOfLines={2}>{mergeCandidate?.batch_intel ? `"${mergeCandidate.batch_intel}"` : 'NO UNIQUE INTEL'}</Text>
-                </View>
-              </View>
-              <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: 12, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.3)' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <MaterialCommunityIcons name="magnify-expand" size={16} color="#f59e0b" />
-                  <Text style={{ color: '#f59e0b', fontWeight: 'bold', fontSize: 11 }}>TACTICAL VERIFICATION REQUIRED</Text>
-                </View>
-                <Text style={{ color: '#d97706', fontSize: 11, lineHeight: 15 }}>
-                  Data drift detected. Seek physical item for clarification before committing to a merge strategy.
-                </Text>
-              </View>
-
-              <View style={{ gap: 10 }}>
-                {/* ADOPT STRATEGY */}
-                <TouchableOpacity 
-                  style={{ backgroundColor: '#1e3a8a', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#3b82f6' }} 
-                  onPress={() => handleMergeAction('ADOPT')}
-                  testID="merge-adopt-btn"
-                >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: 14 }}>CONSOLIDATE & ADOPT</Text>
-                    <MaterialCommunityIcons name="chevron-right" size={18} color="#60a5fa" />
-                  </View>
-                  <Text style={{ color: '#94a3b8', fontSize: 10, marginTop: 2 }}>Enrich records. <Text style={{ color: '#ef4444' }}>[False attribution risk]</Text></Text>
-                </TouchableOpacity>
-
-                {/* STRIP STRATEGY */}
-                <TouchableOpacity 
-                  style={{ backgroundColor: '#0f172a', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#334155' }} 
-                  onPress={() => handleMergeAction('STRIP')}
-                  testID="merge-strip-btn"
-                >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: 14 }}>CONSOLIDATE & STRIP</Text>
-                    <MaterialCommunityIcons name="chevron-right" size={18} color="#64748b" />
-                  </View>
-                  <Text style={{ color: '#94a3b8', fontSize: 10, marginTop: 2 }}>Sanitize to generic. <Text style={{ color: '#fb923c' }}>[Metadata loss risk]</Text></Text>
-                </TouchableOpacity>
-
-                {/* SEPARATE PATH */}
-                <TouchableOpacity 
-                  style={{ backgroundColor: 'transparent', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#334155', marginTop: 8 }} 
-                  onPress={() => handleMergeAction('NONE')}
-                  testID="merge-reject-btn"
-                >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: '#94a3b8', fontWeight: 'bold', fontSize: 14 }}>KEEP SEPARATE</Text>
-                    <MaterialCommunityIcons name="source-fork" size={18} color="#475569" />
-                  </View>
-                  <Text style={{ color: '#64748b', fontSize: 10, marginTop: 2 }}>Safe isolation. <Text style={{ color: '#94a3b8' }}>[Fragmented data risk]</Text></Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {deferredSave && (
+        <ConsolidationCarousel 
+          visible={showMergeModal}
+          db={db}
+          candidates={mergeCandidates}
+          newData={deferredSave}
+          unitType={unitType}
+          onClose={() => setShowMergeModal(false)}
+          onSuccess={(id) => {
+            setShowMergeModal(false);
+            setDeferredSave(null);
+            router.replace({ pathname: '/', params: { targetCatId: categoryId ? Number(categoryId) : undefined, targetTypeId: typeId ? Number(typeId) : undefined, timestamp: Date.now().toString() } });
+          }}
+        />
+      )}
       {/* --- LOCATION CONFLICT MODAL --- */}
       {showLocationConflictModal && (
         <View style={styles.modalOverlay}>

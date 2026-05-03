@@ -29,13 +29,17 @@ function E2ESeeder() {
             try {
               // ... (rest of the logic remains same)
               // 1. Full Tactical Wipe (Child-first to respect constraints)
-              await db.execAsync('DELETE FROM TacticalLogs;');
-              await db.execAsync('DELETE FROM Inventory;');
-              await db.execAsync('DELETE FROM BarcodeSignatures;');
-              await db.execAsync('DELETE FROM ItemTypes;');
-              await db.execAsync('DELETE FROM Categories;');
-              await db.execAsync('DELETE FROM Cabinets;');
-              await db.execAsync('DELETE FROM sqlite_sequence;');
+              await db.execAsync(`
+                DELETE FROM TacticalLogs;
+                DELETE FROM Inventory;
+                DELETE FROM BarcodeSignatures;
+                DELETE FROM ItemTypes;
+                DELETE FROM Categories;
+                DELETE FROM Cabinets;
+                DELETE FROM Missions;
+                DELETE FROM Settings WHERE key = 'last_used_cabinet_id';
+                DELETE FROM sqlite_sequence;
+              `);
               console.log('[E2E] Database Purged.');
 
               // 2. Deploy Cabinets
