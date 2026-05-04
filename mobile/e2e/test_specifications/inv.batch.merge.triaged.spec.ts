@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 
 /**
  * TEST SPECIFICATION: Consolidation Carousel (Full Lifecycle)
- * --------------------------------------------------
- * SCOPE: Inventory Management (Logistical Triage)
+ * -----------------------------------------------------------
+ * SCOPE: Inventory Management (Triaged Consolidation)
  * 
  * METADATA:
  * Scenario: Triage Carousel (Strip, Adopt, Isolate)

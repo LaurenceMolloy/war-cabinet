@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * TEST SPECIFICATION: Batch Aggregation (Silent Merge)
- * --------------------------------------------------
+ * TEST SPECIFICATION: Batch Aggregation (Silent/Automatic Merge)
+ * --------------------------------------------------------------
  * SCOPE: Inventory Management (Aggregation Logic)
  * 
  * METADATA:
- * Scenario: Silent Merge (Aggregation)
+ * Scenario: Silent/Automatic Merge (Aggregation)
  * Entity: Batch
  * Foundation: foundation_basic_grid_with_types
  * Last Amended: 2026-05-02
@@ -14,7 +14,7 @@ import { test, expect } from '@playwright/test';
  * Schema Version: 109
  * 
  * INTENT: Verify that adding an identical batch correctly aggregates its quantity 
- * into the existing record without user intervention (Silent Merge).
+ * into the existing record without user intervention (Silent/Automatic Merge).
  * 
  * TACTICAL VERIFICATIONS:
  * 1. [QUANTITY_AGGREGATION] Correct aggregation of quantities (e.g. 1 + 2 = 3).

@@ -104,3 +104,8 @@ so the user can be returned there afterwards.
 - category edit
 - cabinet add
 - cabinet edit
+
+
+if a user reverses a move (+/-) within 5 minutes it is much more likely 
+to be a correction than 2 genuine events - for instance, I added a second
+tikka masala and then realised that it wasn't a tikka masala but a Jalfrezi.

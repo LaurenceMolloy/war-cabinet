@@ -1725,7 +1725,10 @@ export default function AddInventoryScreen() {
                                Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
                 return (
                   <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
-                    <TouchableOpacity onPress={() => { setSupplier(s); setSuggestedTypeAheadSuppliers([]); }}>
+                    <TouchableOpacity 
+                      onPress={() => { setSupplier(s); setSuggestedTypeAheadSuppliers([]); }}
+                      testID={`supplier-suggestion-${s.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
                       <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
                     </TouchableOpacity>
                     {!isCore && (
