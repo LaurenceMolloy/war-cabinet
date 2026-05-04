@@ -794,29 +794,33 @@ export default function AddInventoryScreen() {
           // Only challenge if: No default, no manual override, stock exists in OTHER cabinets, and NO stock here.
         if (finalTypeId) {
           const typeRes = await db.getFirstAsync<{default_cabinet_id: number | null}>('SELECT default_cabinet_id FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
-          if (!hasManuallyChangedCabinet && !typeRes?.default_cabinet_id) {
-            // Check if we ALREADY have stock of this item in the currently selected cabinet
-            const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? LIMIT 1', [Number(finalTypeId), selectedCabinetId]);
-            
-            if (!existingHere) {
-               const others = await Database.Cabinets.getStorageSitesForItemType(db, Number(finalTypeId), Number(selectedCabinetId));
-              if (others.length > 0) {
-                setOtherLocations(others.map(o => ({ id: o.id, name: o.name })));
+          const others = await Database.Cabinets.getStorageSitesForItemType(db, Number(finalTypeId), Number(selectedCabinetId));
+          const isDeviatingFromDefault = typeRes?.default_cabinet_id && typeRes.default_cabinet_id !== Number(selectedCabinetId);
+          const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? LIMIT 1', [Number(finalTypeId), selectedCabinetId]);
+
+          // TACTICAL OVERSIGHT HIERARCHY:
+          // 1. If we are adding to an existing stockpile in this cabinet, no challenge needed.
+          if (!existingHere) {
+             const typeStatus = await db.getFirstAsync<{vanguard_resolved: number}>('SELECT vanguard_resolved FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
+             
+             if (!typeRes?.default_cabinet_id && !typeStatus?.vanguard_resolved) {
+                // SCENARIO: VANGUARD HANDSHAKE (No home established, first arrival)
+                const savePayload = { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining };
+                setDeferredSave(savePayload);
+                setShowVanguardModal(true);
+                return;
+             } else if (others.length > 0 || isDeviatingFromDefault) {
+                // SCENARIO: LOCATION CONFLICT (Stock exists elsewhere or deviating from established home)
+                let finalOthers = others.map(o => ({ id: o.id, name: o.name }));
+                if (isDeviatingFromDefault && !finalOthers.some(o => o.id === typeRes.default_cabinet_id)) {
+                  const defCab = await db.getFirstAsync<any>('SELECT id, name FROM Cabinets WHERE id = ?', [typeRes.default_cabinet_id]);
+                  if (defCab) finalOthers.push({ id: defCab.id, name: defCab.name });
+                }
+                setOtherLocations(finalOthers);
                 setDeferredSave({ typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
                 setShowLocationConflictModal(true);
                 return;
-              } else {
-                // --- SCENARIO 4: VANGUARD HANDSHAKE ---
-                // First arrival, no default, no manual intent, AND hasn't been resolved yet.
-                const typeStatus = await db.getFirstAsync<{vanguard_resolved: number}>('SELECT vanguard_resolved FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
-                if (!typeStatus?.vanguard_resolved) {
-                  const savePayload = { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining };
-                  setDeferredSave(savePayload);
-                  setShowVanguardModal(true);
-                  return;
-                }
-              }
-            }
+             }
           }
         }
           await finalizeCommit(null, savePayload);
@@ -2121,7 +2125,7 @@ export default function AddInventoryScreen() {
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
                 <MaterialCommunityIcons name="alert-decagram" size={24} color="#fb923c" />
-                <Text style={[styles.modalTitle, { marginBottom: 0 }]}>LOCATION CONFLICT</Text>
+                <Text testID="location-conflict-modal-title" style={[styles.modalTitle, { marginBottom: 0 }]}>LOCATION CONFLICT</Text>
               </View>
               
               <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
@@ -2143,7 +2147,7 @@ export default function AddInventoryScreen() {
                     }}
                   >
                     <MaterialCommunityIcons name="undo-variant" size={18} color="#22c55e" />
-                    <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>CORRECT TO: {loc.name.toUpperCase()}</Text>
+                    <Text testID={`correct-to-cabinet-${loc.id}-btn`} style={{ color: '#f8fafc', fontWeight: 'bold' }}>CORRECT TO: {loc.name.toUpperCase()}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -2159,6 +2163,7 @@ export default function AddInventoryScreen() {
                     await finalizeCommit(null, deferredSave);
                   }
                 }}
+                testID="proceed-anyway-cabinet-btn"
               >
                 <MaterialCommunityIcons name="arrow-right-bold" size={18} color="#fb923c" />
                 <Text style={{ color: '#fb923c', fontWeight: 'bold' }}>PROCEED TO: {selectedCabinet?.name.toUpperCase()}</Text>
@@ -2167,6 +2172,7 @@ export default function AddInventoryScreen() {
               <TouchableOpacity 
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, marginBottom: 10 }}
                 onPress={() => setMakeDefaultHome(!makeDefaultHome)}
+                testID="set-as-default-home-toggle"
               >
                 <MaterialCommunityIcons 
                   name={makeDefaultHome ? "checkbox-marked" : "checkbox-blank-outline"} 
@@ -2179,7 +2185,11 @@ export default function AddInventoryScreen() {
               </TouchableOpacity>
 
               <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#0f172a', paddingTop: 16 }}>
-                <TouchableOpacity style={{ flex: 1, paddingVertical: 12, alignItems: 'center' }} onPress={() => setShowLocationConflictModal(false)}>
+                <TouchableOpacity 
+                  style={{ flex: 1, paddingVertical: 12, alignItems: 'center' }} 
+                  onPress={() => setShowLocationConflictModal(false)}
+                  testID="abort-cabinet-conflict-btn"
+                >
                   <Text style={{ color: '#94a3b8', fontWeight: 'bold' }}>ABORT & CANCEL</Text>
                 </TouchableOpacity>
               </View>
@@ -2194,7 +2204,7 @@ export default function AddInventoryScreen() {
           <View style={[styles.modalContent, { borderColor: '#3b82f6', borderWidth: 2 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
               <MaterialCommunityIcons name="star-circle" size={24} color="#3b82f6" />
-              <Text style={[styles.modalTitle, { marginBottom: 0 }]}>VANGUARD ESTABLISHMENT</Text>
+              <Text testID="vanguard-modal-title" style={[styles.modalTitle, { marginBottom: 0 }]}>VANGUARD ESTABLISHMENT</Text>
             </View>
             
             <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
@@ -2211,7 +2221,7 @@ export default function AddInventoryScreen() {
                 }
               }}
             >
-              <Text style={styles.saveText}>PROMOTE TO DEFAULT</Text>
+              <Text testID="promote-to-default-btn" style={styles.saveText}>PROMOTE TO DEFAULT</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -2224,7 +2234,7 @@ export default function AddInventoryScreen() {
                 }
               }}
             >
-              <Text style={{ color: '#cbd5e1', fontWeight: 'bold' }}>DEPLOY ONCE</Text>
+              <Text testID="deploy-once-btn" style={{ color: '#cbd5e1', fontWeight: 'bold' }}>DEPLOY ONCE</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -2234,7 +2244,7 @@ export default function AddInventoryScreen() {
                 setShowCabinetPicker(true);
               }}
             >
-              <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>CHANGE SITE</Text>
+              <Text testID="change-site-btn" style={{ color: '#ef4444', fontWeight: 'bold' }}>CHANGE SITE</Text>
             </TouchableOpacity>
           </View>
         </View>
