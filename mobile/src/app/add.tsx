@@ -1035,20 +1035,19 @@ export default function AddInventoryScreen() {
   else if (unitType === 'count') genericChips = ['1', '6', '12', '24'];
   else genericChips = ['50g', '100g', '250g', '500g', '1kg'];
 
-  // Each chip is { label: string (display), value: string (numeric) }
-  // History chips lead so the user's most-used sizes are always visible first.
-  const allChipsRaw: { label: string; value: string }[] = [
+  // Each chip is { label: string (display), value: string (numeric), isCustom: boolean }
+  const allChipsRaw: { label: string; value: string; isCustom: boolean }[] = [
+    ...genericChips.map(c => ({ label: c, value: getChipValue(c), isCustom: false })),
     ...customChips
-      .map(r => ({ label: formatQuantity(r, unitType), value: r.replace(/[^0-9.]/g, '') }))
+      .map(r => ({ label: formatQuantity(r, unitType), value: r.replace(/[^0-9.]/g, ''), isCustom: true }))
       .filter(c => c.label !== '' && c.value !== ''),
-    ...genericChips.map(c => ({ label: c, value: getChipValue(c) })),
   ];
   const seenValues = new Set<string>();
   const allChips = allChipsRaw.filter(c => {
     if (seenValues.has(c.value)) return false;
     seenValues.add(c.value);
     return true;
-  });
+  }).sort((a, b) => parseFloat(a.value) - parseFloat(b.value));
 
   // ─── PHASE 1: ITEM TYPE SPECIFICATION ───
   if (isNewType === '1' && !typeId) {
@@ -1407,13 +1406,25 @@ export default function AddInventoryScreen() {
             <TouchableOpacity 
               key={c.value} 
               testID={size === c.value ? 'active-size-chip' : `size-chip-${c.value}`}
-              style={[styles.chip, size === c.value && styles.chipActive]} 
+              style={[
+                styles.chip, 
+                c.isCustom && { backgroundColor: '#312e81', borderColor: '#4f46e5', borderWidth: 1, flexDirection: 'row', alignItems: 'center' },
+                size === c.value && (c.isCustom ? { backgroundColor: '#4f46e5' } : styles.chipActive)
+              ]} 
               onPress={() => {
                 setSize(c.value);
                 setErrorField(null);
               }}
             >
-              <Text style={[styles.chipText, size === c.value && styles.chipTextActive]}>
+              {c.isCustom && <MaterialCommunityIcons name="history" size={14} color={size === c.value ? "white" : "#a5b4fc"} style={{ marginRight: 4 }} />}
+              <Text 
+                testID={`size-label-${c.value}${c.isCustom ? '-custom' : '-standard'}`}
+                style={[
+                  styles.chipText, 
+                  c.isCustom && { color: size === c.value ? 'white' : '#a5b4fc' },
+                  size === c.value && styles.chipTextActive
+                ]}
+              >
                 {c.label}
               </Text>
             </TouchableOpacity>
@@ -1702,41 +1713,41 @@ export default function AddInventoryScreen() {
           placeholderTextColor="#64748b"
           testID="supplier-input"
         />
-        <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row', gap: 6 }}>
+        <View style={{ minHeight: 36, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row', gap: 6 }}>
           {!supplier && (defaultBrandSuggestion || mostFreqBrandSuggestion) ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               {defaultBrandSuggestion === mostFreqBrandSuggestion ? (
                 <TouchableOpacity
-                  style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                  style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 10, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#334155', gap: 6}}
                   onPress={() => { setSupplier(defaultBrandSuggestion!); updateSupplierSuggestions(defaultBrandSuggestion!, 'main'); setSuggestedTypeAheadSuppliers([]); }}
                   testID="brand-suggestion-combined"
                 >
-                  <MaterialCommunityIcons name="history" size={11} color="#64748b" />
-                  <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultBrandSuggestion!.toUpperCase()}</Text>
-                  <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Last Logged & Most Frequent</Text>
+                  <MaterialCommunityIcons name="history" size={14} color="#64748b" />
+                  <Text style={{color: '#3b82f6', fontSize: 12, fontWeight: 'bold'}}>{defaultBrandSuggestion!.toUpperCase()}</Text>
+                  <Text style={{color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Last Logged & Most Frequent</Text>
                 </TouchableOpacity>
               ) : (
                 <>
                   {defaultBrandSuggestion && (
                     <TouchableOpacity
-                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 10, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#334155', gap: 6}}
                       onPress={() => { setSupplier(defaultBrandSuggestion); updateSupplierSuggestions(defaultBrandSuggestion, 'main'); setSuggestedTypeAheadSuppliers([]); }}
                       testID="brand-suggestion-last-logged"
                     >
-                      <MaterialCommunityIcons name="history" size={11} color="#64748b" />
-                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultBrandSuggestion.toUpperCase()}</Text>
-                      <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Last Logged</Text>
+                      <MaterialCommunityIcons name="history" size={14} color="#64748b" />
+                      <Text style={{color: '#3b82f6', fontSize: 12, fontWeight: 'bold'}}>{defaultBrandSuggestion.toUpperCase()}</Text>
+                      <Text style={{color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Last Logged</Text>
                     </TouchableOpacity>
                   )}
                   {mostFreqBrandSuggestion && (
                     <TouchableOpacity
-                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 10, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#334155', gap: 6}}
                       onPress={() => { setSupplier(mostFreqBrandSuggestion); updateSupplierSuggestions(mostFreqBrandSuggestion, 'main'); setSuggestedTypeAheadSuppliers([]); }}
                       testID="brand-suggestion-most-frequent"
                     >
-                      <MaterialCommunityIcons name="trending-up" size={11} color="#64748b" />
-                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{mostFreqBrandSuggestion.toUpperCase()}</Text>
-                      <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Most Frequent</Text>
+                      <MaterialCommunityIcons name="trending-up" size={14} color="#64748b" />
+                      <Text style={{color: '#3b82f6', fontSize: 12, fontWeight: 'bold'}}>{mostFreqBrandSuggestion.toUpperCase()}</Text>
+                      <Text style={{color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Most Frequent</Text>
                     </TouchableOpacity>
                   )}
                 </>
@@ -1748,12 +1759,12 @@ export default function AddInventoryScreen() {
                 const isCore = Object.keys(SUPPLIERS_DATA).some(k => k.toLowerCase() === s.toLowerCase()) || 
                                Object.keys(BRANDS_DATA).some(k => k.toLowerCase() === s.toLowerCase());
                 return (
-                  <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: isCore ? 6 : 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                  <View key={s} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 10, paddingRight: isCore ? 10 : 6, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#334155', gap: 6}}>
                     <TouchableOpacity 
                       onPress={() => { setSupplier(s); setSuggestedTypeAheadSuppliers([]); }}
                       testID={`supplier-suggestion-${s.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
+                      <Text style={{color: '#3b82f6', fontSize: 12, fontWeight: 'bold'}}>{s.toUpperCase()}</Text>
                     </TouchableOpacity>
                     {!isCore && (
                       <TouchableOpacity 
@@ -1761,7 +1772,7 @@ export default function AddInventoryScreen() {
                         hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
                         style={{padding: 2}}
                       >
-                        <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                        <MaterialCommunityIcons name="trash-can-outline" size={16} color="#f43f5e" />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -1784,41 +1795,41 @@ export default function AddInventoryScreen() {
           onSubmitEditing={(e) => { isAutoSavePipeline.current = false; handleRangeFuzzyCheck(e.nativeEvent.text); }}
           testID="product-range-input"
         />
-        <View style={{ height: 26, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row', gap: 6 }}>
+        <View style={{ minHeight: 36, justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, flexDirection: 'row', gap: 6 }}>
           {!productRange && (defaultRangeSuggestion || mostFreqRangeSuggestion) ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               {defaultRangeSuggestion === mostFreqRangeSuggestion ? (
                 <TouchableOpacity
-                  style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                  style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 10, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#334155', gap: 6}}
                   onPress={() => { setProductRange(defaultRangeSuggestion!); updateRangeSuggestions(defaultRangeSuggestion!); setSuggestedTypeAheadRanges([]); }}
                   testID="range-suggestion-combined"
                 >
-                  <MaterialCommunityIcons name="history" size={11} color="#64748b" />
-                  <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultRangeSuggestion!.toUpperCase()}</Text>
-                  <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Last Logged & Most Frequent</Text>
+                  <MaterialCommunityIcons name="history" size={14} color="#64748b" />
+                  <Text style={{color: '#3b82f6', fontSize: 12, fontWeight: 'bold'}}>{defaultRangeSuggestion!.toUpperCase()}</Text>
+                  <Text style={{color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Last Logged & Most Frequent</Text>
                 </TouchableOpacity>
               ) : (
                 <>
                   {defaultRangeSuggestion && (
                     <TouchableOpacity
-                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 10, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#334155', gap: 6}}
                       onPress={() => { setProductRange(defaultRangeSuggestion); updateRangeSuggestions(defaultRangeSuggestion); setSuggestedTypeAheadRanges([]); }}
                       testID="range-suggestion-last-logged"
                     >
-                      <MaterialCommunityIcons name="history" size={11} color="#64748b" />
-                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultRangeSuggestion.toUpperCase()}</Text>
-                      <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Last Logged</Text>
+                      <MaterialCommunityIcons name="history" size={14} color="#64748b" />
+                      <Text style={{color: '#3b82f6', fontSize: 12, fontWeight: 'bold'}}>{defaultRangeSuggestion.toUpperCase()}</Text>
+                      <Text style={{color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Last Logged</Text>
                     </TouchableOpacity>
                   )}
                   {mostFreqRangeSuggestion && (
                     <TouchableOpacity
-                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
+                      style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 10, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#334155', gap: 6}}
                       onPress={() => { setProductRange(mostFreqRangeSuggestion); updateRangeSuggestions(mostFreqRangeSuggestion); setSuggestedTypeAheadRanges([]); }}
                       testID="range-suggestion-most-frequent"
                     >
-                      <MaterialCommunityIcons name="trending-up" size={11} color="#64748b" />
-                      <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{mostFreqRangeSuggestion.toUpperCase()}</Text>
-                      <Text style={{color: '#64748b', fontSize: 9, fontStyle: 'italic'}}>Most Frequent</Text>
+                      <MaterialCommunityIcons name="trending-up" size={14} color="#64748b" />
+                      <Text style={{color: '#3b82f6', fontSize: 12, fontWeight: 'bold'}}>{mostFreqRangeSuggestion.toUpperCase()}</Text>
+                      <Text style={{color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Most Frequent</Text>
                     </TouchableOpacity>
                   )}
                 </>
@@ -1827,19 +1838,19 @@ export default function AddInventoryScreen() {
           ) : suggestedTypeAheadRanges.length > 0 && productRange.length > 0 && (
             <View style={{flexDirection: 'row', gap: 4}}>
               {suggestedTypeAheadRanges.map(r => (
-                <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
+                <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 10, paddingRight: 6, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#334155', gap: 6}}>
                   <TouchableOpacity 
                     onPress={() => { setProductRange(r); setSuggestedTypeAheadRanges([]); }}
                     testID={`range-suggestion-${r.toLowerCase().replace(/\s+/g, '-')}`}
                   >
-                    <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
+                    <Text style={{color: '#3b82f6', fontSize: 12, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     onPress={() => handlePurgeVocabulary(r, 'range')}
                     hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}
                     style={{padding: 2}}
                   >
-                    <MaterialCommunityIcons name="trash-can-outline" size={14} color="#f43f5e" />
+                    <MaterialCommunityIcons name="trash-can-outline" size={16} color="#f43f5e" />
                   </TouchableOpacity>
                 </View>
               ))}
