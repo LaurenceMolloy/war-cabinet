@@ -443,16 +443,16 @@ export default function AddInventoryScreen() {
         const lastRange = typeRes?.default_product_range || lastRangeRow?.product_range || null;
         if (lastRange) setDefaultRangeSuggestion(lastRange);
 
-        const freqBrandRow = await db.getFirstAsync<{supplier: string}>("SELECT supplier, COUNT(*) as count FROM Inventory WHERE item_type_id = ? AND supplier IS NOT NULL AND supplier != '' GROUP BY supplier COLLATE NOCASE ORDER BY count DESC LIMIT 1", [Number(typeId)]);
+        const freqBrandRow = await db.getFirstAsync<{supplier: string}>("SELECT supplier, SUM(quantity) as count FROM Inventory WHERE item_type_id = ? AND supplier IS NOT NULL AND supplier != '' GROUP BY supplier COLLATE NOCASE ORDER BY count DESC LIMIT 1", [Number(typeId)]);
         if (freqBrandRow) setMostFreqBrandSuggestion(freqBrandRow.supplier);
 
-        const freqRangeRow = await db.getFirstAsync<{product_range: string}>("SELECT product_range, COUNT(*) as count FROM Inventory WHERE item_type_id = ? AND product_range IS NOT NULL AND product_range != '' GROUP BY product_range COLLATE NOCASE ORDER BY count DESC LIMIT 1", [Number(typeId)]);
+        const freqRangeRow = await db.getFirstAsync<{product_range: string}>("SELECT product_range, SUM(quantity) as count FROM Inventory WHERE item_type_id = ? AND product_range IS NOT NULL AND product_range != '' GROUP BY product_range COLLATE NOCASE ORDER BY count DESC LIMIT 1", [Number(typeId)]);
         if (freqRangeRow) setMostFreqRangeSuggestion(freqRangeRow.product_range);
       }
 
       // --- GLOBAL FALLBACK INTELLIGENCE (For items with no history) ---
-      const globalFreqBrand = await db.getFirstAsync<{supplier: string}>("SELECT supplier, COUNT(*) as count FROM Inventory WHERE supplier IS NOT NULL AND supplier != '' GROUP BY supplier COLLATE NOCASE ORDER BY count DESC LIMIT 1");
-      const globalFreqRange = await db.getFirstAsync<{product_range: string}>("SELECT product_range, COUNT(*) as count FROM Inventory WHERE product_range IS NOT NULL AND product_range != '' GROUP BY product_range COLLATE NOCASE ORDER BY count DESC LIMIT 1");
+      const globalFreqBrand = await db.getFirstAsync<{supplier: string}>("SELECT supplier, SUM(quantity) as count FROM Inventory WHERE supplier IS NOT NULL AND supplier != '' GROUP BY supplier COLLATE NOCASE ORDER BY count DESC LIMIT 1");
+      const globalFreqRange = await db.getFirstAsync<{product_range: string}>("SELECT product_range, SUM(quantity) as count FROM Inventory WHERE product_range IS NOT NULL AND product_range != '' GROUP BY product_range COLLATE NOCASE ORDER BY count DESC LIMIT 1");
       
       if (globalFreqBrand && !mostFreqBrandSuggestion) setMostFreqBrandSuggestion(globalFreqBrand.supplier);
       if (globalFreqRange && !mostFreqRangeSuggestion) setMostFreqRangeSuggestion(globalFreqRange.product_range);
@@ -1709,6 +1709,7 @@ export default function AddInventoryScreen() {
                 <TouchableOpacity
                   style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
                   onPress={() => { setSupplier(defaultBrandSuggestion!); updateSupplierSuggestions(defaultBrandSuggestion!, 'main'); setSuggestedTypeAheadSuppliers([]); }}
+                  testID="brand-suggestion-combined"
                 >
                   <MaterialCommunityIcons name="history" size={11} color="#64748b" />
                   <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultBrandSuggestion!.toUpperCase()}</Text>
@@ -1720,6 +1721,7 @@ export default function AddInventoryScreen() {
                     <TouchableOpacity
                       style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
                       onPress={() => { setSupplier(defaultBrandSuggestion); updateSupplierSuggestions(defaultBrandSuggestion, 'main'); setSuggestedTypeAheadSuppliers([]); }}
+                      testID="brand-suggestion-last-logged"
                     >
                       <MaterialCommunityIcons name="history" size={11} color="#64748b" />
                       <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultBrandSuggestion.toUpperCase()}</Text>
@@ -1730,6 +1732,7 @@ export default function AddInventoryScreen() {
                     <TouchableOpacity
                       style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
                       onPress={() => { setSupplier(mostFreqBrandSuggestion); updateSupplierSuggestions(mostFreqBrandSuggestion, 'main'); setSuggestedTypeAheadSuppliers([]); }}
+                      testID="brand-suggestion-most-frequent"
                     >
                       <MaterialCommunityIcons name="trending-up" size={11} color="#64748b" />
                       <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{mostFreqBrandSuggestion.toUpperCase()}</Text>
@@ -1788,6 +1791,7 @@ export default function AddInventoryScreen() {
                 <TouchableOpacity
                   style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
                   onPress={() => { setProductRange(defaultRangeSuggestion!); updateRangeSuggestions(defaultRangeSuggestion!); setSuggestedTypeAheadRanges([]); }}
+                  testID="range-suggestion-combined"
                 >
                   <MaterialCommunityIcons name="history" size={11} color="#64748b" />
                   <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultRangeSuggestion!.toUpperCase()}</Text>
@@ -1799,6 +1803,7 @@ export default function AddInventoryScreen() {
                     <TouchableOpacity
                       style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
                       onPress={() => { setProductRange(defaultRangeSuggestion); updateRangeSuggestions(defaultRangeSuggestion); setSuggestedTypeAheadRanges([]); }}
+                      testID="range-suggestion-last-logged"
                     >
                       <MaterialCommunityIcons name="history" size={11} color="#64748b" />
                       <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{defaultRangeSuggestion.toUpperCase()}</Text>
@@ -1809,6 +1814,7 @@ export default function AddInventoryScreen() {
                     <TouchableOpacity
                       style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', paddingLeft: 6, paddingRight: 8, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}
                       onPress={() => { setProductRange(mostFreqRangeSuggestion); updateRangeSuggestions(mostFreqRangeSuggestion); setSuggestedTypeAheadRanges([]); }}
+                      testID="range-suggestion-most-frequent"
                     >
                       <MaterialCommunityIcons name="trending-up" size={11} color="#64748b" />
                       <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{mostFreqRangeSuggestion.toUpperCase()}</Text>
