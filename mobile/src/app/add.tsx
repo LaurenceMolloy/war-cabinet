@@ -1801,7 +1801,10 @@ export default function AddInventoryScreen() {
             <View style={{flexDirection: 'row', gap: 4}}>
               {suggestedTypeAheadRanges.map(r => (
                 <View key={r} style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingLeft: 6, paddingRight: 4, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#334155', gap: 4}}>
-                  <TouchableOpacity onPress={() => { setProductRange(r); setSuggestedTypeAheadRanges([]); }}>
+                  <TouchableOpacity 
+                    onPress={() => { setProductRange(r); setSuggestedTypeAheadRanges([]); }}
+                    testID={`range-suggestion-${r.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
                     <Text style={{color: '#3b82f6', fontSize: 10, fontWeight: 'bold'}}>{r.toUpperCase()}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
