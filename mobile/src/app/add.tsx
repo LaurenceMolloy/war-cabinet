@@ -110,6 +110,9 @@ export default function AddInventoryScreen() {
   const [showExpiryWarningModal, setShowExpiryWarningModal] = useState(false);
   const mainScrollRef = useRef<ScrollView>(null);
   const expirySectionY = useRef(0);
+  const quantitySectionY = useRef(0);
+  const sizeSectionY = useRef(0);
+  const freezeSectionY = useRef(0);
 
   const resumePipeline = () => {
     if (isAutoSavePipeline.current) {
@@ -573,17 +576,6 @@ export default function AddInventoryScreen() {
       if (handleSupplierFuzzyCheck(showQuickAddType ? quickAddSupplier : supplier)) return;
       if (handleRangeFuzzyCheck(showQuickAddType ? quickAddRange : productRange)) return;
 
-      // EXPIRY OMISSION GUARD: Warn if the user never touched the expiry date (defaults to current month)
-      if (!isFreezerMode && !expiryTouched.current) {
-        const exM = parseInt(expiryMonth);
-        const exY = parseInt(expiryYear);
-        const isDefaultDate = exM === currentMonth && exY === currentYear;
-        if (isDefaultDate) {
-          setShowExpiryWarningModal(true);
-          return;
-        }
-      }
-
       setErrorField(null);
       setErrorMsg(null);
 
@@ -591,6 +583,7 @@ export default function AddInventoryScreen() {
       if (!s) {
         setErrorField('size');
         setErrorMsg('Size is required');
+        mainScrollRef.current?.scrollTo({ y: sizeSectionY.current - 20, animated: true });
         return;
       }
 
@@ -602,13 +595,26 @@ export default function AddInventoryScreen() {
       if (isNaN(q) || q <= 0) {
         setErrorField('quantity');
         setErrorMsg('Quantity must be a positive number');
+        mainScrollRef.current?.scrollTo({ y: quantitySectionY.current - 20, animated: true });
         return;
+      }
+
+      // EXPIRY OMISSION GUARD: Warn if the user never touched the expiry date (defaults to current month)
+      if (!isFreezerMode && !expiryTouched.current) {
+        const exM = parseInt(expiryMonth);
+        const exY = parseInt(expiryYear);
+        const isDefaultDate = exM === currentMonth && exY === currentYear;
+        if (isDefaultDate) {
+          setShowExpiryWarningModal(true);
+          return;
+        }
       }
 
       if ((unitType === 'weight' || unitType === 'volume')) {
         if (!/^\d+(\.\d+)?$/.test(finalSize)) {
           setErrorField('size');
           setErrorMsg(`Format error: "${unitType}" only accepts numbers`);
+          mainScrollRef.current?.scrollTo({ y: sizeSectionY.current - 20, animated: true });
           return;
         }
       }
@@ -638,6 +644,7 @@ export default function AddInventoryScreen() {
         if ((entryY * 12 + entryM) > (currentYear * 12 + currentMonth)) {
           setErrorField('freezeDate');
           setErrorMsg('Items cannot be frozen in the future');
+          mainScrollRef.current?.scrollTo({ y: freezeSectionY.current - 20, animated: true });
           return;
         }
       }
@@ -646,6 +653,7 @@ export default function AddInventoryScreen() {
       if (isFreezerMode && (isNaN(fLimit) || fLimit <= 0)) {
          setErrorField('freezeLimit');
          setErrorMsg('Freeze limit must be a positive number of months');
+         mainScrollRef.current?.scrollTo({ y: freezeSectionY.current - 20, animated: true });
          return;
       }
 
@@ -1360,7 +1368,11 @@ export default function AddInventoryScreen() {
           </TouchableOpacity>
         </View>
 
-      <View style={styles.formGroup}>
+      <View 
+        style={[styles.formGroup, errorField === 'quantity' && { borderColor: '#ef4444', borderWidth: 1, borderRadius: 8, padding: 4 }]} 
+        onLayout={(e) => quantitySectionY.current = e.nativeEvent.layout.y}
+        testID="qty-field-container"
+      >
         <Text style={styles.label}>Quantity</Text>
         <View style={[styles.stepper, errorField === 'quantity' && { borderColor: '#ef4444', borderWidth: 1, borderRadius: 8 }]}>
           <TouchableOpacity style={styles.stepButton} onPress={decrement}>
@@ -1377,10 +1389,14 @@ export default function AddInventoryScreen() {
             <MaterialCommunityIcons name="plus" size={24} color="white" />
           </TouchableOpacity>
         </View>
-        {errorField === 'quantity' && <Text style={styles.errorText}>{errorMsg}</Text>}
+        {errorField === 'quantity' && <Text style={styles.errorText} testID="qty-error">{errorMsg}</Text>}
       </View>
 
-      <View style={styles.formGroup}>
+      <View 
+        style={[styles.formGroup, errorField === 'size' && { borderColor: '#ef4444', borderWidth: 1, borderRadius: 8, padding: 4 }]} 
+        onLayout={(e) => sizeSectionY.current = e.nativeEvent.layout.y}
+        testID="size-field-container"
+      >
         <Text style={styles.label}>Size (Choose or Type)</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer}>
           {allChips.map(c => (
@@ -1413,7 +1429,7 @@ export default function AddInventoryScreen() {
             <Text style={styles.unitLabel} testID="unit-label">{getUnitSuffix(unitType)}</Text>
           )}
         </View>
-        {errorField === 'size' && <Text style={styles.errorText}>{errorMsg}</Text>}
+        {errorField === 'size' && <Text style={styles.errorText} testID="size-error">{errorMsg}</Text>}
       </View>
 
       {editBatchId ? (
@@ -1470,7 +1486,7 @@ export default function AddInventoryScreen() {
 
       {/* ─── EXPIRY / DATE FROZEN (moved up - quasi-mandatory) ─── */}
       {isFreezerMode ? (
-        <View style={styles.formGroup}>
+        <View style={styles.formGroup} onLayout={(e) => freezeSectionY.current = e.nativeEvent.layout.y}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <MaterialCommunityIcons name="snowflake" size={16} color="#60a5fa" />
             <Text style={[styles.label, { marginBottom: 0, color: '#60a5fa' }]}>Date Frozen</Text>
@@ -1532,8 +1548,9 @@ export default function AddInventoryScreen() {
         </View>
       ) : (
         <View 
-          style={styles.formGroup}
+          style={[styles.formGroup, errorField === 'expiry' && { borderColor: '#ef4444', borderWidth: 1, borderRadius: 8, padding: 4 }]} 
           onLayout={(e) => { expirySectionY.current = e.nativeEvent.layout.y; }}
+          testID="expiry-field-container"
         >
 
           {/* PINNED DATE BADGE — always visible above keyboard */}
@@ -2030,6 +2047,7 @@ export default function AddInventoryScreen() {
             </Text>
             <View style={{ gap: 10 }}>
               <TouchableOpacity
+                testID="expiry-warning-set-date-btn"
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -2054,6 +2072,7 @@ export default function AddInventoryScreen() {
                 <Text style={{ color: '#000', fontSize: 14, fontWeight: '900', letterSpacing: 1 }}>SET EXPIRY DATE</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                testID="expiry-warning-save-anyway-btn"
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
