@@ -77,8 +77,9 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     // Wait for DB to populate the default size
     await expect(page.getByTestId('size-input')).toHaveValue('100');
 
-    // Enter 200 as custom size
+    // Enter 200 as custom size, tagged with unique Batch Intel for Step 8 targeting
     await page.getByTestId('size-input').fill('200');
+    await page.getByTestId('batch-intel-input').fill('TO BE DELETED');
     await page.getByTestId('expiry-month-trigger').click();
     await page.getByTestId('expiry-month-option-2').click();
     await page.getByTestId('save-stock-btn').click();
@@ -156,6 +157,65 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     await expect(customChips).toHaveCount(3);
     await expect(customChips).toHaveText(['200g', '400g', '800g']);
 
+    await page.getByTestId('cancel-btn').click();
+  });
+
+  await test.step('STEP 7: Standard Size Does Not Consume Custom Memory Slot', async () => {
+    await page.getByTestId('add-btn-test-category-1-test-item-1').filter({ visible: true }).click();
+
+    // Wait for DB to populate the default size
+    await expect(page.getByTestId('size-input')).toHaveValue('100');
+
+    // Select standard size 50g chip
+    await page.getByTestId('size-chip-50').click();
+    await page.getByTestId('expiry-month-trigger').click();
+    await page.getByTestId('expiry-month-option-1').click();
+    await page.getByTestId('save-stock-btn').click();
+
+    // Verify the 50g batch was saved correctly
+    const sizeBadge5 = page.getByTestId('test-category-1-test-item-1-batch-5-size');
+    await expect(sizeBadge5).toHaveText('50g');
+
+    // Re-open - custom memory slots should be unchanged (50g is standard, not bespoke)
+    await page.getByTestId('add-btn-test-category-1-test-item-1').filter({ visible: true }).click();
+    const customChips = page.locator('[data-testid$="-custom"]');
+    await expect(customChips).toHaveCount(3);
+    await expect(customChips).toHaveText(['200g', '400g', '800g']);
+
+    await page.getByTestId('cancel-btn').click();
+  });
+
+  await test.step('STEP 8: Persistent Memory Decoupling (Batch Deletion)', async () => {
+    // RN Web virtualization leaves multiple copies of the row in the DOM.
+    // We find all 200g size badges and use the first one to extract the ID.
+    const allSizeBadges200g = page.getByTestId(/test-category-1-test-item-1-batch-\d+-size/).filter({ hasText: '200g' });
+    const firstSizeBadge200g = allSizeBadges200g.first();
+    await expect(firstSizeBadge200g).toBeAttached();
+
+    const testId = await firstSizeBadge200g.getAttribute('data-testid');
+    const batchId = testId?.match(/batch-(\d+)-size/)?.[1];
+    if (!batchId) throw new Error('Could not determine batch ID for 200g');
+
+    // Click the deduct (minus) button for that specific batch using dispatchEvent.
+    await page.getByTestId(`deduct-batch-${batchId}`).first().dispatchEvent('click');
+
+    // Wait for the confirmation modal using the correct title for the row-level delete modal.
+    await page.getByText('CONFIRM DELETION').waitFor({ state: 'visible' });
+    // Allow the RN Web modal slide-in animation to complete
+    await page.waitForTimeout(500);
+
+    // Confirm deletion - use pointer events to reliably trigger RN Web's TouchableOpacity
+    const confirmBtn = page.getByTestId('confirm-delete-batch-btn').first();
+    await confirmBtn.dispatchEvent('pointerdown');
+    await confirmBtn.dispatchEvent('pointerup');
+
+    // Verify all copies of the 200g size badge are gone.
+    await expect(allSizeBadges200g).toHaveCount(0);
+
+    // THE CORE ASSERTION: 200g must still appear in smart size chips after deletion.
+    await page.getByTestId('add-btn-test-category-1-test-item-1').filter({ visible: true }).click();
+    await expect(page.locator('[data-testid$="-custom"]')).toHaveCount(3);
+    await expect(page.locator('[data-testid$="-custom"]')).toHaveText(['200g', '400g', '800g']);
     await page.getByTestId('cancel-btn').click();
   });
 

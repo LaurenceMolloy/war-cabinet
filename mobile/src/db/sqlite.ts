@@ -51,7 +51,7 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
   
     // 1. Individual Table Initialization (More robust on Web)
     await db.execAsync(`CREATE TABLE IF NOT EXISTS Categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, icon TEXT, is_mess_hall INTEGER DEFAULT 1);`);
-    await db.execAsync(`CREATE TABLE IF NOT EXISTS ItemTypes (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT NOT NULL, unit_type TEXT DEFAULT 'weight', default_size TEXT, default_cabinet_id INTEGER, is_favorite INTEGER DEFAULT 0, interaction_count INTEGER DEFAULT 0, min_stock_level INTEGER, max_stock_level INTEGER, freeze_months INTEGER, default_supplier TEXT, default_product_range TEXT, vanguard_resolved INTEGER DEFAULT 0, FOREIGN KEY(category_id) REFERENCES Categories(id));`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS ItemTypes (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT NOT NULL, unit_type TEXT DEFAULT 'weight', default_size TEXT, default_cabinet_id INTEGER, is_favorite INTEGER DEFAULT 0, interaction_count INTEGER DEFAULT 0, min_stock_level INTEGER, max_stock_level INTEGER, freeze_months INTEGER, default_supplier TEXT, default_product_range TEXT, vanguard_resolved INTEGER DEFAULT 0, custom_sizes TEXT DEFAULT '[]', FOREIGN KEY(category_id) REFERENCES Categories(id));`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS Inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type_id INTEGER, quantity INTEGER NOT NULL DEFAULT 1, size TEXT NOT NULL, expiry_month INTEGER, expiry_year INTEGER, entry_month INTEGER NOT NULL, entry_year INTEGER NOT NULL, entry_day INTEGER NOT NULL DEFAULT 1, cabinet_id INTEGER, batch_intel TEXT, supplier TEXT, product_range TEXT, portions_total INTEGER, portions_remaining INTEGER, last_rotated_at INTEGER, FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id));`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS Cabinets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, location TEXT, rotation_interval_months INTEGER, default_rotation_cabinet_id INTEGER);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS Settings (key TEXT PRIMARY KEY, value TEXT);`);
@@ -120,6 +120,11 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     const hasVanguardResolved = columnsRes.some(col => col.name === 'vanguard_resolved');
     if (!hasVanguardResolved) {
       await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN vanguard_resolved INTEGER DEFAULT 0');
+    }
+
+    const hasCustomSizes = columnsRes.some(col => col.name === 'custom_sizes');
+    if (!hasCustomSizes) {
+      await db.execAsync("ALTER TABLE ItemTypes ADD COLUMN custom_sizes TEXT DEFAULT '[]'");
     }
 
     // Migration: add is_mess_hall to Categories if it does not exist

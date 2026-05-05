@@ -480,7 +480,7 @@ export default function HomeScreen() {
     const type = typeId ? await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]) : null;
     const inv = await db.getFirstAsync<any>('SELECT size, supplier FROM Inventory WHERE id = ?', [invId]);
 
-    if (isDeletion) await db.runAsync('DELETE FROM Inventory WHERE id = ?', invId);
+    if (isDeletion) await db.runAsync('DELETE FROM Inventory WHERE id = ?', [invId]);
     else {
       // Portions-Aware Decrement: Ensure total remainder doesn't exceed new capacity
       await db.runAsync(`
@@ -1151,7 +1151,7 @@ export default function HomeScreen() {
                               <MaterialCommunityIcons name="transfer" size={16} color="white" />
                             </TouchableOpacity>
                           )}
-                          <TouchableOpacity onPress={() => handleDeductRequest(inv, type)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}><MaterialCommunityIcons name="minus" size={16} color="white" /></TouchableOpacity>
+                          <TouchableOpacity testID={`deduct-batch-${inv.id}`} onPress={() => handleDeductRequest(inv, type)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}><MaterialCommunityIcons name="minus" size={16} color="white" /></TouchableOpacity>
                           <TouchableOpacity onPress={() => addQuantity(inv.id, type.id)} style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}><MaterialCommunityIcons name="plus" size={16} color="white" /></TouchableOpacity>
                         </View>
                       </View>
@@ -1423,7 +1423,9 @@ export default function HomeScreen() {
       <Modal visible={showDeleteModal} transparent animationType="slide">
         <View style={styles.modalOverlay}><View style={styles.modalContent}>
           <Text style={styles.modalTitle}>CONFIRM DELETION</Text>
-          <Text style={{color: '#f8fafc', textAlign: 'center', fontSize: 16, fontWeight: 'bold', marginBottom: 12}}>{deleteTarget?.name}</Text>
+          <Text style={{color: '#f8fafc', textAlign: 'center', fontSize: 16, fontWeight: 'bold', marginBottom: 12}}>
+            {deleteTarget?.name} (ID: {deleteBatch?.id ?? 'UNDEFINED'})
+          </Text>
           {deleteBatch && (
             <View style={{ backgroundColor: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16, width: '100%' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
@@ -1466,7 +1468,7 @@ export default function HomeScreen() {
             </View>
           )}
           <Text style={{color: '#64748b', textAlign: 'center', fontSize: 12, marginBottom: 16}}>Are you sure you want to remove this batch from stock?</Text>
-          <TouchableOpacity style={[styles.confirmBtn, {backgroundColor: '#ef4444'}]} onPress={() => { deductQuantity(deleteBatch.id, deleteBatch.quantity, deleteTarget.id, true); setShowDeleteModal(false); }}>
+          <TouchableOpacity testID="confirm-delete-batch-btn" style={[styles.confirmBtn, {backgroundColor: '#ef4444'}]} onPress={() => { deductQuantity(deleteBatch.id, deleteBatch.quantity, deleteTarget.id, true); setShowDeleteModal(false); }}>
             <Text style={{color: 'white', fontWeight: 'bold'}}>CONFIRM DELETE</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.cancelLink} onPress={() => setShowDeleteModal(false)}><Text style={{color: '#64748b'}}>CANCEL</Text></TouchableOpacity>
@@ -1723,6 +1725,7 @@ export default function HomeScreen() {
               : "Deduct 1 unit from the soonest-expiring batch?"}
           </Text>
           <TouchableOpacity 
+            testID="confirm-delete-batch-btn"
             style={[styles.confirmBtn, confirmBatch?.quantity <= 1 && { backgroundColor: '#ef4444' }]} 
             onPress={handleConfirmFavoriteUse}
           >
@@ -2018,7 +2021,7 @@ const styles = StyleSheet.create({
   rowSub: { flexDirection: 'row', alignItems: 'center' },
   subText: { color: '#e2e8f0', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 },
   divider: { color: '#94a3b8', marginHorizontal: 8, fontSize: 10, fontWeight: 'bold' },
-  actionBtn: { padding: 6, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  actionBtn: { padding: 6, borderRadius: 6, alignItems: 'center', justifyContent: 'center', minWidth: 28, minHeight: 28 },
   commandStrip: { 
     flexDirection: 'row', 
     alignItems: 'center', 

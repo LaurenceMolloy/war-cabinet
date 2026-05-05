@@ -412,8 +412,8 @@ export default function AddInventoryScreen() {
       // Fetch Sensible Defaults for item type
       let typeRes: any = null;
       if (typeId) {
-        typeRes = await db.getFirstAsync<{name: string, category_name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null, category_id: number}>(
-          `SELECT i.name, c.name as category_name, i.category_id, i.unit_type, i.default_size, i.default_cabinet_id, i.freeze_months, i.default_supplier, i.default_product_range 
+        typeRes = await db.getFirstAsync<{name: string, category_name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null, category_id: number, custom_sizes: string | null}>(
+          `SELECT i.name, c.name as category_name, i.category_id, i.unit_type, i.default_size, i.default_cabinet_id, i.freeze_months, i.default_supplier, i.default_product_range, i.custom_sizes 
            FROM ItemTypes i 
            JOIN Categories c ON c.id = i.category_id
            WHERE i.id = ?`, 
@@ -490,19 +490,23 @@ export default function AddInventoryScreen() {
 
 
       if (typeId) {
-        const res = await db.getAllAsync<{size: string}>(
-          "SELECT size FROM Inventory WHERE item_type_id = ? AND size NOT GLOB '*[^0-9]*' GROUP BY size ORDER BY MAX(id) DESC LIMIT 3",
-          [Number(typeId)]
-        );
-        if (res && res.length > 0) {
-          setCustomChips(res.map(r => r.size));
+        let parsedSizes: string[] = [];
+        if (typeRes && typeRes.custom_sizes) {
+          try {
+            parsedSizes = JSON.parse(typeRes.custom_sizes);
+            if (Array.isArray(parsedSizes)) {
+              setCustomChips(parsedSizes);
+            }
+          } catch (e) {
+            console.error('Failed to parse custom sizes JSON', e);
+          }
         }
 
         if (!editBatchId) {
           if (typeRes && typeRes.default_size) {
              setSize(typeRes.default_size.toString().replace(/[^0-9]/g, '') || '');
-          } else if (res && res.length > 0) {
-            setSize(res[0].size.toString().replace(/[^0-9]/g, '') || '');
+          } else if (parsedSizes.length > 0) {
+            setSize(parsedSizes[0].toString().replace(/[^0-9]/g, '') || '');
           }
           if (typeRes && typeRes.default_supplier) setSupplier(typeRes.default_supplier);
           if (typeRes && typeRes.default_product_range) setProductRange(typeRes.default_product_range);
@@ -936,6 +940,32 @@ export default function AddInventoryScreen() {
           'INSERT OR REPLACE INTO BarcodeSignatures (barcode, item_type_id, supplier, size) VALUES (?, ?, ?, ?)',
           [barcodeStr, Number(data.typeId), data.supplier || null, data.finalSize || null]
         );
+      }
+
+      // --- PERSISTENT CUSTOM SIZE MEMORY ---
+      if (data.typeId && data.finalSize && !data.finalSize.match(/[^0-9.]/)) {
+        const sizeNum = data.finalSize;
+        let isStandard = false;
+        if (unitType === 'volume' || unitType === 'weight') {
+          isStandard = ['50', '100', '250', '500', '1000'].includes(sizeNum);
+        } else if (unitType === 'count') {
+          isStandard = ['1', '6', '12', '24'].includes(sizeNum);
+        }
+        
+        if (!isStandard) {
+          const typeRec = await db.getFirstAsync<{custom_sizes: string | null}>('SELECT custom_sizes FROM ItemTypes WHERE id = ?', [Number(data.typeId)]);
+          if (typeRec) {
+            let sizesList: string[] = [];
+            try { if (typeRec.custom_sizes) sizesList = JSON.parse(typeRec.custom_sizes); } catch(e){}
+            
+            if (Array.isArray(sizesList)) {
+              sizesList = sizesList.filter(s => s !== sizeNum); // Remove if exists
+              sizesList.unshift(sizeNum); // Add to front
+              sizesList = sizesList.slice(0, 3); // Keep only 3
+              await db.runAsync('UPDATE ItemTypes SET custom_sizes = ? WHERE id = ?', [JSON.stringify(sizesList), Number(data.typeId)]);
+            }
+          }
+        }
       }
 
       await markModified(db);
@@ -1586,6 +1616,7 @@ export default function AddInventoryScreen() {
                 <TouchableOpacity
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
                   onPress={() => { setExpiryMonth(''); setExpiryYear(''); setWasScanned(false); }}
+                  testID="no-date-mark-btn"
                 >
                   <MaterialCommunityIcons name="calendar-remove" size={14} color="#ef4444" />
                   <Text style={styles.clearDateText}>NO DATE MARK</Text>
@@ -1619,7 +1650,9 @@ export default function AddInventoryScreen() {
                 <Text style={{ color: '#fff', fontSize: 8, fontWeight: 'bold', letterSpacing: 0.5 }}>SCANNED</Text>
               </View>
             )}
-            <Text style={{
+            <Text 
+              testID="visual-expiry-month"
+              style={{
               color: expiryMonth ? '#f8fafc' : '#475569',
               fontSize: 26,
               fontWeight: '900',
@@ -1629,7 +1662,9 @@ export default function AddInventoryScreen() {
               {expiryMonth ? expiryMonth.toString().padStart(2, '0') : 'MM'}
             </Text>
             <Text style={{ color: '#475569', fontSize: 22, fontWeight: '300' }}>/</Text>
-            <Text style={{
+            <Text 
+              testID="visual-expiry-year"
+              style={{
               color: expiryYear ? '#f8fafc' : '#475569',
               fontSize: 26,
               fontWeight: '900',
