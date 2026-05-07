@@ -1,15 +1,30 @@
-import { Stack } from 'expo-router';
-import { Suspense } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import { Suspense, useEffect } from 'react';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
 import { initializeDatabase } from '../db/sqlite';
 import * as Notifications from 'expo-notifications';
-import { useEffect } from 'react';
-import { useRouter } from 'expo-router';
 import { BillingProvider } from '../context/BillingContext';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import * as Linking from 'expo-linking';
 
-import { Platform } from 'react-native';
+function DeepLinkHandler() {
+  const router = useRouter();
+  const url = Linking.useURL();
+
+  useEffect(() => {
+    if (url) {
+      const { hostname, path, queryParams } = Linking.parse(url);
+      // Support both mobile://add and mobile://add/ (hostname vs path depending on OS interpretation)
+      if (path === 'add' || hostname === 'add') {
+        console.log('[TACTICAL] Intercepted Deep Link:', url);
+        router.push({ pathname: '/add', params: queryParams || {} });
+      }
+    }
+  }, [url]);
+
+  return null;
+}
 
 function E2ESeeder() {
   const db = useSQLiteContext();
@@ -240,6 +255,7 @@ export default function RootLayout() {
     }>
       <SQLiteProvider databaseName={dbName} onInit={initializeDatabase}>
         <E2ESeeder />
+        <DeepLinkHandler />
         <BillingProvider>
           <SafeAreaProvider>
             <SafeAreaView style={{ flex: 1, backgroundColor: '#0f172a' }}>

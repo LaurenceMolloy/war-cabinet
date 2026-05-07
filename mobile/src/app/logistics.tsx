@@ -659,7 +659,7 @@ export default function LogisticsScreen() {
         {/* ROW 1: COMMANDS */}
         <View style={styles.headerTopRow}>
           <View style={styles.headerSideCol}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => router.canGoBack() ? router.back() : router.replace('/')}>
               <MaterialCommunityIcons name="arrow-left" size={20} color="#f8fafc" />
             </TouchableOpacity>
           </View>

@@ -31,7 +31,7 @@ interface CustomerInfo {
 
 interface BillingContextType {
   customerInfo: CustomerInfo;
-  checkEntitlement: (featureName: string) => boolean;
+  checkEntitlement: (featureName: string, triggerModal?: boolean) => boolean;
   requestPurchase: (tier?: 'SERGEANT' | 'GENERAL') => void;
   graduateEarly: () => Promise<void>;
   isPremium: boolean;
@@ -269,7 +269,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     ? RANK_LIMITS.SERGEANT 
     : (isCadet ? RANK_LIMITS.CADET : RANK_LIMITS.PRIVATE);
 
-  const checkEntitlement = (featureName: string): boolean => {
+  const checkEntitlement = (featureName: string, triggerModal = true): boolean => {
     // Special Case: Intelligence trial for Cadets (AI, Alerts, Backups)
     // Scale limits (CABINET_LIMIT, etc.) are NOT lifted in Trial anymore
     const isIntelFeature = ['RECIPES', 'ALERTS', 'BACKUPS'].includes(featureName);
@@ -282,8 +282,11 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const required = FEATURE_TIER[featureName];
     if (!required) return true;
     if (tierSatisfies(currentTier, required)) return true;
-    setLockedFeature(featureName);
-    setShowFeatureLock(true);
+    
+    if (triggerModal) {
+      setLockedFeature(featureName);
+      setShowFeatureLock(true);
+    }
     return false;
   };
 

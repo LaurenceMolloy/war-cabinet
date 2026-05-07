@@ -46,8 +46,25 @@ const NearMissIcon = () => (
 );
 
 export default function AddInventoryScreen() {
-  const { typeId, editBatchId, inheritedCabinetId, categoryId, isNewType, barcode, inheritedSupplier, inheritedSize } = useLocalSearchParams();
+  const { 
+    typeId, editBatchId, inheritedCabinetId, categoryId, isNewType, barcode, inheritedSupplier, inheritedSize, 
+    n, w, d, p, i, q, s, f, b, r, c,
+    scanName: sN, scanQty: sQ, scanSize: sS, scanPortions: sP, scanDate: sD, scanSupplier: sB, scanRange: sR, scanIntel: sI, scanFreeze: sF, scanCabinet: sC
+  } = useLocalSearchParams();
+  
   const barcodeStr = Array.isArray(barcode) ? barcode[0] : (barcode as string | undefined);
+  
+  // Unify OS-level params and Internal-level params
+  const scanName = (sN || n) as string | undefined;
+  const scanQty = (sQ || q) as string | undefined;
+  const scanSize = (sS || s || w) as string | undefined;
+  const scanPortions = (sP || p) as string | undefined;
+  const scanDate = (sD || d) as string | undefined;
+  const scanSupplier = (sB || b || inheritedSupplier) as string | undefined;
+  const scanRange = (sR || r) as string | undefined;
+  const scanIntel = (sI || i) as string | undefined;
+  const scanFreeze = (sF || f) as string | undefined;
+  const scanCabinet = (sC || c) as string | undefined;
   const router = useRouter();
   const db = useSQLiteContext();
   const { isCadet, isPrivate, hasFullAccess, limits, checkEntitlement } = useBilling();
@@ -337,9 +354,38 @@ export default function AddInventoryScreen() {
   const [freezeYear, setFreezeYear] = useState(currentYear.toString());
   const [freezeLimit, setFreezeLimit] = useState('6');
 
-  // Derived: is the currently selected cabinet a freezer?
   const selectedCabinet = cabinets.find(c => c.id === Number(selectedCabinetId));
   const isFreezerMode = selectedCabinet?.cabinet_type === 'freezer';
+
+  // --- QR INGESTION CONTROLLER ---
+  useEffect(() => {
+    async function resolveQR() {
+      if (!typeId && scanName && !isNewType) {
+        const decodedName = decodeURIComponent(scanName.replace(/\+/g, ' '));
+        const match = await db.getFirstAsync<{id: number}>("SELECT id FROM ItemTypes WHERE name = ? COLLATE NOCASE", [decodedName]);
+        if (match) {
+          router.setParams({ typeId: match.id.toString(), isNewType: undefined });
+        } else {
+          setQuickAddName(decodedName);
+          
+          if (scanSupplier) setQuickAddSupplier(decodeURIComponent(scanSupplier.replace(/\+/g, ' ')));
+          if (scanRange) setQuickAddRange(decodeURIComponent(scanRange.replace(/\+/g, ' ')));
+          if (scanSize) setQuickAddDefaultSize(decodeURIComponent(scanSize.replace(/\+/g, ' ')));
+          if (scanFreeze) setQuickAddFreezeMonths(scanFreeze);
+          
+          if (scanCabinet) {
+            const decodedCab = decodeURIComponent(scanCabinet.replace(/\+/g, ' '));
+            const cabRows = await db.getAllAsync<{id: number, name: string}>("SELECT id, name FROM Cabinets");
+            const matchedCab = cabRows.find(c => c.name.toLowerCase() === decodedCab.toLowerCase());
+            if (matchedCab) setQuickAddDefaultCabinet(matchedCab.id);
+          }
+
+          setShowQuickAddType(true);
+        }
+      }
+    }
+    resolveQR();
+  }, [typeId, scanName, isNewType]);
 
   useEffect(() => {
     async function loadData() {
@@ -427,12 +473,48 @@ export default function AddInventoryScreen() {
           if (typeRes.freeze_months) setFreezeLimit(typeRes.freeze_months.toString());
         }
 
-        // --- BARCODE DEFAULTS ---
-        if (barcodeStr) {
-          if (inheritedSupplier) setSupplier(decodeURIComponent(inheritedSupplier as string));
-          if (inheritedSize) setSize(decodeURIComponent(inheritedSize as string));
+        // --- BARCODE & QR DEFAULTS ---
+        // --- TACTICAL MANIFEST INGESTION ---
+        if (scanQty) setQuantity(scanQty);
+        
+        if (scanSupplier) setSupplier(decodeURIComponent(scanSupplier.replace(/\+/g, ' ')));
+        else if (inheritedSupplier) setSupplier(decodeURIComponent(inheritedSupplier.replace(/\+/g, ' ')));
+
+        if (scanRange) setProductRange(decodeURIComponent(scanRange.replace(/\+/g, ' ')));
+
+        if (scanSize) {
+          setSize(decodeURIComponent(scanSize.replace(/\+/g, ' ')));
+        } else if (inheritedSize) {
+          setSize(decodeURIComponent(inheritedSize.replace(/\+/g, ' ')));
         } else if (typeRes?.default_size) {
           setSize(typeRes.default_size);
+        }
+
+        if (scanDate && scanDate.length === 4) {
+          setExpiryMonth(scanDate.substring(0, 2));
+          setExpiryYear("20" + scanDate.substring(2, 4));
+          setFreezeMonth(scanDate.substring(0, 2));
+          setFreezeYear("20" + scanDate.substring(2, 4));
+        } else {
+          // Default to current month/year if no date supplied
+          setExpiryMonth(currentMonth.toString().padStart(2, '0'));
+          setExpiryYear(currentYear.toString());
+          setFreezeMonth(currentMonth.toString().padStart(2, '0'));
+          setFreezeYear(currentYear.toString());
+        }
+        
+        if (scanPortions) {
+          setIsFractionalEnabled(true);
+          setBulkSegments(scanPortions);
+          setPortionsRemaining(Number(scanPortions));
+        }
+        
+        if (scanIntel) {
+          setBatchIntel(decodeURIComponent(scanIntel.replace(/\+/g, ' ')));
+        }
+
+        if (scanFreeze) {
+          setFreezeLimit(scanFreeze);
         }
 
         const lastBrandRow = await db.getFirstAsync<{supplier: string}>("SELECT supplier FROM Inventory WHERE item_type_id = ? AND supplier IS NOT NULL AND supplier != '' ORDER BY id DESC LIMIT 1", [Number(typeId)]);
@@ -463,6 +545,13 @@ export default function AddInventoryScreen() {
       } else if (inheritedCabinetId) {
         // Explicit intent from navigation (e.g. adding from within a cabinet view)
         setSelectedCabinetId(Number(inheritedCabinetId));
+      } else if (scanCabinet) {
+        // TACTICAL SCAN: Find cabinet by name
+        const decodedCab = decodeURIComponent(scanCabinet.replace(/\+/g, ' '));
+        const matchedCab = cabRows.find(c => c.name.toLowerCase() === decodedCab.toLowerCase());
+        if (matchedCab) {
+          setSelectedCabinetId(matchedCab.id);
+        }
       } else {
         // TIER 1: Explicit Config
         if (typeRes?.default_cabinet_id) {
@@ -1080,13 +1169,13 @@ export default function AddInventoryScreen() {
   }).sort((a, b) => parseFloat(a.value) - parseFloat(b.value));
 
   // ─── PHASE 1: ITEM TYPE SPECIFICATION ───
-  if (isNewType === '1' && !typeId) {
+  if ((isNewType === '1' || showQuickAddType) && !typeId) {
     return (
       <View style={{ flex: 1, backgroundColor: '#000000' }}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
             <Text style={styles.title}>DEPLOY ITEM TYPE</Text>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} testID="cancel-btn">
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => router.canGoBack() ? router.back() : router.replace('/')} testID="cancel-btn">
               <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
             </TouchableOpacity>
           </View>
@@ -1396,7 +1485,7 @@ export default function AddInventoryScreen() {
              <Text style={styles.title}>{editBatchId ? 'UPDATE BATCH' : 'ADD BATCH'}</Text>
              <Text style={styles.subTitle}>{typeName}</Text>
           </View>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} testID="cancel-btn">
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => router.canGoBack() ? router.back() : router.replace('/')} testID="cancel-btn">
             <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
           </TouchableOpacity>
         </View>
@@ -1909,7 +1998,7 @@ export default function AddInventoryScreen() {
           </View>
 
           {/* FRACTIONAL CONSUMPTION (Sergeant+) */}
-          {checkEntitlement('OPEN_CONSUMPTION') && (
+          {checkEntitlement('OPEN_CONSUMPTION', false) && (
             <View style={{ marginTop: 24 }}>
               <Text style={styles.label}>Portion Tracking</Text>
               

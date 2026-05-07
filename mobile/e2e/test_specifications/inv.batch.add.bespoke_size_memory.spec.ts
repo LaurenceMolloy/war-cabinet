@@ -17,6 +17,7 @@ import { test, expect } from '@playwright/test';
  * bespoke size is introduced.
  * 
  * Also verifies that non-standard sizes create distinct, unmerged batches in the inventory.
+   WARNING: final scenario is STILLO BROKEN
  */
 
 test.use({
@@ -204,10 +205,8 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     // Allow the RN Web modal slide-in animation to complete
     await page.waitForTimeout(500);
 
-    // Confirm deletion - use pointer events to reliably trigger RN Web's TouchableOpacity
-    const confirmBtn = page.getByTestId('confirm-delete-batch-btn').first();
-    await confirmBtn.dispatchEvent('pointerdown');
-    await confirmBtn.dispatchEvent('pointerup');
+    // Confirm deletion - using the exact locator from Playwright Codegen
+    await page.getByTestId('confirm-delete-batch-btn').click();
 
     // Verify all copies of the 200g size badge are gone.
     await expect(allSizeBadges200g).toHaveCount(0);

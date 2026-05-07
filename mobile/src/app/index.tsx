@@ -1844,6 +1844,35 @@ export default function HomeScreen() {
                     setShowTestScanner(false);
                     const barcode = result.data.trim();
 
+                    // --- IN-APP QR DEEP LINK HANDLER ---
+                    if (barcode.startsWith('warcabinet://add?') || barcode.startsWith('mobile://add?')) {
+                      const queryString = barcode.split('?')[1];
+                      if (queryString) {
+                        const rawParams: any = {};
+                        queryString.split('&').forEach(pair => {
+                          const [key, value] = pair.split('=');
+                          if (key) rawParams[key] = decodeURIComponent((value || '').replace(/\+/g, ' '));
+                        });
+
+                        // Map single-character QR keys to internal form params
+                        const routeParams: any = {
+                          scanName: rawParams.n,
+                          scanQty: rawParams.q,
+                          scanSize: rawParams.s,
+                          scanPortions: rawParams.p,
+                          scanDate: rawParams.d,
+                          scanSupplier: rawParams.b,
+                          scanRange: rawParams.r,
+                          scanIntel: rawParams.i,
+                          scanFreeze: rawParams.f,
+                          scanCabinet: rawParams.c
+                        };
+
+                        router.push({ pathname: '/add', params: routeParams });
+                      }
+                      return;
+                    }
+
                     // 1. SIGNATURE LOOKUP
                     const signature = await db.getFirstAsync<any>(
                       'SELECT * FROM BarcodeSignatures WHERE barcode = ?',
