@@ -1015,7 +1015,15 @@ export default function RecipesScreen() {
         {/* ROW 1: COMMANDS */}
         <View style={styles.headerTopRow}>
           <View style={styles.headerSideCol}>
-            <TouchableOpacity accessibilityRole="button" onPress={() => router.back()} style={styles.backBtn} testID="back-btn">
+            <TouchableOpacity 
+              accessibilityRole="button" 
+              onPress={() => {
+                if (router.canGoBack()) router.back();
+                else router.replace('/');
+              }} 
+              style={styles.backBtn} 
+              testID="back-btn"
+            >
               <MaterialCommunityIcons name="arrow-left" size={20} color="#f8fafc" />
             </TouchableOpacity>
           </View>

@@ -1,0 +1,18 @@
+diff --git a/node_modules/qrcode/lib/index.js b/node_modules/qrcode/lib/index.js
+index 57c8f70..68c9dbd 100644
+--- a/node_modules/qrcode/lib/index.js
++++ b/node_modules/qrcode/lib/index.js
+@@ -1,12 +1 @@
+-/*
+-*copyright Ryan Day 2012
+-*
+-* Licensed under the MIT license:
+-*   http://www.opensource.org/licenses/mit-license.php
+-*
+-* this is the main server side application file for node-qrcode.
+-* these exports use serverside canvas api methods for file IO and buffers
+-*
+-*/
+-
+-module.exports = require('./server')
++module.exports = require('./browser')

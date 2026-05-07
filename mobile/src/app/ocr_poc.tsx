@@ -116,8 +116,14 @@ export default function OCRExpiryPoC() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <MaterialCommunityIcons name="arrow-left" size={28} color="#f8fafc" />
+        <TouchableOpacity 
+          style={styles.backBtn} 
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace('/');
+          }}
+        >
+          <MaterialCommunityIcons name="chevron-left" size={32} color="#94a3b8" />
         </TouchableOpacity>
         <Text style={styles.title}>EXPIRY SCANNER PoC</Text>
         <View style={{ width: 28 }} />

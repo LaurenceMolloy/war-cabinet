@@ -7,6 +7,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import * as SecureStore from 'expo-secure-store';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import QRCode from 'react-native-qrcode-svg';
+import * as Sharing from 'expo-sharing';
 
 import { BackupService, BackupMetadata, BACKUP_MANIFEST_VERSION } from '../services/BackupService';
 import { GoogleDriveService, GOOGLE_AUTH_CONFIG } from '../services/GoogleDriveService';
@@ -1615,7 +1617,15 @@ export default function CatalogScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <TouchableOpacity accessibilityRole="button" onPress={() => router.back()} style={styles.backBtn} testID="back-btn">
+        <TouchableOpacity 
+          accessibilityRole="button" 
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace('/');
+          }} 
+          style={styles.backBtn} 
+          testID="back-btn"
+        >
           <MaterialCommunityIcons name="arrow-left" size={24} color="#f8fafc" />
         </TouchableOpacity>
         <View style={{flex: 1, marginLeft: 16}}>
@@ -2932,10 +2942,11 @@ export default function CatalogScreen() {
                 
                 <View style={{ padding: 12, backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', borderRadius: 6 }}>
                   {selectedCabinetForTag && (
-                    <Image 
-                      source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`mobile://add?c=${selectedCabinetForTag.name}`)}` }}
-                      style={{ width: 160, height: 160 }}
-                      resizeMode="contain"
+                    <QRCode 
+                      value={`mobile://add?c=${selectedCabinetForTag.name}`}
+                      size={160}
+                      backgroundColor="white"
+                      color="black"
                     />
                   )}
                 </View>
@@ -3010,6 +3021,18 @@ export default function CatalogScreen() {
                   <Text style={{ color: '#000', fontWeight: 'bold', fontSize: 15 }}>SHARE</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Tactical Sandbox Link */}
+              <TouchableOpacity 
+                style={{ marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, borderRadius: 12, backgroundColor: '#0f172a', borderStyle: 'dashed', borderWidth: 1, borderColor: '#334155' }}
+                onPress={() => {
+                  setShowSectorTag(false);
+                  router.push('/intelligence');
+                }}
+              >
+                <MaterialCommunityIcons name="lightning-bolt" size={18} color="#fbbf24" />
+                <Text style={{ color: '#64748b', fontSize: 11, fontWeight: 'bold', letterSpacing: 1 }}>DEPOY V1 INTELLIGENCE STARBURST</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -3057,10 +3080,11 @@ export default function CatalogScreen() {
                       <Text style={{ color: '#000', fontSize: 10, fontWeight: '900', marginBottom: 4, textAlign: 'center' }} numberOfLines={1}>{cab.name.toUpperCase()}</Text>
                       
                       <View style={{ padding: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#000', borderRadius: 4 }}>
-                        <Image 
-                          source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`mobile://add?c=${cab.name}`)}` }}
-                          style={{ width: 60, height: 60 }}
-                          resizeMode="contain"
+                        <QRCode 
+                          value={`mobile://add?c=${cab.name}`}
+                          size={60}
+                          backgroundColor="white"
+                          color="black"
                         />
                       </View>
                       

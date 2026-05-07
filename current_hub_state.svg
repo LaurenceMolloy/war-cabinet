@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="360"
+   height="360"
+   viewBox="0 0 360 360"
+   version="1.1"
+   id="svg208"
+   sodipodi:docname="current_hub_state.svg"
+   inkscape:version="1.0.2-2 (e86c870879, 2021-01-15)">
+  <metadata
+     id="metadata212">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <sodipodi:namedview
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1"
+     objecttolerance="10"
+     gridtolerance="10"
+     guidetolerance="10"
+     inkscape:pageopacity="0"
+     inkscape:pageshadow="2"
+     inkscape:window-width="1271"
+     inkscape:window-height="873"
+     id="namedview210"
+     showgrid="false"
+     inkscape:zoom="2.4444444"
+     inkscape:cx="168.60725"
+     inkscape:cy="180"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg208" />
+  <rect
+     width="360"
+     height="360"
+     fill="#020617"
+     id="rect178" />
+  <defs
+     id="defs182">
+    <!-- TOP ARCH: Radius 72 (0.40 * 180) -->
+    <path
+       id="curveTop"
+       d="M 108,180 A 72,72 0 0,1 252,180" />
+    <!-- BOTTOM ARCH: Radius 93.6 (0.52 * 180) -->
+    <path
+       id="curveBottom"
+       d="M 86.4,180 A 93.6,93.6 0 0,0 273.6,180" />
+  </defs>
+  <!-- HUB RADIUS REFERENCE -->
+  <circle
+     cx="180"
+     cy="180"
+     fill="none"
+     stroke="#1e293b"
+     stroke-width="1"
+     id="circle184"
+     r="108" />
+  <!-- TOP ORBIT: CONTEXT -->
+  <text
+     fill="#475569"
+     font-family="sans-serif"
+     font-weight="bold"
+     font-size="9"
+     letter-spacing="3"
+     id="text188"
+     style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:13.3333px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:3;fill:#475569;"
+     transform="matrix(1.0657549,0,0,1,-9.86533,-14)"><textPath
+       xlink:href="#curveTop"
+       startOffset="50%"
+       text-anchor="middle"
+       id="textPath186">BATCH INTEL</textPath></text>
+  <!-- BOTTOM ORBIT: IDENTITY -->
+  <text
+     fill="#fbbf24"
+     font-family="sans-serif"
+     font-weight="900"
+     font-size="14"
+     letter-spacing="2"
+     id="text192"
+     style="-inkscape-font-specification:'sans-serif, Heavy';font-family:sans-serif;font-weight:900;font-style:normal;font-stretch:normal;font-variant:normal;font-size:13.3333px;font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:2;fill:#fbbf24;"><textPath
+       xlink:href="#curveBottom"
+       startOffset="50%"
+       text-anchor="middle"
+       id="textPath190">SWEETCORN</textPath></text>
+  <!-- THE COMMAND CAP (Shaded Segment) -->
+  <path
+     d="m 123.3,158 a 57.6,57.6 0 0 1 113.4,0 z"
+     fill="#f43f5e"
+     opacity="0.6"
+     id="path194" />
+  <text
+     x="180"
+     y="150"
+     fill="#000000"
+     font-size="10px"
+     font-family="sans-serif"
+     font-weight="900"
+     text-anchor="middle"
+     id="text196">2 UNITS</text>
+  <!-- URGENT METRIC: EXPIRY -->
+  <text
+     x="180"
+     y="178.45454"
+     fill="#f43f5e"
+     font-size="9px"
+     font-family="sans-serif"
+     font-weight="900"
+     text-anchor="middle"
+     letter-spacing="1"
+     id="text198">EXPIRY: 5/26</text>
+  <!-- TACTICAL HORIZON -->
+  <path
+     d="m 160,190.04545 h 40"
+     stroke="#1e293b"
+     stroke-width="1"
+     id="path200" />
+  <!-- LOGISTICAL DECK -->
+  <text
+     x="179.59091"
+     y="208.27274"
+     fill="#f8fafc"
+     font-size="8px"
+     font-family="sans-serif"
+     font-weight="bold"
+     text-anchor="middle"
+     letter-spacing="2"
+     id="text202">HEINZ</text>
+  <text
+     x="179.59091"
+     y="221.27274"
+     fill="#94a3b8"
+     font-size="7px"
+     font-family="sans-serif"
+     font-weight="bold"
+     text-anchor="middle"
+     letter-spacing="1.5"
+     id="text204">FINEST</text>
+  <text
+     x="179.59091"
+     y="237.27274"
+     fill="#475569"
+     font-size="6px"
+     font-family="sans-serif"
+     font-weight="bold"
+     font-style="italic"
+     text-anchor="middle"
+     letter-spacing="1"
+     id="text206">&quot;BOBS UNCLE&quot;</text>
+</svg>
