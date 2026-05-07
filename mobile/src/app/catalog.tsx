@@ -3027,7 +3027,7 @@ export default function CatalogScreen() {
                 style={{ marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, borderRadius: 12, backgroundColor: '#0f172a', borderStyle: 'dashed', borderWidth: 1, borderColor: '#334155' }}
                 onPress={() => {
                   setShowSectorTag(false);
-                  router.push('/intelligence');
+                  router.push({ pathname: '/intelligence', params: { cabinetId: selectedCabinetForTag?.id } });
                 }}
               >
                 <MaterialCommunityIcons name="lightning-bolt" size={18} color="#fbbf24" />
