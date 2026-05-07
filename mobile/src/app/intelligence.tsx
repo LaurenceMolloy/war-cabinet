@@ -6,7 +6,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 // Tactical Starburst (Sunburst) Visualization V1
-// Concept: Inner ring = Categories, Outer ring = Item Types
+// Concept: Inner ring = Categories, Outer ring = Products
 // Click a sector to drill into inventory details.
 // This is a standalone "sandbox" file for V1 PoC.
 
@@ -68,7 +68,7 @@ export default function IntelligenceScreen() {
         // Resolve Smart Size: Use SQL-resolved raw size with tactical unit appending
         let resolvedSize = String(row.resolved_raw_size || "").trim();
         
-        // Auto-Append Units if size is purely numeric and we have a unit type
+        // Auto-Append unit label if size is purely numeric and we have a unit type
         if (resolvedSize !== "" && /^\d+$/.test(resolvedSize)) {
           if (row.type_unit === 'weight') resolvedSize += 'G';
           else if (row.type_unit === 'volume') resolvedSize += 'ML';
@@ -140,7 +140,7 @@ export default function IntelligenceScreen() {
         ('MEDICAL', 'medical-bag');
       `);
       
-      // 3. Seed Item Types (linking to named categories)
+      // 3. Seed Products (linking to named categories)
       await db.execAsync(`
         INSERT OR IGNORE INTO ItemTypes (name, category_id) VALUES 
         ('CHICKEN BREAST', (SELECT id FROM Categories WHERE name='PROTEINS' LIMIT 1)),
@@ -238,7 +238,7 @@ export default function IntelligenceScreen() {
         </G>
       );
 
-      // 2. MIDDLE RING: Item Types (Thick)
+      // 2. MIDDLE RING: Products (Thick)
       let typeAngle = currentAngle;
       cat.types.forEach((type: any, typeIdx: number) => {
         const typeLetter = `${catLetter}${typeIdx + 1}`;
@@ -424,7 +424,7 @@ export default function IntelligenceScreen() {
                     <SvgText fill="#f8fafc" fontSize={12} style={{ fontSize: 12 }} fontWeight="500" letterSpacing={2.5}>
                       <TextPath href="#hubArchTop" startOffset="50%" textAnchor="middle">
                         {selectedSector.type === 'category' ? 'CATEGORY INTEL' : 
-                         selectedSector.type === 'item_type' ? 'TYPE INTEL' : 'BATCH INTEL'}
+                         selectedSector.type === 'item_type' ? 'PRODUCT INTEL' : 'BATCH INTEL'}
                       </TextPath>
                     </SvgText>
 
@@ -442,13 +442,26 @@ export default function IntelligenceScreen() {
                       const chordY = -25;
                       const chordX = Math.sqrt(Math.pow(capR, 2) - Math.pow(chordY, 2));
                       const capPath = `M ${centerX - chordX} ${centerY + chordY} A ${capR} ${capR} 0 0 1 ${centerX + chordX} ${centerY + chordY} Z`;
-                      let manifest = "";
-                      if (selectedSector.type === 'batch' || (selectedSector.type === 'item_type' && selectedSector.size)) {
+
+                      // Determine manifest line 1 and optional line 2
+                      let manifestLine1 = "";
+                      let manifestLine2 = "";
+
+                      if (selectedSector.type === 'batch' || (selectedSector.type === 'item_type' && selectedSector.batches?.length === 1)) {
+                        // Single batch: show precise unit manifest
                         const q = selectedSector.qty || selectedSector.total || 0;
                         const s = (selectedSector.size || "").toUpperCase();
-                        manifest = s ? `${q} X ${s}` : `${q} UNITS`;
+                        manifestLine1 = s ? `${q} X ${s}` : `${q} ITEMS`;
+                      } else if (selectedSector.type === 'item_type' && selectedSector.batches?.length > 1) {
+                        // Multi-batch product: show item count + batch count
+                        manifestLine1 = `${selectedSector.total || 0} ITEMS`;
+                        manifestLine2 = `across ${selectedSector.batches.length} batches`;
                       } else {
-                        manifest = `${selectedSector.total || 0} UNITS`;
+                        // Category level: B batches across P products
+                        const productCount = selectedSector.types?.length || 0;
+                        const batchCount = selectedSector.types?.reduce((sum: number, t: any) => sum + (t.batches?.length || 0), 0) || 0;
+                        manifestLine1 = `${batchCount} BATCHES`;
+                        manifestLine2 = `across ${productCount} products`;
                       }
                       
                       return (
@@ -460,15 +473,30 @@ export default function IntelligenceScreen() {
                           />
                           <SvgText
                             x={centerX}
-                            y={centerY - 38}
+                            y={manifestLine2 ? centerY - 42 : centerY - 38}
                             fill="#000"
                             fontSize={11}
                             style={{ fontSize: 11 }}
                             fontWeight="900"
                             textAnchor="middle"
                           >
-                            {manifest}
+                            {manifestLine1}
                           </SvgText>
+
+                          {manifestLine2 ? (
+                            <SvgText
+                              x={centerX}
+                              y={centerY - 29}
+                              fill="#000"
+                              fontSize={10}
+                              style={{ fontSize: 10 }}
+                              fontWeight="700"
+                              textAnchor="middle"
+                              letterSpacing={0.5}
+                            >
+                              {manifestLine2}
+                            </SvgText>
+                          ) : null}
                           
                           {selectedSector.exp && (
                             <SvgText 
@@ -532,7 +560,7 @@ export default function IntelligenceScreen() {
                         {data.reduce((acc, cat) => acc + cat.total, 0)}
                       </SvgText>
                       <SvgText x={centerX} y={24} fill="#f8fafc" fontSize={10} style={{ fontSize: 10 }} fontWeight="bold" textAnchor="middle" letterSpacing={2}>
-                        TOTAL UNITS
+                        TOTAL ITEMS
                       </SvgText>
                     </G>
                   </>
