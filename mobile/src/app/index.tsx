@@ -1845,7 +1845,13 @@ export default function HomeScreen() {
                     const barcode = result.data.trim();
 
                     // --- IN-APP QR DEEP LINK HANDLER ---
-                    if (barcode.startsWith('warcabinet://add?') || barcode.startsWith('mobile://add?')) {
+                    if (barcode.includes('://intelligence?')) {
+                      const url = barcode.replace(/.*:\/\/intelligence\?/, '/intelligence?');
+                      router.push(url as any);
+                      return;
+                    }
+
+                    if (barcode.startsWith('warcabinet://add?') || barcode.startsWith('war-cabinet://add?') || barcode.startsWith('mobile://add?')) {
                       const queryString = barcode.split('?')[1];
                       if (queryString) {
                         const rawParams: any = {};
