@@ -9,6 +9,7 @@ import * as SecureStore from 'expo-secure-store';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import QRCode from 'react-native-qrcode-svg';
 import * as Sharing from 'expo-sharing';
+import * as Print from 'expo-print';
 
 import { BackupService, BackupMetadata, BACKUP_MANIFEST_VERSION } from '../services/BackupService';
 import { GoogleDriveService, GOOGLE_AUTH_CONFIG } from '../services/GoogleDriveService';
@@ -71,10 +72,148 @@ export default function CatalogScreen() {
   const params = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<'catalog' | 'cabinets' | 'system' | 'backups' | 'rank'>('catalog');
 
+  const handlePrintSectorTag = async () => {
+    if (!selectedCabinetForTag) return;
+    try {
+      const qrData = `mobile://intelligence?cabinetId=${selectedCabinetForTag.id}`;
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(qrData)}`;
+      
+      const mmSize = tagSize === 'S' ? 40 : tagSize === 'M' ? 65 : 100;
+      const tagLabel = tagSize === 'S' ? 'TACTICAL' : tagSize === 'M' ? 'SECTOR' : 'BUNKER';
+
+      const html = `
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+            <style>
+              body { 
+                display: flex; 
+                justify-content: center; 
+                align-items: center; 
+                height: 100vh; 
+                margin: 0; 
+                padding: 0;
+                background-color: white;
+              }
+              .tag-container {
+                width: ${mmSize}mm;
+                height: ${mmSize}mm;
+                border: 2px dashed #000;
+                padding: 5mm;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                position: relative;
+                box-sizing: border-box;
+                font-family: 'Inter', -apple-system, sans-serif;
+              }
+              .header {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+                width: 100%;
+                margin-bottom: 3mm;
+              }
+              .header-text {
+                font-size: 8px;
+                font-weight: 900;
+                letter-spacing: 1.5px;
+                color: #000;
+              }
+              .star { color: #000; font-size: 14px; }
+              .badge {
+                background-color: transparent;
+                padding: 2px 10px;
+                border-radius: 4px;
+                border: 2px solid #000;
+                font-size: 9px;
+                font-weight: 900;
+                margin-bottom: 3mm;
+                color: #000;
+              }
+              .cabinet-name {
+                font-size: ${mmSize > 50 ? '20pt' : '16pt'};
+                font-weight: 900;
+                margin-bottom: 4mm;
+                text-align: center;
+                text-transform: uppercase;
+                width: 100%;
+                overflow: hidden;
+                color: #000;
+              }
+              .qr-box {
+                border: 2px solid #000;
+                padding: 2mm;
+                border-radius: 6px;
+                background-color: #fff;
+              }
+              .qr-img {
+                width: ${mmSize * 0.5}mm;
+                height: ${mmSize * 0.5}mm;
+              }
+              .footer {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                width: 100%;
+                margin-top: 5mm;
+              }
+              .footer-line { flex: 1; height: 1.5px; background-color: #000; }
+              .footer-text {
+                font-size: 7px;
+                font-weight: 900;
+                padding: 0 8px;
+                color: #000;
+              }
+              .size-badge {
+                position: absolute;
+                top: -5px;
+                right: -5px;
+                background-color: #fff;
+                padding: 3px 8px;
+                border-radius: 4px;
+                border: 2px solid #000;
+                font-size: 8px;
+                font-weight: 900;
+                color: #000;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="tag-container">
+              <div class="size-badge">${tagLabel}</div>
+              <div class="header">
+                <span class="star">★</span>
+                <span class="header-text">WAR CABINET</span>
+                <span class="star">★</span>
+              </div>
+              <div class="badge">SECTOR TAG</div>
+              <div class="cabinet-name">${selectedCabinetForTag.name}</div>
+              <div class="qr-box">
+                <img src="${qrUrl}" class="qr-img" />
+              </div>
+              <div class="footer">
+                <div class="footer-line"></div>
+                <div class="footer-text">QUARTERMASTER PROTOCOL</div>
+                <div class="footer-line"></div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      await Print.printAsync({ html });
+    } catch (e) {
+      console.error('Failed to print sector tag:', e);
+      Alert.alert('Uplink Failure', 'Failed to connect to tactical printer.');
+    }
+  };
+
   const handleShareSectorTag = async () => {
     if (!selectedCabinetForTag) return;
     try {
-      const qrData = `mobile://add?c=${encodeURIComponent(selectedCabinetForTag.name)}`;
+      const qrData = `mobile://intelligence?cabinetId=${selectedCabinetForTag.id}`;
       const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(qrData)}`;
       const filename = `SectorTag_${selectedCabinetForTag.name.replace(/\s+/g, '_')}.png`;
       const fileUri = `${FileSystem.cacheDirectory}${filename}`;
@@ -3007,7 +3146,7 @@ export default function CatalogScreen() {
                 
                 <TouchableOpacity 
                   style={{ flex: 1, backgroundColor: '#0f172a', height: 56, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderWidth: 1, borderColor: '#fbbf24' }} 
-                  onPress={() => Alert.alert("STAGING", "Print engine requires manual uplink.", [{ text: "ACKNOWLEDGED" }])}
+                  onPress={handlePrintSectorTag}
                 >
                   <MaterialCommunityIcons name="printer" size={22} color="#fbbf24" />
                   <Text style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: 15 }}>PRINT</Text>

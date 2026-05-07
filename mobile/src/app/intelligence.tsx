@@ -24,7 +24,7 @@ export default function IntelligenceScreen() {
   const [contextName, setContextName] = useState('THE BUNKER');
   const [stats, setStats] = useState({ 
     categories: 0, products: 0, batches: 0, items: 0,
-    urgent: 0, soon: 0, upcoming: 0
+    urgent: 0, soon: 0, upcoming: 0, safe: 0
   });
 
   const loadData = useCallback(async () => {
