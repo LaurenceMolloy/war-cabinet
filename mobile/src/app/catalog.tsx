@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, ScrollView, StyleSheet, Alert, Switch, Platform, Modal, KeyboardAvoidingView, ActivityIndicator, Pressable } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, ScrollView, StyleSheet, Alert, Switch, Platform, Modal, KeyboardAvoidingView, ActivityIndicator, Pressable, Image } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -61,9 +61,35 @@ export default function CatalogScreen() {
   const [cabinets, setCabinets] = useState<any[]>([]);
   const [showCabinetModal, setShowCabinetModal] = useState(false);
   const [selectedCabinetForEdit, setSelectedCabinetForEdit] = useState<any>(null);
+  const [showSectorTag, setShowSectorTag] = useState(false);
+  const [selectedCabinetForTag, setSelectedCabinetForTag] = useState<any>(null);
+  const [tagSize, setTagSize] = useState<'S' | 'M' | 'L'>('M');
+  const [showBatchTags, setShowBatchTags] = useState(false);
   
   const params = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<'catalog' | 'cabinets' | 'system' | 'backups' | 'rank'>('catalog');
+
+  const handleShareSectorTag = async () => {
+    if (!selectedCabinetForTag) return;
+    try {
+      const qrData = `mobile://add?c=${encodeURIComponent(selectedCabinetForTag.name)}`;
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(qrData)}`;
+      const filename = `SectorTag_${selectedCabinetForTag.name.replace(/\s+/g, '_')}.png`;
+      const fileUri = `${FileSystem.cacheDirectory}${filename}`;
+      
+      const download = await FileSystem.downloadAsync(qrUrl, fileUri);
+      if (download.status === 200) {
+        await (await import('expo-sharing')).shareAsync(download.uri, {
+          mimeType: 'image/png',
+          dialogTitle: `Share Sector Tag: ${selectedCabinetForTag.name}`,
+          UTI: 'public.png'
+        });
+      }
+    } catch (e) {
+      console.error('Failed to share sector tag:', e);
+      Alert.alert('Comms Error', 'Failed to generate printable sector tag.');
+    }
+  };
 
   useEffect(() => {
     if (params.tab === 'rank') {
@@ -1557,6 +1583,16 @@ export default function CatalogScreen() {
             <View style={styles.catActions}>
               <TouchableOpacity 
                 onPress={() => { 
+                  setSelectedCabinetForTag(cab);
+                  setShowSectorTag(true);
+                }} 
+                style={{marginRight: 15}}
+                testID={`qr-cab-btn-${cab.name.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                <MaterialCommunityIcons name="qrcode" size={20} color="#fbbf24" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={() => { 
                   setCabinetModalContext('tab');
                   setSelectedCabinetForEdit(cab);
                   setShowCabinetModal(true);
@@ -1668,7 +1704,7 @@ export default function CatalogScreen() {
           )} />
       ) : activeTab === 'cabinets' ? (
         <FlatList data={cabinets} keyExtractor={i => i.id.toString()} renderItem={renderCabinet} ListHeaderComponent={(
-            <View style={{ paddingVertical: 10, alignItems: 'center' }}>
+            <View style={{ paddingVertical: 10, alignItems: 'center', gap: 10 }}>
               <TouchableOpacity 
                 style={[styles.addSaveBtnFull, { backgroundColor: '#1e293b', borderColor: '#3b82f6', borderWidth: 1, height: 50 }]} 
                 onPress={() => {
@@ -1681,6 +1717,16 @@ export default function CatalogScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <MaterialCommunityIcons name='plus-circle' size={20} color='#3b82f6' />
                   <Text style={[styles.addSaveText, { color: '#3b82f6' }]}>DEPLOY NEW CABINET</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.addSaveBtnFull, { backgroundColor: '#1e293b', borderColor: '#fbbf24', borderWidth: 1, height: 50 }]} 
+                onPress={() => setShowBatchTags(true)}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <MaterialCommunityIcons name='grid' size={20} color='#fbbf24' />
+                  <Text style={[styles.addSaveText, { color: '#fbbf24' }]}>GENERATE TAG SHEET (BATCH)</Text>
                 </View>
               </TouchableOpacity>
             </View>
@@ -2841,6 +2887,221 @@ export default function CatalogScreen() {
           onSuccess={() => load()}
         />
       )}
+
+      {/* ─── SECTOR TAG PREVIEW MODAL (QR) ─── */}
+      <Modal visible={showSectorTag} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={{ 
+            backgroundColor: '#0f172a', 
+            borderRadius: 32, 
+            width: '100%', 
+            height: '90%', 
+            overflow: 'hidden', 
+            borderWidth: 1, 
+            borderColor: '#334155'
+          }}>
+            
+            {/* 1. FLEXIBLE PREVIEW AREA - NO LAYOUT SHIFTS */}
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#020617' }}>
+              <View style={{ 
+                width: 280,
+                backgroundColor: '#fff',
+                padding: 20,
+                borderWidth: 2,
+                borderColor: '#000',
+                borderStyle: 'dashed',
+                alignItems: 'center',
+                elevation: 15,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 10 },
+                shadowOpacity: 0.4,
+                shadowRadius: 15
+              }}>
+                {/* Header Row */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 15 }}>
+                  <MaterialCommunityIcons name="shield-star" size={24} color="#fbbf24" />
+                  <Text style={{ color: '#000', fontSize: 12, fontWeight: '900', letterSpacing: 2 }}>WAR CABINET</Text>
+                  <MaterialCommunityIcons name="shield-star" size={24} color="#fbbf24" />
+                </View>
+                
+                <View style={{ backgroundColor: '#fbbf24', paddingHorizontal: 12, paddingVertical: 3, borderRadius: 4, marginBottom: 12, borderWidth: 1.5, borderColor: '#000' }}>
+                  <Text style={{ color: '#000', fontSize: 12, fontWeight: '900' }}>SECTOR TAG</Text>
+                </View>
+                
+                <Text style={{ color: '#000', fontSize: 32, fontWeight: '900', marginBottom: 20, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>{selectedCabinetForTag?.name?.toUpperCase()}</Text>
+                
+                <View style={{ padding: 12, backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', borderRadius: 6 }}>
+                  {selectedCabinetForTag && (
+                    <Image 
+                      source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`mobile://add?c=${selectedCabinetForTag.name}`)}` }}
+                      style={{ width: 160, height: 160 }}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20 }}>
+                  <View style={{ flex: 1, height: 2, backgroundColor: '#000' }} />
+                  <Text style={{ color: '#000', fontSize: 10, fontWeight: 'bold' }}>QUARTERMASTER PROTOCOL</Text>
+                  <View style={{ flex: 1, height: 2, backgroundColor: '#000' }} />
+                </View>
+
+                {/* Size Indicator Badge (Visual Only) */}
+                <View style={{ position: 'absolute', top: -10, right: -10, backgroundColor: '#fbbf24', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#000' }}>
+                  <Text style={{ color: '#000', fontSize: 10, fontWeight: 'bold' }}>{tagSize === 'S' ? 'TACTICAL' : tagSize === 'M' ? 'SECTOR' : 'BUNKER'}</Text>
+                </View>
+              </View>
+              
+              <Text style={{ color: '#475569', fontSize: 11, fontWeight: 'bold', marginTop: 30, letterSpacing: 1 }}>PREVIEW OPTIMIZED FOR SCREEN VIEWING</Text>
+            </View>
+
+            {/* 2. FIXED COMMAND FOOTER - COMPLETELY SEPARATE */}
+            <View style={{ backgroundColor: '#1e293b', padding: 24, borderTopWidth: 2, borderTopColor: '#fbbf24' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold', letterSpacing: 1 }}>PRINT SPECIFICATION</Text>
+                <View style={{ backgroundColor: '#fbbf2433', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                   <Text style={{ color: '#fbbf24', fontSize: 10, fontWeight: 'bold' }}>{tagSize === 'S' ? '~40mm' : tagSize === 'M' ? '~65mm' : '~100mm'}</Text>
+                </View>
+              </View>
+              
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 25 }}>
+                {(['S', 'M', 'L'] as const).map(s => (
+                  <TouchableOpacity 
+                    key={s}
+                    style={{ 
+                      flex: 1, 
+                      backgroundColor: tagSize === s ? '#fbbf24' : '#0f172a', 
+                      height: 48, 
+                      borderRadius: 12, 
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderWidth: 1,
+                      borderColor: tagSize === s ? '#fbbf24' : '#334155'
+                    }}
+                    onPress={() => setTagSize(s)}
+                  >
+                    <Text style={{ color: tagSize === s ? '#000' : '#94a3b8', fontWeight: 'bold', fontSize: 12 }}>{s === 'S' ? 'TACTICAL' : s === 'M' ? 'SECTOR' : 'BUNKER'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity 
+                  style={{ flex: 1, backgroundColor: '#334155', height: 56, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }} 
+                  onPress={() => setShowSectorTag(false)}
+                >
+                  <MaterialCommunityIcons name="arrow-left" size={22} color="white" />
+                  <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 15 }}>BACK</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={{ flex: 1, backgroundColor: '#0f172a', height: 56, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderWidth: 1, borderColor: '#fbbf24' }} 
+                  onPress={() => Alert.alert("STAGING", "Print engine requires manual uplink.", [{ text: "ACKNOWLEDGED" }])}
+                >
+                  <MaterialCommunityIcons name="printer" size={22} color="#fbbf24" />
+                  <Text style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: 15 }}>PRINT</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={{ flex: 1, backgroundColor: '#fbbf24', height: 56, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }} 
+                  onPress={handleShareSectorTag}
+                >
+                  <MaterialCommunityIcons name="share-variant" size={22} color="#000" />
+                  <Text style={{ color: '#000', fontWeight: 'bold', fontSize: 15 }}>SHARE</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─── BATCH TAG SHEET MODAL ─── */}
+      <Modal visible={showBatchTags} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%', padding: 0, backgroundColor: '#f8fafc' }]}>
+            <View style={{ padding: 20, backgroundColor: '#1e293b', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <MaterialCommunityIcons name="grid" size={24} color="#fbbf24" />
+                <View>
+                  <Text style={{ color: '#f8fafc', fontSize: 18, fontWeight: 'bold' }}>Tactical Tag Sheet</Text>
+                  <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>A4 MANIFEST PREVIEW (3-COLUMN)</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowBatchTags(false)}>
+                <MaterialCommunityIcons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: 10 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start' }}>
+                {cabinets.map((cab, idx) => (
+                  <View key={cab.id} style={{ width: '33.33%', padding: 4 }}>
+                    <View style={{ 
+                      backgroundColor: '#fff', 
+                      borderWidth: 1.5, 
+                      borderColor: '#000', 
+                      borderStyle: 'dashed', 
+                      padding: 8, 
+                      alignItems: 'center' 
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                        <MaterialCommunityIcons name="shield-star" size={10} color="#fbbf24" />
+                        <Text style={{ color: '#000', fontSize: 6, fontWeight: '900' }}>WAR CABINET</Text>
+                        <MaterialCommunityIcons name="shield-star" size={10} color="#fbbf24" />
+                      </View>
+                      
+                      <View style={{ backgroundColor: '#fbbf24', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 2, marginBottom: 4, borderWidth: 0.5, borderColor: '#000' }}>
+                        <Text style={{ color: '#000', fontSize: 6, fontWeight: 'bold' }}>SECTOR</Text>
+                      </View>
+                      
+                      <Text style={{ color: '#000', fontSize: 10, fontWeight: '900', marginBottom: 4, textAlign: 'center' }} numberOfLines={1}>{cab.name.toUpperCase()}</Text>
+                      
+                      <View style={{ padding: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#000', borderRadius: 4 }}>
+                        <Image 
+                          source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`mobile://add?c=${cab.name}`)}` }}
+                          style={{ width: 60, height: 60 }}
+                          resizeMode="contain"
+                        />
+                      </View>
+                      
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 }}>
+                        <View style={{ flex: 1, height: 1, backgroundColor: '#000' }} />
+                        <Text style={{ color: '#000', fontSize: 5, fontWeight: 'bold' }}>PROTOCOL QM</Text>
+                        <View style={{ flex: 1, height: 1, backgroundColor: '#000' }} />
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+              
+              <View style={{ marginTop: 20, padding: 15, backgroundColor: '#f1f5f9', borderRadius: 8, borderLeftWidth: 4, borderLeftColor: '#fbbf24' }}>
+                <Text style={{ color: '#475569', fontSize: 12, fontWeight: 'bold', marginBottom: 4 }}>INTEL BRIEFING:</Text>
+                <Text style={{ color: '#64748b', fontSize: 11, lineHeight: 16 }}>
+                  This layout is optimized for A4 paper deployment. Tags are sized for standard 3-column distribution (~65mm width). 
+                  {"\n\n"}
+                  Once printed, use tactical shears (scissors) to separate units along the dashed perimeter.
+                </Text>
+              </View>
+            </ScrollView>
+
+            <View style={{ padding: 16, backgroundColor: '#1e293b', flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity 
+                style={{ flex: 1, backgroundColor: '#334155', padding: 16, borderRadius: 12, alignItems: 'center' }}
+                onPress={() => setShowBatchTags(false)}
+              >
+                <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>ABORT</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{ flex: 2, backgroundColor: '#fbbf24', padding: 16, borderRadius: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                onPress={() => Alert.alert("EXPORT COMMS", "The batch PDF generation engine is currently in transit to your sector. For now, take a tactical screenshot of this preview.", [{ text: "ACKNOWLEDGED" }])}
+              >
+                <MaterialCommunityIcons name="share-variant" size={20} color="#000" />
+                <Text style={{ color: '#000', fontWeight: 'bold' }}>SHARE TAG SHEET</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -3005,7 +3266,86 @@ const styles = StyleSheet.create({
   modalClose: { marginTop: 20, padding: 15, alignItems: 'center' },
   modalCloseText: { color: '#ef4444', fontWeight: 'bold', letterSpacing: 1 },
   saveButton: { backgroundColor: '#22c55e', padding: 18, borderRadius: 8, alignItems: 'center', marginTop: 20 },
-  saveText: { color: 'white', fontWeight: 'bold', fontSize: 18 }
+  saveText: { color: 'white', fontWeight: 'bold', fontSize: 18 },
+  sectorTagModal: { 
+    backgroundColor: '#1e293b', 
+    borderRadius: 16, 
+    padding: 10, 
+    alignItems: 'center', 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 10 }, 
+    shadowOpacity: 0.5, 
+    shadowRadius: 20, 
+    elevation: 10 
+  },
+  sectorTagFrame: { 
+    width: '100%', 
+    borderWidth: 3, 
+    borderColor: '#000', 
+    borderStyle: 'dashed', 
+    padding: 20, 
+    alignItems: 'center',
+    backgroundColor: '#fff'
+  },
+  sectorTagHeaderRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 10, 
+    marginBottom: 15 
+  },
+  sectorTagHeaderText: { 
+    color: '#000', 
+    fontSize: 12, 
+    fontWeight: '900', 
+    letterSpacing: 2 
+  },
+  sectorTagLabel: { 
+    color: '#000', 
+    fontSize: 14, 
+    fontWeight: 'bold', 
+    backgroundColor: '#fbbf24', 
+    paddingHorizontal: 8, 
+    paddingVertical: 2, 
+    borderRadius: 4,
+    marginBottom: 5,
+    borderWidth: 1,
+    borderColor: '#000'
+  },
+  sectorTagCabinetName: { 
+    color: '#000', 
+    fontSize: 32, 
+    fontWeight: '900', 
+    marginBottom: 20,
+    textAlign: 'center'
+  },
+  qrContainer: { 
+    padding: 10, 
+    backgroundColor: '#fff', 
+    borderRadius: 8,
+    marginBottom: 15,
+    borderWidth: 2,
+    borderColor: '#000'
+  },
+  sectorTagControls: { 
+    flexDirection: 'row', 
+    gap: 10, 
+    marginTop: 20, 
+    paddingBottom: 10 
+  },
+  sectorTagBtn: { 
+    flex: 1, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    gap: 8, 
+    paddingVertical: 12, 
+    borderRadius: 10 
+  },
+  sectorTagBtnText: { 
+    color: 'white', 
+    fontWeight: 'bold', 
+    fontSize: 12 
+  }
 });
 
 
