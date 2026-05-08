@@ -45,7 +45,7 @@ export default function IntelligenceScreen() {
   const [contextName, setContextName] = useState('THE BUNKER');
   const [stats, setStats] = useState({ 
     categories: 0, products: 0, batches: 0, items: 0,
-    urgent: 0, soon: 0, upcoming: 0, safe: 0
+    expired: 0, urgent: 0, soon: 0, upcoming: 0
   });
 
   // Level tracking: 0: Hub, 1: Category, 2: Product, 3: Batch
@@ -105,7 +105,8 @@ export default function IntelligenceScreen() {
         if (row.expiry_year && row.expiry_month) {
           const expStamp = row.expiry_year * 12 + row.expiry_month;
           const remaining = expStamp - currentStamp;
-          if (remaining <= 0) batchColor = '#f43f5e'; // Red (Urgent: This month & Prior)
+          if (remaining < 0) batchColor = '#991b1b'; // Deep Red (Expired: Prior months)
+          else if (remaining === 0) batchColor = '#f43f5e'; // Red (Urgent: This month)
           else if (remaining <= 3) batchColor = '#f97316'; // Orange (Soon: 1-3M)
           else if (remaining <= 6) batchColor = '#fde047'; // Yellow (Upcoming: 4-6M)
         }
@@ -189,10 +190,10 @@ export default function IntelligenceScreen() {
       const totalItems = finalData.reduce((acc, cat) => acc + (cat.total || 0), 0);
 
       // Calculate Triage Tiers (Full Spectrum)
-      let urgentCount = 0;   // Red: This month & prior
+      let expiredCount = 0;  // Deep Red: Expired
+      let urgentCount = 0;   // Red: This month
       let soonCount = 0;     // Orange: 1-3 months
       let upcomingCount = 0; // Yellow: 4-6 months
-      let safeCount = 0;     // Green: 7+ months
       
       finalData.forEach(cat => {
         cat.types.forEach((type: any) => {
@@ -200,10 +201,10 @@ export default function IntelligenceScreen() {
             if (batch.exp_year && batch.exp_month) {
               const stamp = batch.exp_year * 12 + batch.exp_month;
               const remaining = stamp - currentStamp;
-              if (remaining <= 0) urgentCount++;
+              if (remaining < 0) expiredCount++;
+              else if (remaining === 0) urgentCount++;
               else if (remaining >= 1 && remaining <= 3) soonCount++;
               else if (remaining >= 4 && remaining <= 6) upcomingCount++;
-              else if (remaining >= 7) safeCount++;
             }
           });
         });
@@ -215,10 +216,10 @@ export default function IntelligenceScreen() {
         products: totalProducts,
         batches: totalBatches,
         items: totalItems,
+        expired: expiredCount,
         urgent: urgentCount,
         soon: soonCount,
-        upcoming: upcomingCount,
-        safe: safeCount
+        upcoming: upcomingCount
       });
 
       // Fetch readiness colour map from DAL (trial vehicle — ReadinessCommandView unchanged)
@@ -707,30 +708,30 @@ export default function IntelligenceScreen() {
 
                     <G y={centerY}>
                       {/* T1: READINESS TRIPTYCH BAR (Header) */}
-                      <G y={-38}>
-                        <SvgText x={centerX} y={-12} fill="#94a3b8" fontSize={8} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>EXPIRY STATS</SvgText>
+                      <G y={-43}>
+                        <SvgText x={centerX} y={-12} fill="#94a3b8" fontSize={8} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>BATCH EXPIRY</SvgText>
                         
                         {/* Full Spectrum Readiness Bar (4 Segments) */}
-                        <Rect x={centerX - 55} y={-8} width={26} height={13} fill="#f43f5e" rx={2} />
-                        <Rect x={centerX - 27} y={-8} width={26} height={13} fill="#f97316" rx={2} />
-                        <Rect x={centerX + 1} y={-8} width={26} height={13} fill="#fde047" rx={2} />
-                        <Rect x={centerX + 29} y={-8} width={26} height={13} fill="#22c55e" rx={2} />
+                        <Rect x={centerX - 55} y={-8} width={26} height={13} fill="#991b1b" rx={2} />
+                        <Rect x={centerX - 27} y={-8} width={26} height={13} fill="#f43f5e" rx={2} />
+                        <Rect x={centerX + 1} y={-8} width={26} height={13} fill="#f97316" rx={2} />
+                        <Rect x={centerX + 29} y={-8} width={26} height={13} fill="#fde047" rx={2} />
                         
                         {/* Numbers (Inside Bar) */}
-                        <SvgText x={centerX - 42} y={2} fill="#ffffff" fontSize={10} fontWeight="900" textAnchor="middle">{stats.urgent}</SvgText>
-                        <SvgText x={centerX - 14} y={2} fill="#ffffff" fontSize={10} fontWeight="900" textAnchor="middle">{stats.soon}</SvgText>
-                        <SvgText x={centerX + 14} y={2} fill="#0f172a" fontSize={10} fontWeight="900" textAnchor="middle">{stats.upcoming}</SvgText>
-                        <SvgText x={centerX + 42} y={2} fill="#ffffff" fontSize={10} fontWeight="900" textAnchor="middle">{stats.safe}</SvgText>
+                        <SvgText x={centerX - 42} y={2} fill="#ffffff" fontSize={11} fontWeight="900" textAnchor="middle">{stats.expired}</SvgText>
+                        <SvgText x={centerX - 14} y={2} fill="#ffffff" fontSize={11} fontWeight="900" textAnchor="middle">{stats.urgent}</SvgText>
+                        <SvgText x={centerX + 14} y={2} fill="#ffffff" fontSize={11} fontWeight="900" textAnchor="middle">{stats.soon}</SvgText>
+                        <SvgText x={centerX + 42} y={2} fill="#0f172a" fontSize={11} fontWeight="900" textAnchor="middle">{stats.upcoming}</SvgText>
 
                         {/* Labels (Under Segments) */}
-                        <SvgText x={centerX - 42} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>NOW</SvgText>
-                        <SvgText x={centerX - 14} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>1-3M</SvgText>
-                        <SvgText x={centerX + 14} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>4-6M</SvgText>
-                        <SvgText x={centerX + 42} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>7M+</SvgText>
+                        <SvgText x={centerX - 42} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>EXP</SvgText>
+                        <SvgText x={centerX - 14} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>NOW</SvgText>
+                        <SvgText x={centerX + 14} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>1-3M</SvgText>
+                        <SvgText x={centerX + 42} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>4-6M</SvgText>
                       </G>
 
                       {/* T2: STRATEGIC LOGISTICS (Center Grid) */}
-                      <G y={0}>
+                      <G y={5}>
                         <G x={centerX - 34}>
                           <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.categories}</SvgText>
                           <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>CATEGORIES</SvgText>
@@ -742,7 +743,7 @@ export default function IntelligenceScreen() {
                       </G>
 
                       {/* T3: PHYSICAL INVENTORY (Center Grid) */}
-                      <G y={38}>
+                      <G y={43}>
                         <G x={centerX - 34}>
                           <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.batches}</SvgText>
                           <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>BATCHES</SvgText>
