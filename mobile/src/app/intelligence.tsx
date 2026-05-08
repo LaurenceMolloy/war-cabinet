@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Modal, Platform, LayoutAnimation } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, LayoutAnimation } from 'react-native';
 import Svg, { G, Path, Text as SvgText, Circle, Defs, TextPath, TSpan, Line, Rect } from 'react-native-svg';
+import { Database } from '../database';
 import { useSQLiteContext } from 'expo-sqlite';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -21,8 +22,19 @@ const catOuterR = radius * 0.72;
 const prodOuterR = radius * 0.88;
 const batchOuterR = radius;
 
-const baseColors = ['#80deea', '#f48fb1', '#a5d6a7', '#ffcc80']; // Pastel Cyan, Pink, Green, Orange
-const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+// Rainbow colormap helpers — category ring only (intelligence.tsx)
+const hslToHex = (h: number, s: number, l: number): string => {
+  s /= 100; l /= 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const hex = (x: number) => Math.round(x * 255).toString(16).padStart(2, '0');
+  return `#${hex(f(0))}${hex(f(8))}${hex(f(4))}`;
+};
+const getRainbowColor = (index: number, total: number): string => {
+  const h = (index / Math.max(total, 1)) * 300; // red (0°) → violet (300°)
+  return hslToHex(h, 80, 65);
+};
 
 export default function IntelligenceScreen() {
   const db = useSQLiteContext();
@@ -40,6 +52,7 @@ export default function IntelligenceScreen() {
   const [activeLevel, setActiveLevel] = useState(0);
   const [activeIndices, setActiveIndices] = useState({ cat: 0, type: 0, batch: 0 });
   const [isMagnified, setIsMagnified] = useState(false);
+  const [readinessMap, setReadinessMap] = useState<Map<number, string>>(new Map());
 
   const loadData = useCallback(async () => {
     try {
@@ -207,6 +220,10 @@ export default function IntelligenceScreen() {
         upcoming: upcomingCount,
         safe: safeCount
       });
+
+      // Fetch readiness colour map from DAL (trial vehicle — ReadinessCommandView unchanged)
+      const rmap = await Database.ItemTypes.getStockReadinessMap(db);
+      setReadinessMap(rmap);
     } catch (err) {
       console.error('Failed to load starburst data:', err);
     }
@@ -279,16 +296,16 @@ export default function IntelligenceScreen() {
       setSelectedSector(null);
     } else if (activeLevel === 1) {
       const cat = data[activeIndices.cat];
-      if (cat) setSelectedSector({ type: 'category', color: baseColors[activeIndices.cat % 4], ...cat });
+      if (cat) setSelectedSector({ type: 'category', color: getRainbowColor(activeIndices.cat, data.length), ...cat });
     } else if (activeLevel === 2) {
       const cat = data[activeIndices.cat];
       const type = cat?.types[activeIndices.type];
-      if (type) setSelectedSector({ type: 'item_type', cat_id: cat.id, color: baseColors[activeIndices.cat % 4], ...type });
+      if (type) setSelectedSector({ type: 'item_type', cat_id: cat.id, color: getRainbowColor(activeIndices.cat, data.length), ...type });
     } else if (activeLevel === 3) {
       const cat = data[activeIndices.cat];
       const type = cat?.types[activeIndices.type];
       const batch = type?.batches[activeIndices.batch];
-      if (batch) setSelectedSector({ type: 'batch', cat_id: cat.id, item_type_id: type.id, parent_name: type.name, color: batch.color, catColor: baseColors[activeIndices.cat % 4], ...batch });
+      if (batch) setSelectedSector({ type: 'batch', cat_id: cat.id, item_type_id: type.id, parent_name: type.name, color: batch.color, catColor: getRainbowColor(activeIndices.cat, data.length), ...batch });
     }
   }, [activeLevel, activeIndices, data]);
 
@@ -360,7 +377,6 @@ export default function IntelligenceScreen() {
     return `M ${x1} ${y1} L ${x2} ${y2} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x3} ${y3} L ${x4} ${y4} A ${innerR} ${innerR} 0 ${largeArc} 0 ${x1} ${y1} Z`;
   };
 
-  const isZoomed = activeLevel > 0;
 
   const renderChart = () => {
     const totalWeight = data.reduce((sum, cat) => sum + (cat.weight || 0), 0);
@@ -368,18 +384,14 @@ export default function IntelligenceScreen() {
 
     let currentAngle = -Math.PI / 2; // Start at top
     
-    let globalProductIndex = 0;
 
     const sectors: any[] = [];
 
     data.forEach((cat, catIdx) => {
-      const catLetter = alphabet[catIdx % 26];
       const catAngleSize = (cat.weight / totalWeight) * 2 * Math.PI;
       const catEndAngle = currentAngle + catAngleSize;
       
-      const baseColor = baseColors[catIdx % 4];
-      const isCatSelected = selectedSector?.type === 'category' && selectedSector.id === cat.id;
-
+      const baseColor = getRainbowColor(catIdx, data.length);
       const isCatActive = (activeLevel >= 1 && activeIndices.cat === catIdx);
       const catOpacity = (!activeLevel || isCatActive) ? 1 : 0.15;
 
@@ -403,41 +415,23 @@ export default function IntelligenceScreen() {
       // 2. MIDDLE RING: Products (Thick)
       let typeAngle = currentAngle;
       cat.types.forEach((type: any, typeIdx: number) => {
-        const typeLetter = `${catLetter}${typeIdx + 1}`;
         const typeAngleSize = (type.weight / cat.weight) * catAngleSize;
         const typeEndAngle = typeAngle + typeAngleSize;
-        const isTypeSelected = selectedSector?.type === 'item_type' && selectedSector.id === type.id;
-
         const isTypeActive = (activeLevel >= 2 && activeIndices.cat === catIdx && activeIndices.type === typeIdx);
         // Bright if: Level 0, or (Level 1 and in this cat), or this is the active type
         const typeOpacity = (!activeLevel || (activeLevel === 1 && isCatActive) || isTypeActive) ? 1 : 0.15;
 
-        const isLight = globalProductIndex % 2 === 1;
-        globalProductIndex++;
+
+        const typeReadinessColor = readinessMap.get(type.id) ?? '#64748b';
 
         sectors.push(
           <G key={`type-g-${type.id}`}>
             <Path
               d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
-              fill={baseColor}
+              fill={typeReadinessColor}
               opacity={typeOpacity}
               stroke="none"
             />
-            {isLight ? (
-              <Path
-                d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
-                fill="#ffffff"
-                opacity={typeOpacity * 0.3}
-                stroke="none"
-              />
-            ) : (
-              <Path
-                d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
-                fill="#000000"
-                opacity={typeOpacity * 0.25}
-                stroke="none"
-              />
-            )}
             <Path
               d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
               fill="transparent"
@@ -576,7 +570,7 @@ export default function IntelligenceScreen() {
                 cy={centerY} 
                 r={hubRingR} 
                 fill="#020617" 
-                stroke={selectedSector ? baseColors[activeIndices.cat % 4] : '#1e293b'}
+                stroke={selectedSector ? getRainbowColor(activeIndices.cat, data.length) : '#1e293b'}
                 strokeWidth={2}
                 onPress={() => setIsMagnified(prev => !prev)}
               />
@@ -604,7 +598,7 @@ export default function IntelligenceScreen() {
                           </SvgText>
 
                           {/* BOTTOM ORBIT: IDENTITY (Categorical Anchor) */}
-                          <SvgText fill={selectedSector.catColor || selectedSector.color || "#fbbf24"} fontSize={12} style={{ fontSize: 12 }} fontWeight="900" letterSpacing={2}>
+                          <SvgText fill={getRainbowColor(activeIndices.cat, data.length)} fontSize={12} style={{ fontSize: 12 }} fontWeight="900" letterSpacing={2}>
                             <TextPath href="#hubArchBottom" startOffset="50%" textAnchor="middle">
                               <TSpan dy={8} textAnchor="middle">
                                 {(selectedSector.parent_name || selectedSector.name).toUpperCase()}
