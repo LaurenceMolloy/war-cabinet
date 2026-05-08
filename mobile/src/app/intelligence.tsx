@@ -111,9 +111,25 @@ export default function IntelligenceScreen() {
           else if (row.type_unit === 'volume') resolvedSize += 'ML';
         }
 
+        const getMass = (s: any) => {
+          const n = parseFloat(String(s).replace(/[^0-9.]/g, ''));
+          return isNaN(n) ? null : n;
+        };
+        const bSize = getMass(row.bespoke_size);
+        const defSize = getMass(row.type_default_size);
+
+        let unitWeight = 1;
+        if (bSize !== null && defSize !== null && defSize > 0) {
+            unitWeight = bSize / defSize;
+        }
+
+        const batchWeight = row.quantity * unitWeight;
+
         categories[row.cat_id].types[row.type_id].batches.push({
           id: row.inv_id,
           qty: row.quantity,
+          weight: batchWeight,
+          unitWeight: unitWeight,
           color: batchColor,
           size: resolvedSize,
           bespoke_size: row.bespoke_size,
@@ -127,6 +143,8 @@ export default function IntelligenceScreen() {
         });
         categories[row.cat_id].types[row.type_id].total += row.quantity;
         categories[row.cat_id].total += row.quantity;
+        categories[row.cat_id].types[row.type_id].weight = (categories[row.cat_id].types[row.type_id].weight || 0) + batchWeight;
+        categories[row.cat_id].weight = (categories[row.cat_id].weight || 0) + batchWeight;
       });
 
       // Convert to array and sort
@@ -345,8 +363,8 @@ export default function IntelligenceScreen() {
   const isZoomed = activeLevel > 0;
 
   const renderChart = () => {
-    const totalQty = data.reduce((sum, cat) => sum + cat.total, 0);
-    if (totalQty === 0) return null;
+    const totalWeight = data.reduce((sum, cat) => sum + (cat.weight || 0), 0);
+    if (totalWeight === 0) return null;
 
     let currentAngle = -Math.PI / 2; // Start at top
     
@@ -356,7 +374,7 @@ export default function IntelligenceScreen() {
 
     data.forEach((cat, catIdx) => {
       const catLetter = alphabet[catIdx % 26];
-      const catAngleSize = (cat.total / totalQty) * 2 * Math.PI;
+      const catAngleSize = (cat.weight / totalWeight) * 2 * Math.PI;
       const catEndAngle = currentAngle + catAngleSize;
       
       const baseColor = baseColors[catIdx % 4];
@@ -386,7 +404,7 @@ export default function IntelligenceScreen() {
       let typeAngle = currentAngle;
       cat.types.forEach((type: any, typeIdx: number) => {
         const typeLetter = `${catLetter}${typeIdx + 1}`;
-        const typeAngleSize = (type.total / cat.total) * catAngleSize;
+        const typeAngleSize = (type.weight / cat.weight) * catAngleSize;
         const typeEndAngle = typeAngle + typeAngleSize;
         const isTypeSelected = selectedSector?.type === 'item_type' && selectedSector.id === type.id;
 
@@ -437,26 +455,12 @@ export default function IntelligenceScreen() {
         const pixelGap = 5;
         const gapAngle = pixelGap / radius; 
         
-        // Helper to extract clean numeric mass
-        const getMass = (s: any) => {
-          const n = parseFloat(String(s).replace(/[^0-9.]/g, ''));
-          return isNaN(n) ? null : n;
-        };
-
-        // Calculate Total Volume for mass-aware scaling (Bespoke > Default > 1)
-        const totalVolume = type.batches.reduce((sum: number, b: any) => {
-          const bSize = getMass(b.bespoke_size) ?? getMass(type.default_size) ?? 1;
-          return sum + (b.qty * bSize);
-        }, 0);
-
         const clusterGap = gapAngle;
         let batchAngle = typeAngle + (clusterGap / 2);
         const availableBatchSpace = typeAngleSize - (type.batches.length * gapAngle);
 
         type.batches.forEach((batch: any, bIdx: number) => {
-          const bSize = getMass(batch.bespoke_size) ?? getMass(type.default_size) ?? 1;
-          const batchVolume = batch.qty * bSize;
-          const batchAngleSize = (batchVolume / totalVolume) * availableBatchSpace;
+          const batchAngleSize = (batch.weight / type.weight) * availableBatchSpace;
           
           const batchEndAngle = batchAngle + batchAngleSize;
           const isBatchActive = (activeLevel === 3 && activeIndices.cat === catIdx && activeIndices.type === typeIdx && activeIndices.batch === bIdx);
