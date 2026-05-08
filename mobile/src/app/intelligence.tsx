@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Modal, Platform, LayoutAnimation } from 'react-native';
 import Svg, { G, Path, Text as SvgText, Circle, Defs, TextPath, TSpan, Line, Rect } from 'react-native-svg';
 import { useSQLiteContext } from 'expo-sqlite';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -12,6 +12,15 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 
 const screenWidth = Dimensions.get('window').width;
 const size = screenWidth - 40;
+const radius = size / 2;
+const centerX = radius;
+const centerY = radius;
+const hubRingR = radius * 0.48;
+const catInnerR = radius * 0.60;
+const catOuterR = radius * 0.72;
+const prodOuterR = radius * 0.88;
+const batchOuterR = radius;
+
 const baseColors = ['#00f5ff', '#ff00ff', '#00ff7f', '#ff8c00']; // Cyan, Magenta, Spring, Autumn
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -26,6 +35,11 @@ export default function IntelligenceScreen() {
     categories: 0, products: 0, batches: 0, items: 0,
     urgent: 0, soon: 0, upcoming: 0, safe: 0
   });
+
+  // Level tracking: 0: Hub, 1: Category, 2: Product, 3: Batch
+  const [activeLevel, setActiveLevel] = useState(0);
+  const [activeIndices, setActiveIndices] = useState({ cat: 0, type: 0, batch: 0 });
+  const [isMagnified, setIsMagnified] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -180,6 +194,86 @@ export default function IntelligenceScreen() {
     }
   }, [db, cabinetId]);
 
+  const handleNav = (dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'RESET') => {
+    if (!data.length) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
+
+    if (dir === 'RESET') {
+      setActiveLevel(0);
+      setSelectedSector(null);
+      return;
+    }
+
+    if (dir === 'UP') {
+      if (activeLevel < 3) setActiveLevel(prev => prev + 1);
+    } else if (dir === 'DOWN') {
+      if (activeLevel > 0) setActiveLevel(prev => prev - 1);
+    } else if (dir === 'LEFT' || dir === 'RIGHT') {
+      const move = dir === 'RIGHT' ? 1 : -1;
+      if (activeLevel === 1) {
+        let next = activeIndices.cat + move;
+        if (next < 0) next = data.length - 1;
+        if (next >= data.length) next = 0;
+        setActiveIndices({ ...activeIndices, cat: next, type: 0, batch: 0 });
+      } else if (activeLevel === 2) {
+        let nextCat = activeIndices.cat;
+        let nextType = activeIndices.type + move;
+        const types = data[nextCat]?.types || [];
+
+        if (nextType < 0) {
+          nextCat = nextCat - 1 < 0 ? data.length - 1 : nextCat - 1;
+          nextType = Math.max(0, (data[nextCat]?.types?.length || 1) - 1);
+        } else if (nextType >= types.length) {
+          nextCat = nextCat + 1 >= data.length ? 0 : nextCat + 1;
+          nextType = 0;
+        }
+        setActiveIndices({ cat: nextCat, type: nextType, batch: 0 });
+      } else if (activeLevel === 3) {
+        let nextCat = activeIndices.cat;
+        let nextType = activeIndices.type;
+        let nextBatch = activeIndices.batch + move;
+        const batches = data[nextCat]?.types[nextType]?.batches || [];
+
+        if (nextBatch < 0) {
+          nextType = nextType - 1;
+          if (nextType < 0) {
+            nextCat = nextCat - 1 < 0 ? data.length - 1 : nextCat - 1;
+            nextType = Math.max(0, (data[nextCat]?.types?.length || 1) - 1);
+          }
+          nextBatch = Math.max(0, (data[nextCat]?.types[nextType]?.batches?.length || 1) - 1);
+        } else if (nextBatch >= batches.length) {
+          nextType = nextType + 1;
+          const currentTypes = data[nextCat]?.types || [];
+          if (nextType >= currentTypes.length) {
+            nextCat = nextCat + 1 >= data.length ? 0 : nextCat + 1;
+            nextType = 0;
+          }
+          nextBatch = 0;
+        }
+        setActiveIndices({ cat: nextCat, type: nextType, batch: nextBatch });
+      }
+    }
+  };
+
+  // Sync selectedSector for the Hub display
+  useEffect(() => {
+    if (activeLevel === 0) {
+      setSelectedSector(null);
+    } else if (activeLevel === 1) {
+      const cat = data[activeIndices.cat];
+      if (cat) setSelectedSector({ type: 'category', color: baseColors[activeIndices.cat % 4], ...cat });
+    } else if (activeLevel === 2) {
+      const cat = data[activeIndices.cat];
+      const type = cat?.types[activeIndices.type];
+      if (type) setSelectedSector({ type: 'item_type', cat_id: cat.id, color: baseColors[activeIndices.cat % 4], ...type });
+    } else if (activeLevel === 3) {
+      const cat = data[activeIndices.cat];
+      const type = cat?.types[activeIndices.type];
+      const batch = type?.batches[activeIndices.batch];
+      if (batch) setSelectedSector({ type: 'batch', cat_id: cat.id, item_type_id: type.id, parent_name: type.name, color: batch.color, catColor: baseColors[activeIndices.cat % 4], ...batch });
+    }
+  }, [activeLevel, activeIndices, data]);
+
   useEffect(() => {
     loadData();
   }, [loadData]);
@@ -231,9 +325,6 @@ export default function IntelligenceScreen() {
     }
   };
 
-  const radius = size / 2;
-  const centerX = radius;
-  const centerY = radius;
 
   // Helper to calculate SVG arc path
   const getArcPath = (startAngle: number, endAngle: number, innerR: number, outerR: number) => {
@@ -251,17 +342,14 @@ export default function IntelligenceScreen() {
     return `M ${x1} ${y1} L ${x2} ${y2} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x3} ${y3} L ${x4} ${y4} A ${innerR} ${innerR} 0 ${largeArc} 0 ${x1} ${y1} Z`;
   };
 
+  const isZoomed = activeLevel > 0;
+
   const renderChart = () => {
     const totalQty = data.reduce((sum, cat) => sum + cat.total, 0);
     if (totalQty === 0) return null;
 
     let currentAngle = -Math.PI / 2; // Start at top
     
-    // Radius config: Balanced rings, standardized thickness
-    const innerRingR = radius * 0.60;
-    const midRingR = radius * 0.70;
-    const outerRingR = radius * 0.90;
-    const batchRingR = radius;
 
     const sectors: any[] = [];
 
@@ -273,31 +361,23 @@ export default function IntelligenceScreen() {
       const baseColor = baseColors[catIdx % 4];
       const isCatSelected = selectedSector?.type === 'category' && selectedSector.id === cat.id;
 
-      // 1. INNER RING: Categories (Thin)
+      const isCatActive = (activeLevel >= 1 && activeIndices.cat === catIdx);
+      const catOpacity = (!activeLevel || isCatActive) ? 1 : 0.15;
+
+      // 1. INNER RING: Categories
       sectors.push(
         <G key={`cat-g-${cat.id}`}>
           <Path
-            d={getArcPath(currentAngle, catEndAngle, innerRingR, midRingR)}
+            d={getArcPath(currentAngle, catEndAngle, catInnerR, catOuterR)}
             fill={baseColor}
-            stroke="#0a0a0a"
-            strokeWidth={1}
-            opacity={selectedSector && !isCatSelected && selectedSector.cat_id !== cat.id ? 0.3 : 1}
+            stroke={(isCatActive && activeLevel === 1) ? "#ffffff" : "#0a0a0a"}
+            strokeWidth={(isCatActive && activeLevel === 1) ? 2 : 1}
+            opacity={catOpacity}
             onPress={() => {
-              setSelectedSector({ type: 'category', color: baseColor, ...cat });
+              setActiveLevel(1);
+              setActiveIndices({ cat: catIdx, type: 0, batch: 0 });
             }}
           />
-          <SvgText
-            x={centerX + (radius * 0.66) * Math.cos(currentAngle + catAngleSize/2)}
-            y={centerY + (radius * 0.66) * Math.sin(currentAngle + catAngleSize/2)}
-            fill="#000"
-            fontSize="8"
-            fontWeight="900"
-            textAnchor="middle"
-            dy={5}
-            pointerEvents="none"
-          >
-            {catLetter}
-          </SvgText>
         </G>
       );
 
@@ -309,31 +389,23 @@ export default function IntelligenceScreen() {
         const typeEndAngle = typeAngle + typeAngleSize;
         const isTypeSelected = selectedSector?.type === 'item_type' && selectedSector.id === type.id;
 
+        const isTypeActive = (activeLevel >= 2 && activeIndices.cat === catIdx && activeIndices.type === typeIdx);
+        // Bright if: Level 0, or (Level 1 and in this cat), or this is the active type
+        const typeOpacity = (!activeLevel || (activeLevel === 1 && isCatActive) || isTypeActive) ? 1 : 0.15;
+
         sectors.push(
           <G key={`type-g-${type.id}`}>
             <Path
-              d={getArcPath(typeAngle, typeEndAngle, midRingR, outerRingR)}
+              d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
               fill={baseColor}
-              opacity={selectedSector ? (isTypeSelected ? 1 : 0.2) : (0.6 + (typeIdx % 2) * 0.3)}
-              stroke="#0a0a0a"
-              strokeWidth={1}
+              opacity={typeOpacity}
+              stroke={(isTypeActive && activeLevel === 2) ? "#ffffff" : "#0a0a0a"}
+              strokeWidth={(isTypeActive && activeLevel === 2) ? 2 : 1}
               onPress={() => {
-                setSelectedSector({ type: 'item_type', cat_id: cat.id, id_code: typeLetter, color: baseColor, ...type });
+                setActiveLevel(2);
+                setActiveIndices({ cat: catIdx, type: typeIdx, batch: 0 });
               }}
             />
-            <SvgText
-              x={centerX + (radius * 0.81) * Math.cos(typeAngle + typeAngleSize/2)}
-              y={centerY + (radius * 0.81) * Math.sin(typeAngle + typeAngleSize/2)}
-              fill="#fff"
-              fontSize="6"
-              fontWeight="bold"
-              textAnchor="middle"
-              dy={4}
-              pointerEvents="none"
-              opacity={selectedSector && !isTypeSelected ? 0.3 : 1}
-            >
-              {typeLetter}
-            </SvgText>
           </G>
         );
 
@@ -363,15 +435,17 @@ export default function IntelligenceScreen() {
           const batchAngleSize = (batchVolume / totalVolume) * availableBatchSpace;
           
           const batchEndAngle = batchAngle + batchAngleSize;
-          const isBatchSelected = selectedSector?.type === 'batch' && selectedSector.id === batch.id;
-
+          const isBatchActive = (activeLevel === 3 && activeIndices.cat === catIdx && activeIndices.type === typeIdx && activeIndices.batch === bIdx);
+          // Bright if: Level 0, or (Level 1 and in this cat), or (Level 2 and in this type), or this is the active batch
+          const batchOpacity = (!activeLevel || (activeLevel === 1 && isCatActive) || (activeLevel === 2 && isTypeActive) || isBatchActive) ? 1 : 0.15;
+          
+          const hasExpiry = batch.exp && batch.exp.trim() !== '' && batch.exp.toUpperCase() !== 'NO EXPIRY';
+          const batchDisplayColor = hasExpiry ? batch.color : '#64748b';
+          
           const pips: any[] = [];
           // Cap pips at 12 to maintain legibility. Above that, use a solid bar.
           const showPips = batch.qty > 0 && batch.qty <= 12;
 
-          // Resolve a precision white separator for intra-batch pips
-          const pipStroke = '#ffffff';
-          
           if (showPips) {
             const gapAngle = 0.008; // High-viz gap within batch
             const pipAngleSize = (batchAngleSize - (gapAngle * (batch.qty - 1))) / batch.qty;
@@ -384,12 +458,11 @@ export default function IntelligenceScreen() {
               pips.push(
                 <Path
                   key={`batch-${batch.id}-pip-${i}`}
-                  d={getArcPath(pStart, safeEnd, outerRingR, batchRingR)}
-                  fill={batch.color}
-                  stroke="#ffffff"
-                  strokeWidth={1}
-                  strokeLinejoin="round"
-                  opacity={selectedSector ? (isBatchSelected ? 1 : 0.1) : 1}
+                  d={getArcPath(pStart, safeEnd, prodOuterR + 2, batchOuterR)}
+                  fill={batchDisplayColor}
+                  stroke="#0a0a0a"
+                  strokeWidth={0.5}
+                  opacity={batchOpacity}
                 />
               );
             }
@@ -397,12 +470,11 @@ export default function IntelligenceScreen() {
             pips.push(
               <Path
                 key={`batch-${batch.id}-solid`}
-                d={getArcPath(batchAngle, batchEndAngle, outerRingR, batchRingR)}
-                fill={batch.color}
-                stroke="#ffffff"
-                strokeWidth={1}
-                strokeLinejoin="round"
-                opacity={selectedSector ? (isBatchSelected ? 1 : 0.1) : 1}
+                d={getArcPath(batchAngle, batchEndAngle, prodOuterR + 2, batchOuterR)}
+                fill={batchDisplayColor}
+                stroke="#0a0a0a"
+                strokeWidth={0.5}
+                opacity={batchOpacity}
               />
             );
           }
@@ -411,13 +483,18 @@ export default function IntelligenceScreen() {
             <G 
               key={`batch-group-${batch.id}`}
               onPress={() => {
+                setActiveLevel(3);
+                setActiveIndices({ cat: catIdx, type: typeIdx, batch: bIdx });
                 setSelectedSector({ type: 'batch', cat_id: cat.id, parent_name: type.name, color: batch.color, catColor: baseColor, ...batch });
               }}
             >
               {pips}
               <Path
-                d={getArcPath(batchAngle, batchEndAngle, outerRingR, batchRingR)}
+                d={getArcPath(batchAngle, batchEndAngle, prodOuterR + 2, batchOuterR)}
                 fill="transparent"
+                stroke={isBatchActive ? "#ffffff" : "transparent"}
+                strokeWidth={isBatchActive ? 2 : 0}
+                pointerEvents="box-none"
               />
             </G>
           );
@@ -435,36 +512,32 @@ export default function IntelligenceScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Tactical Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => {
-          if (router.canGoBack()) router.back();
-          else router.replace('/catalog');
-        }}>
-          <MaterialCommunityIcons name="chevron-left" size={32} color="#94a3b8" />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <MaterialCommunityIcons name="chevron-left" size={32} color="#fff" />
         </TouchableOpacity>
-        <View>
-          <Text style={styles.headerTitle}>LOGISTICAL INTELLIGENCE</Text>
-          <Text style={styles.headerSub}>STARBURST READINESS V1</Text>
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle}>STOCK INTELLIGENCE</Text>
+          <Text style={styles.headerSub}>EAGLE-EYES VIEW</Text>
         </View>
-        <View style={{ flexDirection: 'row', gap: 15 }}>
-          <TouchableOpacity onPress={runSeed}>
-            <MaterialCommunityIcons name="database-import" size={24} color="#f43f5e" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={loadData}>
-            <MaterialCommunityIcons name="refresh" size={24} color="#3b82f6" />
-          </TouchableOpacity>
-        </View>
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 40 }}>
         {/* The Visualization */}
         <View style={styles.chartArea}>
           <View style={styles.vizWrapper}>
-            <Svg width={size} height={size}>
+            <Svg 
+              width={size} 
+              height={size} 
+              viewBox={`0 0 ${size} ${size}`}
+              style={{ transform: [{ scale: isMagnified ? 1.6 : 1 }] }}
+            >
               <Defs>
-                <Path id="hubArchTop" d={`M ${centerX - radius * 0.45} ${centerY} A ${radius * 0.45} ${radius * 0.45} 0 0 1 ${centerX + radius * 0.45} ${centerY}`} fill="none" />
-                <Path id="hubArchBottom" d={`M ${centerX - radius * 0.49} ${centerY} A ${radius * 0.49} ${radius * 0.49} 0 0 0 ${centerX + radius * 0.49} ${centerY}`} fill="none" />
+                {/* Top Arch: 0.50 radius, Clockwise L-to-R (Right-side up) */}
+                <Path id="hubArchTop" d={`M ${centerX - radius * 0.50} ${centerY} A ${radius * 0.50} ${radius * 0.50} 0 0 1 ${centerX + radius * 0.50} ${centerY}`} fill="none" />
+                {/* Bottom Arch: 0.52 radius, Counter-Clockwise L-to-R (Right-side up) */}
+                <Path id="hubArchBottom" d={`M ${centerX - radius * 0.52} ${centerY} A ${radius * 0.52} ${radius * 0.52} 0 0 0 ${centerX + radius * 0.52} ${centerY}`} fill="none" />
               </Defs>
 
               {renderChart()}
@@ -473,218 +546,222 @@ export default function IntelligenceScreen() {
               <Circle 
                 cx={centerX} 
                 cy={centerY} 
-                r={radius * 0.60 - 10} 
+                r={hubRingR} 
                 fill="#020617" 
-                stroke={selectedSector ? baseColors[data.findIndex(c => c.id === (selectedSector.cat_id || selectedSector.id)) % 4] || '#fbbf24' : '#1e293b'}
-                strokeWidth={1}
-                onPress={() => setSelectedSector(null)}
+                stroke={selectedSector ? baseColors[activeIndices.cat % 4] : '#1e293b'}
+                strokeWidth={2}
+                onPress={() => setIsMagnified(prev => !prev)}
               />
 
-              <G pointerEvents="none">
-                {selectedSector ? (
-                  <>
-                    {/* TOP ORBIT: CONTEXT (Dominant Identity) */}
-                    <SvgText fill="#f8fafc" fontSize={12} style={{ fontSize: 12 }} fontWeight="500" letterSpacing={2.5}>
-                      <TextPath href="#hubArchTop" startOffset="50%" textAnchor="middle">
-                        {selectedSector.type === 'category' ? 'CATEGORY INTEL' : 
-                         selectedSector.type === 'item_type' ? 'PRODUCT INTEL' : 'BATCH INTEL'}
-                      </TextPath>
-                    </SvgText>
+                {selectedSector ? (() => {
+                    const statusColor = selectedSector.color || baseColors[0];
+                    const capR = radius * 0.40;
+                    const chordY = -25;
+                    const chordX = Math.sqrt(Math.pow(capR, 2) - Math.pow(chordY, 2));
+                    const capPath = `M ${centerX - chordX} ${centerY + chordY} A ${capR} ${capR} 0 0 1 ${centerX + chordX} ${centerY + chordY} Z`;
 
-                    {/* BOTTOM ORBIT: IDENTITY (Categorical Anchor) */}
-                    <SvgText fill={selectedSector.catColor || selectedSector.color || "#fbbf24"} fontSize={12} style={{ fontSize: 12 }} fontWeight="900" letterSpacing={2}>
-                      <TextPath href="#hubArchBottom" startOffset="50%" textAnchor="middle">
-                        {(selectedSector.parent_name || selectedSector.name).toUpperCase()}
-                      </TextPath>
-                    </SvgText>
+                    return (
+                      <>
+                          <Path d={capPath} fill={statusColor} />
 
-                    {/* THE COMMAND CAP (Compact Gold Standard) */}
-                    {(() => {
-                      const statusColor = selectedSector.color || baseColors[0];
-                      const capR = radius * 0.40;
-                      const chordY = -25;
-                      const chordX = Math.sqrt(Math.pow(capR, 2) - Math.pow(chordY, 2));
-                      const capPath = `M ${centerX - chordX} ${centerY + chordY} A ${capR} ${capR} 0 0 1 ${centerX + chordX} ${centerY + chordY} Z`;
-
-                      // Determine manifest line 1 and optional line 2
-                      let manifestLine1 = "";
-                      let manifestLine2 = "";
-
-                      if (selectedSector.type === 'batch' || (selectedSector.type === 'item_type' && selectedSector.batches?.length === 1)) {
-                        // Single batch: show precise unit manifest
-                        const q = selectedSector.qty || selectedSector.total || 0;
-                        const s = (selectedSector.size || "").toUpperCase();
-                        manifestLine1 = s ? `${q} X ${s}` : `${q} ITEMS`;
-                      } else if (selectedSector.type === 'item_type' && selectedSector.batches?.length > 1) {
-                        // Multi-batch product: show item count + batch count
-                        manifestLine1 = `${selectedSector.total || 0} ITEMS`;
-                        manifestLine2 = `across ${selectedSector.batches.length} batches`;
-                      } else {
-                        // Category level: B batches across P products
-                        const productCount = selectedSector.types?.length || 0;
-                        const batchCount = selectedSector.types?.reduce((sum: number, t: any) => sum + (t.batches?.length || 0), 0) || 0;
-                        manifestLine1 = `${batchCount} BATCHES`;
-                        manifestLine2 = `across ${productCount} products`;
-                      }
-                      
-                      return (
-                        <>
-                          <Path 
-                            d={capPath} 
-                            fill={statusColor} 
-                            opacity={1.0} 
-                          />
-                          <SvgText
-                            x={centerX}
-                            y={manifestLine2 ? centerY - 42 : centerY - 38}
-                            fill="#000"
-                            fontSize={11}
-                            style={{ fontSize: 11 }}
-                            fontWeight="900"
-                            textAnchor="middle"
-                          >
-                            {manifestLine1}
+                        <G pointerEvents="none">
+                          {/* TOP ORBIT: CONTEXT (Dominant Identity) */}
+                          <SvgText fill="#f8fafc" fontSize={11} style={{ fontSize: 11 }} fontWeight="500" letterSpacing={2.5}>
+                            <TextPath href="#hubArchTop" startOffset="50%" textAnchor="middle">
+                              <TSpan dy={-4} textAnchor="middle">
+                                {selectedSector.type === 'category' ? 'CATEGORY INTEL' : 
+                                 selectedSector.type === 'item_type' ? 'PRODUCT INTEL' : 'BATCH INTEL'}
+                              </TSpan>
+                            </TextPath>
                           </SvgText>
 
-                          {manifestLine2 ? (
-                            <SvgText
-                              x={centerX}
-                              y={centerY - 29}
-                              fill="#000"
-                              fontSize={10}
-                              style={{ fontSize: 10 }}
-                              fontWeight="700"
-                              textAnchor="middle"
-                              letterSpacing={0.5}
-                            >
-                              {manifestLine2}
-                            </SvgText>
-                          ) : null}
-                          
-                          {selectedSector.exp && (
-                            <SvgText 
-                              x={centerX} 
-                              y={centerY - 10} 
-                              fill={statusColor} 
-                              fontSize={10.5} 
-                              style={{ fontSize: 10.5 }} 
-                              fontWeight="900" 
-                              textAnchor="middle" 
-                              letterSpacing={1}
-                            >
-                              EXPIRY: {selectedSector.exp}
+                          {/* BOTTOM ORBIT: IDENTITY (Categorical Anchor) */}
+                          <SvgText fill={selectedSector.catColor || selectedSector.color || "#fbbf24"} fontSize={12} style={{ fontSize: 12 }} fontWeight="900" letterSpacing={2}>
+                            <TextPath href="#hubArchBottom" startOffset="50%" textAnchor="middle">
+                              <TSpan dy={8} textAnchor="middle">
+                                {(selectedSector.parent_name || selectedSector.name).toUpperCase()}
+                              </TSpan>
+                            </TextPath>
+                          </SvgText>
+
+                          {/* TACTICAL HORIZON (Refined Symmetry) */}
+                          <Line x1={centerX-20} y1={centerY+10} x2={centerX+20} y2={centerY+10} stroke="#475569" strokeWidth={1} />
+
+                          {/* LOGISTICAL DECK (Refined Symmetry) */}
+                          {selectedSector.brand && (
+                            <SvgText x={centerX} y={centerY + 25} fill="#f8fafc" fontSize={11} style={{ fontSize: 11 }} fontWeight="900" textAnchor="middle" letterSpacing={1.5}>
+                              {selectedSector.brand.toUpperCase()}
                             </SvgText>
                           )}
-                        </>
-                      );
-                    })()}
+                          
+                          {selectedSector.range && (
+                            <SvgText x={centerX} y={centerY + 35} fill="#94a3b8" fontSize={7.5} style={{ fontSize: 7.5 }} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>
+                              {selectedSector.range.toUpperCase()}
+                            </SvgText>
+                          )}
 
-                    {/* TACTICAL HORIZON (Refined Symmetry) */}
-                    <Line x1={centerX-20} y1={centerY+10} x2={centerX+20} y2={centerY+10} stroke="#475569" strokeWidth={1} />
+                          {selectedSector.intel && (
+                            <SvgText 
+                              x={centerX} 
+                              y={centerY + 50} 
+                              fill="#64748b" 
+                              fontSize={7} 
+                              style={{ fontSize: 7 }} 
+                              fontWeight="bold"
+                              fontStyle="italic" 
+                              textAnchor="middle"
+                              letterSpacing={1}
+                            >
+                              "{selectedSector.intel.toUpperCase()}"
+                            </SvgText>
+                          )}
 
-                    {/* LOGISTICAL DECK (Refined Symmetry) */}
-                    {selectedSector.brand && (
-                      <SvgText x={centerX} y={centerY + 25} fill="#f8fafc" fontSize={11} style={{ fontSize: 11 }} fontWeight="900" textAnchor="middle" letterSpacing={1.5}>
-                        {selectedSector.brand.toUpperCase()}
-                      </SvgText>
-                    )}
-                    
-                    {selectedSector.range && (
-                      <SvgText x={centerX} y={centerY + 35} fill="#94a3b8" fontSize={7.5} style={{ fontSize: 7.5 }} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>
-                        {selectedSector.range.toUpperCase()}
-                      </SvgText>
-                    )}
+                          {/* MANIFEST TELEMETRY (Restored to SVG) */}
+                          {(() => {
+                              let m1 = "";
+                              let m2 = "";
+                              
+                              if (selectedSector.type === 'batch') {
+                                const q = selectedSector.qty || 0;
+                                const s = (selectedSector.size || "").toUpperCase();
+                                m1 = s ? `${q} X ${s}` : (q === 1 ? '1 ITEM' : `${q} ITEMS`);
+                              } else if (selectedSector.type === 'item_type') {
+                                const q = selectedSector.total || 0;
+                                const b = selectedSector.batches?.length || 0;
+                                m1 = q === 1 ? '1 ITEM' : `${q} ITEMS`;
+                                m2 = `ACROSS ${b} ${b === 1 ? 'BATCH' : 'BATCHES'}`;
+                              } else if (selectedSector.type === 'category') {
+                                const pCount = selectedSector.types?.length || 0;
+                                const bCount = selectedSector.types?.reduce((sum: number, t: any) => sum + (t.batches?.length || 0), 0) || 0;
+                                m1 = bCount === 1 ? '1 BATCH' : `${bCount} BATCHES`;
+                                m2 = `ACROSS ${pCount} ${pCount === 1 ? 'PRODUCT' : 'PRODUCTS'}`;
+                              }
 
-                    {selectedSector.intel && (
-                      <SvgText 
-                        x={centerX} 
-                        y={centerY + 50} 
-                        fill="#64748b" 
-                        fontSize={7} 
-                        style={{ fontSize: 7 }} 
-                        fontWeight="bold"
-                        fontStyle="italic" 
-                        textAnchor="middle"
-                        letterSpacing={1}
-                      >
-                        "{selectedSector.intel.toUpperCase()}"
-                      </SvgText>
-                    )}
-                  </>
-                ) : (
+                              if (!m1) return null;
+
+                              const textY = selectedSector.type === 'batch' ? centerY - 38 : centerY - 43;
+
+                              return (
+                                <G>
+                                  <SvgText x={centerX} y={textY} fill="#000" fontSize={13} fontWeight="900" textAnchor="middle">
+                                    {m1.trim().toUpperCase()}
+                                  </SvgText>
+                                  {m2 ? (
+                                    <SvgText x={centerX} y={textY + 14} fill="#000" fontSize={10} fontWeight="900" textAnchor="middle">
+                                      {m2.trim().toUpperCase()}
+                                    </SvgText>
+                                  ) : null}
+                                  {selectedSector.type === 'batch' && selectedSector.exp && (
+                                    <SvgText 
+                                      x={centerX}
+                                      y={centerY - 6} 
+                                      fill={selectedSector.color || '#fbbf24'} 
+                                      fontSize={12} 
+                                      fontWeight="900" 
+                                      textAnchor="middle"
+                                    >
+                                      {'EXPIRY: ' + selectedSector.exp.trim().toUpperCase()}
+                                    </SvgText>
+                                  )}
+                                </G>
+                              );
+                          })()}
+                        </G>
+                      </>
+                    );
+                })() : (
                   <>
-                    <SvgText fill="#f8fafc" fontSize={12} style={{ fontSize: 12 }} fontWeight="500" letterSpacing={2.5}>
-                      <TextPath href="#hubArchTop" startOffset="50%" textAnchor="middle">
-                        CABINET INTEL
+                    <SvgText fill="#f8fafc" fontSize={11} style={{ fontSize: 11 }} fontWeight="500" letterSpacing={2.5} textAnchor="middle">
+                      <TextPath href="#hubArchTop" startOffset="50%" textAnchor="middle" dominantBaseline="middle">
+                        <TSpan dy={-4} textAnchor="middle">CABINET INTEL</TSpan>
                       </TextPath>
                     </SvgText>
 
-                    <SvgText fill="#fbbf24" fontSize={12} style={{ fontSize: 12 }} fontWeight="900" letterSpacing={2}>
+                    <SvgText fill="#fbbf24" fontSize={11} style={{ fontSize: 11 }} fontWeight="900" letterSpacing={2} textAnchor="middle">
                       <TextPath href="#hubArchBottom" startOffset="50%" textAnchor="middle">
-                        {contextName}
+                        <TSpan dy={8} textAnchor="middle">{contextName}</TSpan>
                       </TextPath>
                     </SvgText>
 
                     <G y={centerY}>
                       {/* T1: READINESS TRIPTYCH BAR (Header) */}
-                      <G y={-31}>
+                      <G y={-38}>
                         <SvgText x={centerX} y={-12} fill="#94a3b8" fontSize={8} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>EXPIRY STATS</SvgText>
                         
                         {/* Full Spectrum Readiness Bar (4 Segments) */}
-                        <Rect x={centerX - 61} y={-8} width={29} height={13} fill="#f43f5e" rx={2} />
-                        <Rect x={centerX - 30} y={-8} width={29} height={13} fill="#f97316" rx={2} />
-                        <Rect x={centerX + 1} y={-8} width={29} height={13} fill="#fde047" rx={2} />
-                        <Rect x={centerX + 32} y={-8} width={29} height={13} fill="#22c55e" rx={2} />
+                        <Rect x={centerX - 55} y={-8} width={26} height={13} fill="#f43f5e" rx={2} />
+                        <Rect x={centerX - 27} y={-8} width={26} height={13} fill="#f97316" rx={2} />
+                        <Rect x={centerX + 1} y={-8} width={26} height={13} fill="#fde047" rx={2} />
+                        <Rect x={centerX + 29} y={-8} width={26} height={13} fill="#22c55e" rx={2} />
                         
                         {/* Numbers (Inside Bar) */}
-                        <SvgText x={centerX - 46.5} y={2} fill="#ffffff" fontSize={10} fontWeight="900" textAnchor="middle">{stats.urgent}</SvgText>
-                        <SvgText x={centerX - 15.5} y={2} fill="#ffffff" fontSize={10} fontWeight="900" textAnchor="middle">{stats.soon}</SvgText>
-                        <SvgText x={centerX + 15.5} y={2} fill="#0f172a" fontSize={10} fontWeight="900" textAnchor="middle">{stats.upcoming}</SvgText>
-                        <SvgText x={centerX + 46.5} y={2} fill="#ffffff" fontSize={10} fontWeight="900" textAnchor="middle">{stats.safe}</SvgText>
+                        <SvgText x={centerX - 42} y={2} fill="#ffffff" fontSize={10} fontWeight="900" textAnchor="middle">{stats.urgent}</SvgText>
+                        <SvgText x={centerX - 14} y={2} fill="#ffffff" fontSize={10} fontWeight="900" textAnchor="middle">{stats.soon}</SvgText>
+                        <SvgText x={centerX + 14} y={2} fill="#0f172a" fontSize={10} fontWeight="900" textAnchor="middle">{stats.upcoming}</SvgText>
+                        <SvgText x={centerX + 42} y={2} fill="#ffffff" fontSize={10} fontWeight="900" textAnchor="middle">{stats.safe}</SvgText>
 
                         {/* Labels (Under Segments) */}
-                        <SvgText x={centerX - 46.5} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>NOW</SvgText>
-                        <SvgText x={centerX - 15.5} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>1-3 M</SvgText>
-                        <SvgText x={centerX + 15.5} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>4-6 M</SvgText>
-                        <SvgText x={centerX + 46.5} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>7 M+</SvgText>
+                        <SvgText x={centerX - 42} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>NOW</SvgText>
+                        <SvgText x={centerX - 14} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>1-3M</SvgText>
+                        <SvgText x={centerX + 14} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>4-6M</SvgText>
+                        <SvgText x={centerX + 42} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>7M+</SvgText>
                       </G>
 
                       {/* T2: STRATEGIC LOGISTICS (Center Grid) */}
-                      <G y={2}>
-                        <G x={centerX - 30}>
-                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={15} fontWeight="900" textAnchor="middle">{stats.categories}</SvgText>
-                          <SvgText x={0} y={9} fill="#94a3b8" fontSize={6.5} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>CATEGORIES</SvgText>
+                      <G y={0}>
+                        <G x={centerX - 34}>
+                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.categories}</SvgText>
+                          <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>CATEGORIES</SvgText>
                         </G>
-                        <G x={centerX + 30}>
-                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={15} fontWeight="900" textAnchor="middle">{stats.products}</SvgText>
-                          <SvgText x={0} y={9} fill="#94a3b8" fontSize={6.5} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>PRODUCTS</SvgText>
+                        <G x={centerX + 35}>
+                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.products}</SvgText>
+                          <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>PRODUCTS</SvgText>
                         </G>
                       </G>
 
                       {/* T3: PHYSICAL INVENTORY (Center Grid) */}
-                      <G y={26}>
-                        <G x={centerX - 30}>
-                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={15} fontWeight="900" textAnchor="middle">{stats.batches}</SvgText>
-                          <SvgText x={0} y={9} fill="#94a3b8" fontSize={6.5} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>BATCHES</SvgText>
+                      <G y={38}>
+                        <G x={centerX - 34}>
+                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.batches}</SvgText>
+                          <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>BATCHES</SvgText>
                         </G>
-                        <G x={centerX + 30}>
-                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={15} fontWeight="900" textAnchor="middle">{stats.items}</SvgText>
-                          <SvgText x={0} y={9} fill="#94a3b8" fontSize={6.5} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>ITEMS</SvgText>
+                        <G x={centerX + 35}>
+                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.items}</SvgText>
+                          <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>ITEMS</SvgText>
                         </G>
                       </G>
                     </G>
                   </>
                 )}
-              </G>
             </Svg>
           </View>
         </View>
 
-        <View style={styles.disclaimerBox}>
-          <MaterialCommunityIcons name="alert-decagram-outline" size={20} color="#64748b" />
-          <Text style={styles.disclaimerText}>
-            This view is a decoupled V1 prototype. It utilizes native SVG paths to render real-time stockpile intelligence.
-          </Text>
+        {/* Tactile Command Pad (220px) */}
+        <View style={styles.joystickWrapper}>
+          <View style={styles.joystickBase}>
+            {/* Outer ring for the base */}
+            <View style={styles.joystickOuterRing} />
+            
+            <TouchableOpacity style={[styles.joyBtn, styles.joyUp]} onPress={() => handleNav('UP')}>
+              <MaterialCommunityIcons name="chevron-up" size={44} color="#fbbf24" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.joyBtn, styles.joyDown]} onPress={() => handleNav('DOWN')}>
+              <MaterialCommunityIcons name="chevron-down" size={44} color="#fbbf24" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.joyBtn, styles.joyLeft]} onPress={() => handleNav('LEFT')}>
+              <MaterialCommunityIcons name="chevron-left" size={44} color="#fbbf24" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.joyBtn, styles.joyRight]} onPress={() => handleNav('RIGHT')}>
+              <MaterialCommunityIcons name="chevron-right" size={44} color="#fbbf24" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.joyCenter} onPress={() => handleNav('RESET')}>
+              <MaterialCommunityIcons name="target-variant" size={32} color="#fbbf24" />
+              <Text style={styles.resetText}>RESET</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.joystickLabel}>TACTICAL NAVIGATION</Text>
         </View>
       </ScrollView>
     </View>
@@ -709,25 +786,23 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   chartArea: { alignItems: 'center', paddingVertical: 40 },
   vizWrapper: { 
+    width: size,
+    height: size,
     backgroundColor: '#020617', 
-    borderRadius: size, 
-    elevation: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 15
+    borderRadius: size / 2, 
+    overflow: 'hidden',
+    alignSelf: 'center',
+    position: 'relative'
   },
-  hintText: { color: '#475569', fontSize: 10, fontWeight: 'bold', letterSpacing: 2, marginTop: 30 },
-  disclaimerBox: { 
-    margin: 20, 
-    padding: 20, 
-    backgroundColor: '#0f172a', 
-    borderRadius: 12, 
-    flexDirection: 'row', 
-    gap: 12,
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    borderColor: '#334155'
-  },
-  disclaimerText: { color: '#64748b', fontSize: 11, lineHeight: 16, flex: 1 }
+  joystickWrapper: { alignItems: 'center', marginTop: -20, marginBottom: 40 },
+  joystickBase: { width: 220, height: 220, position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  joystickOuterRing: { position: 'absolute', width: 220, height: 220, borderRadius: 110, borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.15)' },
+  joyBtn: { position: 'absolute', width: 64, height: 64, borderRadius: 32, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#1e293b' },
+  joyUp: { top: 0 },
+  joyDown: { bottom: 0 },
+  joyLeft: { left: 0 },
+  joyRight: { right: 0 },
+  joyCenter: { width: 84, height: 84, backgroundColor: '#020617', borderRadius: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fbbf2444' },
+  resetText: { color: '#fbbf24', fontSize: 9, fontWeight: '900', marginTop: 2 },
+  joystickLabel: { color: '#475569', fontSize: 9, fontWeight: 'bold', letterSpacing: 2, marginTop: 12 },
 });

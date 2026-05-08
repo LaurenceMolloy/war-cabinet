@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Share, ActivityIndicator, Platform, Alert, TextInput, Modal } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Share, ActivityIndicator, Platform, Alert, TextInput, Modal, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -10,6 +10,7 @@ import { Database } from '../database';
 import * as MailComposer from 'expo-mail-composer';
 import { ReadinessCommandView } from '../components/ReadinessCommandView';
 import { formatQuantity } from '../utils/measurements';
+import { LABELS } from '../constants/labels';
 
 export default function LogisticsScreen() {
   const router = useRouter();
@@ -21,6 +22,7 @@ export default function LogisticsScreen() {
   const [logisticsEmail, setLogisticsEmail] = useState('');
   const [collapsedCabinets, setCollapsedCabinets] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<'resupply' | 'rotation' | 'readiness'>('readiness');
+  const [radarCabinetId, setRadarCabinetId] = useState<number | null>(null);
   const [rotationFilter, setRotationFilter] = useState<'3m' | '1m'>('3m');
   const [selectedBatches, setSelectedBatches] = useState<Map<number, number | null>>(new Map());
   const [showTargetModal, setShowTargetModal] = useState<number | null>(null);
@@ -387,7 +389,7 @@ export default function LogisticsScreen() {
       return `${Math.round(qty)}ml`;
     }
     const val = Math.floor(qty);
-    return `${val} ${val === 1 ? 'unit' : 'units'}`;
+    return `${val} ${val === 1 ? LABELS.ITEM.toLowerCase() : LABELS.ITEMS.toLowerCase()}`;
   };
 
   const calculateDeficitInfo = (target: number | null, current: number, unit: string, defSize: number) => {
@@ -417,11 +419,11 @@ export default function LogisticsScreen() {
 
     data.forEach(cat => {
       textBody += `=== ${cat.title.toUpperCase()} ===\n\n`;
-      cat.data.forEach((item: any) => {
-        const effectiveUnit = item.default_size ? item.unit_type : 'unit';
+    cat.data.forEach((item: any) => {
+        const effectiveUnit = item.default_size ? item.unit_type : LABELS.ITEM.toLowerCase();
         const minI = calculateDeficitInfo(item.target_min_total, item.total_stored, effectiveUnit, item.def_size_val);
         const maxI = calculateDeficitInfo(item.target_max_total, item.total_stored, effectiveUnit, item.def_size_val);
-        const currentLabel = item.default_size ? formatQtyStr(item.total_stored, item.unit_type) : `${item.total_stored} ${item.total_stored === 1 ? 'unit' : 'units'}`;
+        const currentLabel = item.default_size ? formatQtyStr(item.total_stored, item.unit_type) : `${item.total_stored} ${item.total_stored === 1 ? LABELS.ITEM.toLowerCase() : LABELS.ITEMS.toLowerCase()}`;
         
         textBody += `• ${item.type_name}\n`;
         textBody += `  Current Stock: ${currentLabel}\n`;
@@ -474,7 +476,7 @@ export default function LogisticsScreen() {
             <View key={`freeze-${item.batch_id}`} style={[styles.resupplyRow, { borderLeftWidth: 3, borderLeftColor: overdue ? '#b91c1c' : '#fde047' }]}>
               <View style={{flex: 1}}>
                 <Text style={[styles.itemName, { color: overdue ? '#ef4444' : '#f8fafc' }]}>{item.type_name}</Text>
-                <Text style={styles.itemMeta}>{item.cab_name} · {item.quantity} × {item.size ? formatQuantity(item.size, item.unit_type) : 'unit'}</Text>
+                <Text style={styles.itemMeta}>{item.cab_name} · {item.quantity} × {item.size ? formatQuantity(item.size, item.unit_type) : LABELS.ITEM.toLowerCase()}</Text>
                 <Text style={{color: '#60a5fa', fontSize: 11, marginTop: 2}}>Frozen {item.age_months} {item.age_months === 1 ? 'month' : 'months'} ago</Text>
               </View>
               <View style={styles.deficitCol}>
@@ -496,7 +498,7 @@ export default function LogisticsScreen() {
           <View key={item.type_id} style={styles.resupplyRow} testID={`resupply-row-${item.type_id}`}>
             <View style={{flex: 1}}>
               <Text style={[styles.itemName, item.is_critical && {color: '#ef4444'}]}>{item.type_name}</Text>
-              <Text style={styles.itemMeta} testID={`stored-text-${item.type_id}`}>Current Stock: {formatQuantity(item.total_stored * (item.def_size_val || 1), item.default_size ? item.unit_type : null) || `${item.total_stored} ${item.total_stored === 1 ? 'unit' : 'units'}`}</Text>
+              <Text style={styles.itemMeta} testID={`stored-text-${item.type_id}`}>Current Stock: {formatQuantity(item.total_stored * (item.def_size_val || 1), item.default_size ? item.unit_type : null) || `${item.total_stored} ${item.total_stored === 1 ? LABELS.ITEM.toLowerCase() : LABELS.ITEMS.toLowerCase()}`}</Text>
               {item.default_size && (
                 <Text style={{color: '#94a3b8', fontSize: 10, marginTop: 2, fontStyle: 'italic'}}>
                    Pack size: {formatQuantity(item.default_size, item.unit_type)}
@@ -692,11 +694,18 @@ export default function LogisticsScreen() {
           <View style={styles.headerSideCol} />
           <View style={styles.headerCenterCol}>
             <View style={{ paddingLeft: 12 }}>
-              <Text style={styles.subtitle}>{activeTab === 'resupply' ? 'Low stocks shopping list' : activeTab === 'rotation' ? 'Tactical movement roster' : 'Operational Readiness'}</Text>
+              <Text style={styles.subtitle}>
+                {activeTab === 'resupply' ? 'Low stocks shopping list' : 
+                 activeTab === 'rotation' ? 'Tactical movement roster' : 
+                 activeTab === 'radar' ? (radarCabinetId ? 'Cabinet Overview' : 'Bunker Radar') :
+                 'Operational Readiness'}
+              </Text>
             </View>
           </View>
           <View style={[styles.headerSideCol, { width: 60 }]} />
         </View>
+
+        {/* Cabinet strip removed because EagleEyeRadar was deleted by user */}
 
         <View style={{flexDirection: 'row', backgroundColor: '#0f172a', padding: 4, marginHorizontal: 16, marginBottom: 12, borderRadius: 10}}>
           <TouchableOpacity 
@@ -941,6 +950,11 @@ const styles = StyleSheet.create({
   shareBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#3b82f6', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20 },
   shareBtnText: { color: 'white', fontWeight: 'bold', fontSize: 11 },
   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  cabinetStrip: { paddingBottom: 12, paddingTop: 4 },
+  cabinetChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155' },
+  cabinetChipActive: { backgroundColor: '#fbbf24', borderColor: '#fbbf24' },
+  cabinetChipText: { color: '#64748b', fontSize: 10, fontWeight: 'bold' },
+  cabinetChipTextActive: { color: '#0f172a' },
   catGroup: { marginBottom: 24 },
   catHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#334155', paddingBottom: 6 },
   catTitle: { color: '#3b82f6', fontSize: 12, fontWeight: 'bold' },
@@ -956,24 +970,4 @@ const styles = StyleSheet.create({
   emailFooter: { marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   emailFooterLabel: { color: '#64748b', fontSize: 10, fontWeight: 'bold', marginBottom: 6, paddingLeft: 4 },
   emailInput: { backgroundColor: '#1e293b', color: '#f8fafc', borderRadius: 8, padding: 12, fontSize: 14, borderWidth: 1, borderColor: '#334155' },
-  miniChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  miniChipActive: {
-    backgroundColor: '#fbbf2422',
-    borderColor: '#fbbf24',
-  },
-  miniChipText: {
-    color: '#94a3b8',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  miniChipTextActive: {
-    color: '#fbbf24',
-  },
 });
