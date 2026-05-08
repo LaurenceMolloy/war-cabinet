@@ -21,7 +21,7 @@ const catOuterR = radius * 0.72;
 const prodOuterR = radius * 0.88;
 const batchOuterR = radius;
 
-const baseColors = ['#00f5ff', '#ff00ff', '#00ff7f', '#ff8c00']; // Cyan, Magenta, Spring, Autumn
+const baseColors = ['#80deea', '#f48fb1', '#a5d6a7', '#ffcc80']; // Pastel Cyan, Pink, Green, Orange
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 export default function IntelligenceScreen() {
@@ -350,6 +350,7 @@ export default function IntelligenceScreen() {
 
     let currentAngle = -Math.PI / 2; // Start at top
     
+    let globalProductIndex = 0;
 
     const sectors: any[] = [];
 
@@ -393,12 +394,35 @@ export default function IntelligenceScreen() {
         // Bright if: Level 0, or (Level 1 and in this cat), or this is the active type
         const typeOpacity = (!activeLevel || (activeLevel === 1 && isCatActive) || isTypeActive) ? 1 : 0.15;
 
+        const isLight = globalProductIndex % 2 === 1;
+        globalProductIndex++;
+
         sectors.push(
           <G key={`type-g-${type.id}`}>
             <Path
               d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
               fill={baseColor}
               opacity={typeOpacity}
+              stroke="none"
+            />
+            {isLight ? (
+              <Path
+                d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
+                fill="#ffffff"
+                opacity={typeOpacity * 0.3}
+                stroke="none"
+              />
+            ) : (
+              <Path
+                d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
+                fill="#000000"
+                opacity={typeOpacity * 0.25}
+                stroke="none"
+              />
+            )}
+            <Path
+              d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
+              fill="transparent"
               stroke={(isTypeActive && activeLevel === 2) ? "#ffffff" : "#0a0a0a"}
               strokeWidth={(isTypeActive && activeLevel === 2) ? 2 : 1}
               onPress={() => {

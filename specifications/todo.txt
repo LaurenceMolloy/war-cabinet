@@ -112,3 +112,9 @@ tikka masala and then realised that it wasn't a tikka masala but a Jalfrezi.
 
 
 DONE QR generation service needs to be local (react-native-qrcode-svg and react-native-svg)
+
+Selective, product-based audit ("did I remember to log my recent use of Prawn Skewers?")
+
+
+width of items in eagle-eyes view:
+% of min desired or % of default pack size (default to 1 when NULL)
