@@ -16,8 +16,8 @@ const size = screenWidth - 40;
 const radius = size / 2;
 const centerX = radius;
 const centerY = radius;
-const hubRingR = radius * 0.48;
-const catInnerR = radius * 0.60;
+const hubRingR = radius * 0.52;
+const catInnerR = radius * 0.66;
 const catOuterR = radius * 0.72;
 const prodOuterR = radius * 0.88;
 const batchOuterR = radius;
@@ -556,10 +556,10 @@ export default function IntelligenceScreen() {
               style={{ transform: [{ scale: isMagnified ? 1.6 : 1 }] }}
             >
               <Defs>
-                {/* Top Arch: 0.50 radius, Clockwise L-to-R (Right-side up) */}
-                <Path id="hubArchTop" d={`M ${centerX - radius * 0.50} ${centerY} A ${radius * 0.50} ${radius * 0.50} 0 0 1 ${centerX + radius * 0.50} ${centerY}`} fill="none" />
-                {/* Bottom Arch: 0.52 radius, Counter-Clockwise L-to-R (Right-side up) */}
-                <Path id="hubArchBottom" d={`M ${centerX - radius * 0.52} ${centerY} A ${radius * 0.52} ${radius * 0.52} 0 0 0 ${centerX + radius * 0.52} ${centerY}`} fill="none" />
+                {/* Top Arch: 0.53 radius, Clockwise L-to-R (Right-side up) */}
+                <Path id="hubArchTop" d={`M ${centerX - radius * 0.53} ${centerY} A ${radius * 0.53} ${radius * 0.53} 0 0 1 ${centerX + radius * 0.53} ${centerY}`} fill="none" />
+                {/* Bottom Arch: 0.55 radius, Counter-Clockwise L-to-R (Right-side up) */}
+                <Path id="hubArchBottom" d={`M ${centerX - radius * 0.55} ${centerY} A ${radius * 0.55} ${radius * 0.55} 0 0 0 ${centerX + radius * 0.55} ${centerY}`} fill="none" />
               </Defs>
 
               {renderChart()}
