@@ -512,7 +512,6 @@ export default function IntelligenceScreen() {
                 fill="#020617" 
                 stroke={selectedSector ? getRainbowColor(activeIndices.cat, data.length) : '#1e293b'}
                 strokeWidth={2}
-                onPress={() => setIsMagnified(prev => !prev)}
               />
 
                 {selectedSector ? (() => {
@@ -523,7 +522,7 @@ export default function IntelligenceScreen() {
                     const capPath = `M ${centerX - chordX} ${centerY + chordY} A ${capR} ${capR} 0 0 1 ${centerX + chordX} ${centerY + chordY} Z`;
 
                     return (
-                      <>
+                      <G pointerEvents="none">
                           {/* CIRCULAR IMAGE BACKGROUND (Products Only) */}
                           {selectedSector.type === 'item_type' && selectedSector.image_uri && (
                             <G pointerEvents="none">
@@ -650,10 +649,10 @@ export default function IntelligenceScreen() {
                               );
                           })()}
                         </G>
-                      </>
+                      </G>
                     );
                 })() : (
-                  <>
+                  <G pointerEvents="none">
                     <SvgText fill="#f8fafc" fontSize={11} style={{ fontSize: 11 }} fontWeight="500" letterSpacing={2.5} textAnchor="middle">
                       <TextPath href="#hubArchTop" startOffset="50%" textAnchor="middle" dominantBaseline="middle">
                         <TSpan dy={-4} textAnchor="middle">CABINET INTEL</TSpan>
@@ -714,8 +713,17 @@ export default function IntelligenceScreen() {
                         </G>
                       </G>
                     </G>
-                  </>
+                  </G>
                 )}
+
+              {/* MAGNIFICATION TRIGGER (Top Level Overlay) */}
+              <Circle 
+                cx={centerX} 
+                cy={centerY} 
+                r={hubRingR} 
+                fill="transparent" 
+                onPress={() => setIsMagnified(prev => !prev)}
+              />
             </Svg>
           </View>
         </View>
