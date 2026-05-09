@@ -69,6 +69,11 @@ export default function HomeScreen() {
   const [showInlineAddCategory, setShowInlineAddCategory] = useState(false);
   const [inlineCatName, setInlineCatName] = useState('');
   const [inlineCatIsMessHall, setInlineCatIsMessHall] = useState(true);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [modalImageUri, setModalImageUri] = useState<string | null>(null);
+  const [modalItemName, setModalItemName] = useState('');
+  const [modalItemBrand, setModalItemBrand] = useState('');
+  const [modalItemRange, setModalItemRange] = useState('');
 
   // BARCODE LOGISTICS TEST STATE
   const [showTestScanner, setShowTestScanner] = useState(false);
@@ -197,9 +202,9 @@ export default function HomeScreen() {
       SELECT c.id as cat_id, c.name as cat_name, c.icon as cat_icon, 
              i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count,
              i.freeze_months as type_freeze_months, i.default_cabinet_id,
-             i.default_supplier as type_supplier, i.default_product_range as type_range,
+             i.default_supplier as type_supplier, i.default_product_range as type_range, i.image_uri as type_image_uri,
              inv.id as inv_id, inv.quantity, inv.size, inv.expiry_month, inv.expiry_year, inv.entry_month, inv.entry_year, inv.batch_intel,
-             inv.supplier as inv_supplier, inv.product_range as inv_product_range,
+             inv.supplier as inv_supplier, inv.product_range as inv_product_range, inv.image_uri as inv_image_uri,
              inv.portions_total, inv.portions_remaining,
              inv.cabinet_id as inv_cabinet_id, inv.item_type_id as inv_item_type_id,
              cab.name as cab_name, cab.location as cab_location, cab.cabinet_type as cab_type,
@@ -278,6 +283,7 @@ export default function HomeScreen() {
             freeze_months: row.type_freeze_months ?? null,
             default_supplier: row.type_supplier,
             default_product_range: row.type_range,
+            image_uri: row.type_image_uri,
             items: [] 
           };
         }
@@ -293,6 +299,7 @@ export default function HomeScreen() {
               cab_type: row.cab_type, batch_intel: row.batch_intel,
               supplier: row.inv_supplier, product_range: row.inv_product_range,
               portions_total: row.portions_total, portions_remaining: row.portions_remaining,
+              image_uri: row.inv_image_uri,
             });
           }
         }
@@ -1007,10 +1014,26 @@ export default function HomeScreen() {
                       <Text style={[styles.typeTitle, { flex: 1, marginLeft: 0 }]} numberOfLines={1}>{type.name}</Text>
                    </View>
                    
-                   {!isTypeExpanded && type.tactical_total ? (
-                      <Text style={[styles.totalLabel, { marginRight: 12, fontSize: 13, color: '#3b82f6', fontWeight: 'bold' }]} testID={`type-tactical-total-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>{type.tactical_total}</Text>
-                   ) : null}
-                    
+                    {!isTypeExpanded && type.tactical_total ? (
+                       <Text style={[styles.totalLabel, { marginRight: 12, fontSize: 13, color: '#3b82f6', fontWeight: 'bold' }]} testID={`type-tactical-total-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>{type.tactical_total}</Text>
+                    ) : null}
+
+                    {type.image_uri ? (
+                       <TouchableOpacity 
+                         onPress={(e) => { 
+                            e.stopPropagation(); 
+                            setModalItemName(type.name || '');
+                            setModalItemBrand(type.default_supplier || '');
+                            setModalItemRange(type.default_product_range || '');
+                            setModalImageUri(type.image_uri); 
+                            setShowImageModal(true); 
+                          }}
+                         style={{ marginRight: 8, width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#3b82f6', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(59, 130, 246, 0.1)' }}
+                       >
+                         <MaterialCommunityIcons name="eye" size={16} color="#3b82f6" />
+                       </TouchableOpacity>
+                    ) : null}
+                     
                     <TouchableOpacity 
                       style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#3b82f6', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(59, 130, 246, 0.1)', marginRight: 4 }} 
                       testID={`add-btn-${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}`}
@@ -1035,141 +1058,165 @@ export default function HomeScreen() {
                       <Text style={{color: '#f8fafc', fontSize: 12, fontWeight: 'bold'}}>{uniqueSites}</Text>
                     </View>
                     {type.soonest_month && type.soonest_year && (
-                      <View>{getUrgencyPhrasing(type.soonest_month, type.soonest_year, type.name, 0, true, 12)}</View>
+<View>{getUrgencyPhrasing(type.soonest_month, type.soonest_year, type.name, 0, true, 12)}</View>
                     )}
                   </View>
                 )}
               </TouchableOpacity>
               {isTypeExpanded && hasItems && (
                 <>
-                  {type.items.map((inv: any) => (
-                    <View 
-                      key={inv.id} 
-                      ref={(r) => { if (r) batchRefs.current[inv.id] = r; }}
-                      style={[
-                        styles.inventoryRow,
-                        inv.cab_type === 'freezer' && { backgroundColor: '#1d4f87', borderBottomColor: '#2b63a3' },
-                        { borderLeftWidth: 6, borderLeftColor: getBatchStatusColor(inv, type) },
-                        inv.id === flashBatchId && { borderColor: '#22c55e', borderWidth: 2 }
-                      ]}
-                      testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-row`}
-                    >
-                      <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
-                         <Text 
-                            style={{color: '#60a5fa', fontSize: 12, fontWeight: 'bold'}}
-                            testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-location`}
-                          >
-                            {inv.cab_name || 'Global'} • {inv.cab_location || 'Storage'}
-                          </Text>
-                      </View>
-                      {(() => {
-                        const cleanIntel = (inv.batch_intel || '').replace(/REMAINDER:\d+/, '').trim();
-                        if (inv.supplier || inv.product_range || cleanIntel) {
-                          return (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
-                              <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>•</Text>
-                              {inv.supplier && (
-                                <Text 
-                                  style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}
-                                  testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-supplier`}
-                                >
-                                  {inv.supplier.toUpperCase()}
-                                </Text>
-                              )}
-                              {inv.product_range && (
-                                <Text 
-                                  style={{ color: '#60a5fa', fontSize: 10, fontWeight: 'bold' }}
-                                  testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-range`}
-                                >
-                                  [{inv.product_range.toUpperCase()}]
-                                </Text>
-                              )}
-                              {cleanIntel ? (
-                                <Text 
-                                  style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic' }}
-                                  testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-intel`}
-                                >
-                                  {cleanIntel}
-                                </Text>
-                              ) : null}
-                            </View>
-                          );
-                        }
-                        return null;
-                      })()}
-                      <View style={styles.rowMain}>
-                        <Animated.View 
-                          testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-qty`}
-                          style={[
-                            styles.qtyBadge, 
-                            inv.id === flashBatchId ? { 
-                              backgroundColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['#1e293b', '#166534'] }), 
-                              borderWidth: 1.5, 
-                              borderColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['transparent', '#22c55e'] }) 
-                            } : (inv.cab_type === 'freezer' ? {
-                              borderWidth: 0,
-                              backgroundColor: 'transparent'
-                            } : {})
-                          ]}
-                        >
-                          {inv.cab_type === 'freezer' && inv.id !== flashBatchId && (
-                            <View style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center', position: 'absolute' }}>
-                              <MaterialCommunityIcons name="snowflake-variant" size={36} color="#3b82f6" style={{ opacity: 0.3 }} />
-                            </View>
-                          )}
-                          <Text style={styles.qtyText}>{inv.quantity}</Text>
-                        </Animated.View>
-                        <Text 
-                          style={styles.sizeText} 
-                          numberOfLines={1} 
-                          testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-size`}
-                        >
-                          {formatSizeDisplay(inv.size, type.unit_type)}
-                        </Text>
-                        <View style={styles.actionsGroup}>
-                          <TouchableOpacity 
-                            onPress={() => router.push({ 
-                              pathname: '/add', 
-                              params: { 
-                                typeId: type.id.toString(), 
-                                editBatchId: inv.id.toString(), 
-                                categoryId: cat.id.toString(),
-                                inheritedCabinetId: filterCabinetId ?? undefined
-                              } 
-                            })} 
-                            style={[styles.actionBtn, {backgroundColor: '#3b82f6'}]}
-                            testID={`edit-batch-${cat.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}`}
-                          >
-                            <MaterialCommunityIcons name="pencil" size={16} color="white" />
-                          </TouchableOpacity>
-                          {cabinets.filter((c: any) => c.cabinet_type === (inv.cab_type || 'standard') && c.id !== inv.cabinet_id).length > 0 && (
-                            <TouchableOpacity
-                              onPress={() => handleMoveRequest(inv, type)}
-                              style={[styles.actionBtn, {backgroundColor: '#d97706'}]}
-                              testID={`move-batch-${inv.id}`}
+                  {type.items.map((inv: any) => {
+                const cleanIntel = (inv.batch_intel || '').replace(/REMAINDER:\d+/, '').trim();
+                const hasMoveOption = cabinets.filter((c: any) => c.cabinet_type === (inv.cab_type || 'standard') && c.id !== inv.cabinet_id).length > 0;
+                
+                return (
+                  <View 
+                    key={inv.id} 
+                    ref={(r) => { if (r) batchRefs.current[inv.id] = r; }}
+                    style={[
+                      styles.inventoryRow,
+                      { borderLeftWidth: 6, borderLeftColor: getBatchStatusColor(inv, type) },
+                      inv.cab_type === 'freezer' && { borderColor: '#3b82f6', borderWidth: 1.5, shadowColor: '#3b82f6', shadowOpacity: 0.2, shadowRadius: 4 },
+                      inv.id === flashBatchId && { borderColor: '#22c55e', borderWidth: 2 }
+                    ]}
+                    testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-row`}
+                  >
+                    {/* TIER 1: GOVERNANCE (CABINET / LOCATION) */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
+                      <Text 
+                        style={{ color: '#60a5fa', fontSize: 10, fontWeight: '900', letterSpacing: 0.5 }}
+                        testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-cabinet`}
+                      >
+                        {(inv.cab_name || 'GLOBAL SECTOR').length > 22 ? (inv.cab_name.substring(0, 22) + '...').toUpperCase() : (inv.cab_name || 'GLOBAL SECTOR').toUpperCase()}
+                      </Text>
+                      <Text 
+                        style={{ color: '#94a3b8', fontSize: 10, fontWeight: '700' }}
+                        testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-location`}
+                      >
+                        {(inv.cab_location || 'GENERAL STORAGE').length > 15 ? (inv.cab_location.substring(0, 15) + '...').toUpperCase() : (inv.cab_location || 'GENERAL STORAGE').toUpperCase()}
+                      </Text>
+                    </View>
+
+                        {/* TIER 2: ENGAGEMENT (SPLIT TACTICAL ACTION STRIP) */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
+                          {/* LEFT GROUP: INTEL & LOGISTICS (ANCHORED) */}
+                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <TouchableOpacity 
+                              onPress={() => router.push({ 
+                                pathname: '/add', 
+                                params: { 
+                                  typeId: type.id.toString(), 
+                                  editBatchId: inv.id.toString(), 
+                                  categoryId: cat.id.toString(),
+                                  inheritedCabinetId: filterCabinetId ?? undefined
+                                } 
+                              })} 
+                              style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: '#1e293b', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#334155' }}
                             >
-                              <MaterialCommunityIcons name="transfer" size={16} color="white" />
+                              <MaterialCommunityIcons name="pencil-outline" size={18} color="#94a3b8" />
                             </TouchableOpacity>
-                          )}
-                          <TouchableOpacity testID={`deduct-batch-${inv.id}`} onPress={() => handleDeductRequest(inv, type)} style={[styles.actionBtn, {backgroundColor: '#ef4444'}]}><MaterialCommunityIcons name="minus" size={16} color="white" /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => addQuantity(inv.id, type.id)} style={[styles.actionBtn, {backgroundColor: '#22c55e'}]}><MaterialCommunityIcons name="plus" size={16} color="white" /></TouchableOpacity>
+
+                            {hasMoveOption && (
+                              <TouchableOpacity 
+                                onPress={() => handleMoveRequest(inv, type)} 
+                                style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: '#1e293b', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(217, 119, 6, 0.2)' }}
+                              >
+                                <MaterialCommunityIcons name="swap-horizontal" size={18} color="#d97706" />
+                              </TouchableOpacity>
+                            )}
+
+                            {inv.image_uri ? (
+                              <TouchableOpacity 
+                                onPress={() => { 
+                                  setModalItemName(type.name || '');
+                                  setModalItemBrand(inv.supplier || type.default_supplier || '');
+                                  setModalItemRange(inv.product_range || type.default_product_range || '');
+                                  setModalImageUri(inv.image_uri); 
+                                  setShowImageModal(true); 
+                                }}
+                                style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: '#1e293b', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.2)' }}
+                              >
+                                <MaterialCommunityIcons name="eye" size={20} color="#3b82f6" />
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+
+                          {/* RIGHT GROUP: ACTIVE STOCK CONTROL */}
+                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <TouchableOpacity 
+                              testID={`deduct-batch-${inv.id}`} 
+                              onPress={() => handleDeductRequest(inv, type)} 
+                              style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: 'rgba(239, 68, 68, 0.12)', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'rgba(239, 68, 68, 0.5)' }}
+                            >
+                              <MaterialCommunityIcons name="minus" size={18} color="#ef4444" />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity 
+                              onPress={() => addQuantity(inv.id, type.id)} 
+                              style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: 'rgba(34, 197, 94, 0.12)', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'rgba(34, 197, 94, 0.5)' }}
+                            >
+                              <MaterialCommunityIcons name="plus" size={18} color="#22c55e" />
+                            </TouchableOpacity>
+                          </View>
                         </View>
+
+                    {/* TIER 3: MANIFEST (QTY+SIZE / BRAND+INTEL) */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+                        <Animated.Text 
+                          testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-qty`}
+                          style={{ 
+                            color: '#f8fafc', 
+                            fontSize: 22, 
+                            fontWeight: '900',
+                            color: inv.id === flashBatchId ? flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['#f8fafc', '#22c55e'] }) : '#f8fafc'
+                          }}
+                        >
+                          {inv.quantity}
+                        </Animated.Text>
+                        <Text 
+                          style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}
+                          numberOfLines={1} 
+                        >
+                          {formatSizeDisplay(inv.size, type.unit_type).toUpperCase()}
+                        </Text>
                       </View>
-                      <View style={[styles.rowSub, { justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 4 }]}>
-                        {inv.cab_type === 'freezer' ? (
-                          <>
-                            <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
-                              <Text style={styles.subText} testID={`batch-entry-date-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}`}>FROZEN <Text style={{color: '#f8fafc'}}>{formatMonth(inv.entry_month)}/{String(inv.entry_year).slice(-2)}</Text></Text>
-                            </View>
-                            {getFreezerUrgency(inv, type, type.name, inv.id)}
-                          </>
-                        ) : (
-                          <>
-                            <Text style={styles.subText} testID={`batch-entry-date-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}`}>STORED {formatMonth(inv.entry_month)}/{inv.entry_year}</Text>
-                            {inv.expiry_month ? getUrgencyPhrasing(inv.expiry_month, inv.expiry_year, type.name, inv.id, false) : <Text style={styles.subText} testID={`batch-expiry-na-${type.name.toLowerCase().replace(/\s+/g, '-')}-${inv.id}`}>EXPIRY: N/A</Text>}
-                          </>
+                      
+                      <View style={{ alignItems: 'flex-end' }}>
+                        {(inv.supplier || inv.product_range) && (
+                          <Text 
+                            style={{ color: '#60a5fa', fontSize: 10, fontWeight: 'bold', marginBottom: 2 }}
+                            testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-brand-range`}
+                          >
+                            {[inv.supplier, inv.product_range].filter(Boolean).join(' / ').toUpperCase()}
+                          </Text>
                         )}
+                        {cleanIntel ? (
+                          <Text 
+                            style={{ color: '#64748b', fontSize: 10, fontStyle: 'italic', maxWidth: 150 }}
+                            numberOfLines={1}
+                            testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-intel`}
+                          >
+                            {cleanIntel}
+                          </Text>
+                        ) : null}
                       </View>
+                    </View>
+
+                    {/* TIER 4: TELEMETRY (DATES / EXPIRY) */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: 'rgba(51, 65, 85, 0.3)', paddingTop: 8, alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        {inv.cab_type === 'freezer' && (
+                          <MaterialCommunityIcons name="snowflake" size={12} color="#3b82f6" style={{ marginRight: 4 }} />
+                        )}
+                        <Text style={{ color: '#64748b', fontSize: 10, fontWeight: 'bold' }}>
+                          {inv.cab_type === 'freezer' ? 'FROZEN' : 'STORED'} {String(inv.entry_month || 0).padStart(2, '0')}/{inv.entry_year}
+                        </Text>
+                      </View>
+                      <View>
+                        {getUrgencyPhrasing(inv.expiry_month, inv.expiry_year, type.name, inv.quantity, true, 10)}
+                      </View>
+                    </View>
 
                       {/* --- EXPERIMENTAL: PARTIAL CONSUMPTION UI (ITERATION 97 PROTOTYPE) --- */}
                        {(() => {
@@ -1233,9 +1280,10 @@ export default function HomeScreen() {
                          );
                        })()}
                     </View>
-                  ))}
-                </>
-              )}
+                  );
+                })}
+              </>
+            )}
             </View>
           );
         })}
@@ -1985,6 +2033,62 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
+      {/* --- VISUAL VERIFICATION PREVIEW MODAL --- */}
+      {/* --- VISUAL VERIFICATION PREVIEW MODAL --- */}
+      <Modal visible={showImageModal} transparent animationType="fade" onRequestClose={() => setShowImageModal(false)}>
+        <TouchableOpacity 
+          activeOpacity={1} 
+          onPress={() => setShowImageModal(false)}
+          style={[styles.modalOverlay, { backgroundColor: 'rgba(2, 6, 23, 0.9)', justifyContent: 'center', alignItems: 'center' }]}
+        >
+          <View style={{ width: '90%', maxWidth: 400, backgroundColor: '#0f172a', borderRadius: 20, borderWidth: 1, borderColor: '#334155', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 10 }}>
+            {/* Tactical Header */}
+            <View style={{ padding: 16, backgroundColor: '#1e293b', borderBottomWidth: 1, borderBottomColor: '#334155' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3b82f6', shadowColor: '#3b82f6', shadowRadius: 4, shadowOpacity: 0.8, elevation: 5 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#f8fafc', fontWeight: '900', letterSpacing: 0.5, fontSize: 15 }}>{modalItemName.toUpperCase()}</Text>
+                  {(modalItemBrand || modalItemRange) && (
+                    <Text style={{ color: '#64748b', fontSize: 10, fontWeight: 'bold', marginTop: 2 }}>
+                      {modalItemBrand.toUpperCase()} {modalItemBrand && modalItemRange ? ' | ' : ''} {modalItemRange.toUpperCase()}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </View>
+            
+            <View style={{ padding: 12, alignItems: 'center', justifyContent: 'center' }}>
+              {modalImageUri ? (
+                <View style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#1e293b', width: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                  <Image 
+                    source={{ uri: modalImageUri }} 
+                    style={{ width: '100%', aspectRatio: 1 }} 
+                    resizeMode="cover"
+                  />
+                  {/* Tactical Overlays */}
+                  <View style={{ position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(15, 23, 42, 0.8)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.4)', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <MaterialCommunityIcons name="target" size={12} color="#3b82f6" />
+                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>
+                      {modalImageUri.includes('q70') || modalImageUri.includes('_hq') ? 'HQ' : 'STD'}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={{ width: '100%', aspectRatio: 1, backgroundColor: '#0f172a', borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#1e293b', borderStyle: 'dashed' }}>
+                  <MaterialCommunityIcons name="image-off-outline" size={48} color="#1e293b" />
+                  <Text style={{ color: '#334155', fontSize: 12, marginTop: 12, fontWeight: 'bold' }}>NO ASSET DATA</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Subtle Footer Telemetry */}
+            <View style={{ padding: 16, paddingTop: 4, paddingBottom: 20, alignItems: 'center' }}>
+               <Text style={{ color: '#475569', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 }}>TAP ANYWHERE TO DISMISS</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <CabinetFormModal 
         visible={showCabinetModal}
         allCabinets={cabinets}
@@ -2046,7 +2150,7 @@ const styles = StyleSheet.create({
   },
   itemCountBadge: { backgroundColor: '#1e293b', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   emptyText: { color: '#64748b', fontStyle: 'italic', fontSize: 14, marginLeft: 16 },
-  inventoryRow: { paddingTop: 8, paddingBottom: 12, paddingHorizontal: 12, backgroundColor: '#475569', borderRadius: 6, marginBottom: 8, marginHorizontal: 2, borderWidth: 1, borderColor: '#5d6d85' },
+  inventoryRow: { paddingVertical: 10, paddingHorizontal: 12, backgroundColor: '#0f172a', borderRadius: 8, marginBottom: 8, marginHorizontal: 2, borderWidth: 1, borderColor: '#334155' },
   totalLabel: { fontSize: 13, color: '#3b82f6', fontWeight: 'bold' },
   rowMain: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   qtyBadge: { backgroundColor: '#1e293b', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 10 },

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Modal, Platform, Switch } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Modal, Platform, Switch, Image, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -12,6 +12,7 @@ import BRANDS_DATA from '../data/brands.json';
 import { ExpiryScannerModal } from '../components/ExpiryScannerModal';
 import { CabinetFormModal } from '../components/CabinetFormModal';
 import { getUnitSuffix, formatQuantity } from '../utils/measurements';
+import { VisualSupplyService } from '../services/VisualSupplyService';
 
 function getLevenshteinDistance(a: string, b: string): number {
   const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
@@ -111,6 +112,14 @@ export default function AddInventoryScreen() {
   const [quickAddSupplier, setQuickAddSupplier] = useState('');
   const [quickAddRange, setQuickAddRange] = useState('');
   const [quickAddDefaultCabinet, setQuickAddDefaultCabinet] = useState<number | null>(null);
+  const [batchImage, setBatchImage] = useState<string | null>(null);
+  const [batchImageId, setBatchImageId] = useState<string | null>(null);
+  const [batchImageStaging, setBatchImageStaging] = useState<{standard: string, hq: string} | null>(null);
+  const [quickAddImage, setQuickAddImage] = useState<string | null>(null);
+  const [quickAddImageId, setQuickAddImageId] = useState<string | null>(null);
+  const [quickAddImageStaging, setQuickAddImageStaging] = useState<{standard: string, hq: string} | null>(null);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [isProcessingQuickAddImage, setIsProcessingQuickAddImage] = useState(false);
 
   const [showCabinetModal, setShowCabinetModal] = useState(false);
   const [cabinetModalContext, setCabinetModalContext] = useState<'main' | 'quick_add'>('main');
@@ -120,6 +129,9 @@ export default function AddInventoryScreen() {
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [mergeCandidates, setMergeCandidates] = useState<ConsolidationCandidate[]>([]);
   const [deferredSave, setDeferredSave] = useState<NewBatchData | null>(null);
+
+
+  const [currentQuality, setCurrentQuality] = useState(VisualSupplyService.simulatedQuality);
 
   const isAutoSavePipeline = useRef(false);
   const handleSaveRef = useRef<(() => Promise<void>) | null>(null);
@@ -326,6 +338,28 @@ export default function AddInventoryScreen() {
     }
   };
 
+  const handleCapturePhoto = async () => {
+    const res = await VisualSupplyService.capturePhotoDetailed();
+    if (res) {
+      setIsProcessingImage(true);
+      setBatchImage(currentQuality === 70 ? res.hq : res.standard);
+      setBatchImageId(res.id);
+      setBatchImageStaging({ standard: res.standard, hq: res.hq });
+      setIsProcessingImage(false);
+    }
+  };
+
+  const handleCaptureQuickAddImage = async () => {
+    const res = await VisualSupplyService.capturePhotoDetailed();
+    if (res) {
+      setIsProcessingQuickAddImage(true);
+      setQuickAddImage(currentQuality === 70 ? res.hq : res.standard);
+      setQuickAddImageId(res.id);
+      setQuickAddImageStaging({ standard: res.standard, hq: res.hq });
+      setIsProcessingQuickAddImage(false);
+    }
+  };
+
 
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [showYearPicker, setShowYearPicker] = useState(false);
@@ -458,8 +492,8 @@ export default function AddInventoryScreen() {
       // Fetch Sensible Defaults for item type
       let typeRes: any = null;
       if (typeId) {
-        typeRes = await db.getFirstAsync<{name: string, category_name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null, category_id: number, custom_sizes: string | null}>(
-          `SELECT i.name, c.name as category_name, i.category_id, i.unit_type, i.default_size, i.default_cabinet_id, i.freeze_months, i.default_supplier, i.default_product_range, i.custom_sizes 
+        typeRes = await db.getFirstAsync<{name: string, category_name: string, unit_type: string, default_size: string, default_cabinet_id: number | null, freeze_months: number | null, default_supplier: string | null, default_product_range: string | null, category_id: number, custom_sizes: string | null, visual_profile: string | null}>(
+          `SELECT i.name, c.name as category_name, i.category_id, i.unit_type, i.default_size, i.default_cabinet_id, i.freeze_months, i.default_supplier, i.default_product_range, i.custom_sizes, i.visual_profile 
            FROM ItemTypes i 
            JOIN Categories c ON c.id = i.category_id
            WHERE i.id = ?`, 
@@ -471,6 +505,12 @@ export default function AddInventoryScreen() {
           if (typeRes.category_id) setSelectedQuickAddCat(typeRes.category_id);
           if (typeRes.default_cabinet_id) setSelectedCabinetId(typeRes.default_cabinet_id);
           if (typeRes.freeze_months) setFreezeLimit(typeRes.freeze_months.toString());
+          
+          if (typeRes.visual_profile) {
+            const p = typeRes.visual_profile as any;
+            setCurrentQuality(p === 'hq' ? 70 : 40);
+            VisualSupplyService.setProfile(p);
+          }
         }
 
         // --- BARCODE & QR DEFAULTS ---
@@ -645,6 +685,12 @@ export default function AddInventoryScreen() {
           setIsFractionalEnabled(fractionalActive);
           if (batch.supplier) setSupplier(batch.supplier);
           if (batch.product_range) setProductRange(batch.product_range);
+          if (batch.image_uri) setBatchImage(batch.image_uri);
+          if (batch.visual_profile) {
+            const p = batch.visual_profile as any;
+            setCurrentQuality(p === 'hq' ? 70 : 40);
+            VisualSupplyService.setProfile(p);
+          }
           // Pre-fill freeze date from entry date for freezer edits
           if (batch.entry_month) setFreezeMonth(batch.entry_month.toString());
           if (batch.entry_year) setFreezeYear(batch.entry_year.toString());
@@ -768,8 +814,8 @@ export default function AddInventoryScreen() {
       let finalTypeId = typeId;
       if (showQuickAddType && !finalTypeId) {
         const tRes = await db.runAsync(
-          'INSERT INTO ItemTypes (name, category_id, unit_type, default_cabinet_id, freeze_months) VALUES (?, ?, ?, ?, ?)',
-          [quickAddName.trim(), selectedQuickAddCat, quickAddUnit, selectedCabinetId, isFreezerMode ? fLimit : null]
+          'INSERT INTO ItemTypes (name, category_id, unit_type, default_cabinet_id, freeze_months, visual_profile) VALUES (?, ?, ?, ?, ?, ?)',
+          [quickAddName.trim(), selectedQuickAddCat, quickAddUnit, selectedCabinetId, isFreezerMode ? fLimit : null, currentQuality === 70 ? 'hq' : 'standard']
         );
         finalTypeId = tRes.lastInsertRowId.toString();
         await logTacticalAction(db, 'ADD', 'ITEM_TYPE', Number(finalTypeId), quickAddName.trim());
@@ -782,6 +828,7 @@ export default function AddInventoryScreen() {
 
       const cleanNewSupplier = supplier?.trim() || null;
       const cleanNewRange = productRange?.trim() || null;
+      const finalImageUri = batchImage;
 
       let expMVal = null;
       let expYVal = null;
@@ -849,7 +896,8 @@ export default function AddInventoryScreen() {
         selectedCabinetId: Number(selectedCabinetId),
         entryM,
         entryY,
-        entryD: currentDay
+        entryD: currentDay,
+        batchImage: finalImageUri
       };
 
       if (finalTypeId && !editBatchId) {
@@ -876,7 +924,9 @@ export default function AddInventoryScreen() {
 
         if (exactMatch) {
           console.log(`[MERGE_DIAG] Exact match found:`, exactMatch.id);
-          await finalizeCommit(exactMatch.id, savePayload);
+          const finalPayload = { ...savePayload, visualProfile: currentQuality === 70 ? 'hq' : 'standard' };
+          await finalizeCommit(exactMatch.id, finalPayload);
+          return;
         } else if (candidates.length > 0) {
           console.log(`[MERGE_DIAG] ${candidates.length} candidates found for modal.`);
           setMergeCandidates(candidates);
@@ -885,42 +935,44 @@ export default function AddInventoryScreen() {
           return;
         } else {
           // Only challenge if: No default, no manual override, stock exists in OTHER cabinets, and NO stock here.
-        if (finalTypeId) {
-          const typeRes = await db.getFirstAsync<{default_cabinet_id: number | null}>('SELECT default_cabinet_id FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
-          const others = await Database.Cabinets.getStorageSitesForItemType(db, Number(finalTypeId), Number(selectedCabinetId));
-          const isDeviatingFromDefault = typeRes?.default_cabinet_id && typeRes.default_cabinet_id !== Number(selectedCabinetId);
-          const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? LIMIT 1', [Number(finalTypeId), selectedCabinetId]);
+          if (finalTypeId) {
+            const typeRes = await db.getFirstAsync<{default_cabinet_id: number | null}>('SELECT default_cabinet_id FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
+            const others = await Database.Cabinets.getStorageSitesForItemType(db, Number(finalTypeId), Number(selectedCabinetId));
+            const isDeviatingFromDefault = typeRes?.default_cabinet_id && typeRes.default_cabinet_id !== Number(selectedCabinetId);
+            const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? LIMIT 1', [Number(finalTypeId), selectedCabinetId]);
 
-          // TACTICAL OVERSIGHT HIERARCHY:
-          // 1. If we are adding to an existing stockpile in this cabinet, no challenge needed.
-          if (!existingHere) {
-             const typeStatus = await db.getFirstAsync<{vanguard_resolved: number}>('SELECT vanguard_resolved FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
-             
-             if (!typeRes?.default_cabinet_id && !typeStatus?.vanguard_resolved) {
-                // SCENARIO: VANGUARD HANDSHAKE (No home established, first arrival)
-                const savePayload = { typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining };
-                setDeferredSave(savePayload);
-                setShowVanguardModal(true);
-                return;
-             } else if (others.length > 0 || isDeviatingFromDefault) {
-                // SCENARIO: LOCATION CONFLICT (Stock exists elsewhere or deviating from established home)
-                let finalOthers = others.map(o => ({ id: o.id, name: o.name }));
-                if (isDeviatingFromDefault && !finalOthers.some(o => o.id === typeRes.default_cabinet_id)) {
-                  const defCab = await db.getFirstAsync<any>('SELECT id, name FROM Cabinets WHERE id = ?', [typeRes.default_cabinet_id]);
-                  if (defCab) finalOthers.push({ id: defCab.id, name: defCab.name });
-                }
-                setOtherLocations(finalOthers);
-                setDeferredSave({ typeId: finalTypeId, finalSize, q, currentMonth, currentYear, currentDay, expMVal, expYVal, entryM, entryY, entryD: currentDay, selectedCabinetId, batchIntel: cleanNewIntel, supplier: cleanNewSupplier, productRange: cleanNewRange, portions_total: finalPortionsTotal, portions_remaining: finalPortionsRemaining });
-                setShowLocationConflictModal(true);
-                return;
-             }
+            // TACTICAL OVERSIGHT HIERARCHY:
+            // 1. If we are adding to an existing stockpile in this cabinet, no challenge needed.
+            if (!existingHere) {
+               const typeStatus = await db.getFirstAsync<{vanguard_resolved: number}>('SELECT vanguard_resolved FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
+               
+               if (!typeRes?.default_cabinet_id && !typeStatus?.vanguard_resolved) {
+                  // SCENARIO: VANGUARD HANDSHAKE (No home established, first arrival)
+                  const savePayloadWithProfile = { ...savePayload, visualProfile: currentQuality === 70 ? 'hq' : 'standard' };
+                  setDeferredSave(savePayloadWithProfile);
+                  setShowVanguardModal(true);
+                  return;
+               } else if (others.length > 0 || isDeviatingFromDefault) {
+                  // SCENARIO: LOCATION CONFLICT (Stock exists elsewhere or deviating from established home)
+                  let finalOthers = others.map(o => ({ id: o.id, name: o.name }));
+                  setOtherLocations(finalOthers);
+                  const savePayloadWithProfile = { ...savePayload, visualProfile: currentQuality === 70 ? 'hq' : 'standard' };
+                  setDeferredSave(savePayloadWithProfile);
+                  setShowLocationConflictModal(true);
+                  return;
+               }
+            }
           }
         }
-          await finalizeCommit(null, savePayload);
-        }
-      } else {
-        await finalizeCommit(null, savePayload);
       }
+
+      // No modal challenges? Complete the save.
+      const finalPayload = { 
+        ...savePayload, 
+        visualProfile: currentQuality === 70 ? 'hq' : 'standard' 
+      };
+      await finalizeCommit(null, finalPayload);
+
     } catch (err: any) {
       console.error('Save failed:', err);
       Alert.alert('Save Failed', err.message);
@@ -968,8 +1020,8 @@ export default function AddInventoryScreen() {
         }
 
         await db.runAsync(
-          'UPDATE Inventory SET quantity = quantity + ?, supplier = ?, product_range = ?, batch_intel = ?, portions_total = ?, entry_month = ?, entry_year = ?, entry_day = ?, portions_remaining = ? WHERE id = ?',
-          [data.q, finalS, finalR, finalI, currentTotal, data.entryM, data.entryY, data.entryD || 1, currentRem + addedRem, mergeTargetId]
+          'UPDATE Inventory SET quantity = quantity + ?, supplier = ?, product_range = ?, batch_intel = ?, portions_total = ?, entry_month = ?, entry_year = ?, entry_day = ?, portions_remaining = ?, image_uri = ?, visual_profile = ? WHERE id = ?',
+          [data.q, finalS, finalR, finalI, currentTotal, data.entryM, data.entryY, data.entryD || 1, currentRem + addedRem, data.batchImage || null, data.visualProfile, mergeTargetId]
         );
         await logTacticalAction(db, 'MERGE', 'BATCH', mergeTargetId, type?.name || 'Batch', 
           JSON.stringify({ q: data.q, size: data.finalSize, strategy: mergeStrategy }));
@@ -991,6 +1043,7 @@ export default function AddInventoryScreen() {
            if (norm(old.supplier) !== norm(data.supplier)) diff.supplier = data.supplier;
            if (norm(old.product_range) !== norm(data.productRange)) diff.range = data.productRange;
            if (norm(old.batch_intel) !== norm(data.batchIntel)) diff.intel = data.batchIntel;
+           if (norm(old.image_uri) !== norm(data.batchImage)) diff.image = 'updated';
 
            // --- PORTION CORRECTION LOGIC (SIMPLIFIED) ---
            if (data.portions_total && old.portions_total && old.portions_total !== data.portions_total) {
@@ -1001,15 +1054,15 @@ export default function AddInventoryScreen() {
         }
 
         await db.runAsync(
-          'UPDATE Inventory SET quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, entry_day = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ?, portions_total = ?, portions_remaining = ? WHERE id = ?',
-          [data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.entryD || 1, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, finalRem, Number(editBatchId)]
+          'UPDATE Inventory SET item_type_id = ?, quantity = ?, size = ?, expiry_month = ?, expiry_year = ?, entry_month = ?, entry_year = ?, entry_day = ?, cabinet_id = ?, batch_intel = ?, supplier = ?, product_range = ?, portions_total = ?, portions_remaining = ?, image_uri = ?, visual_profile = ? WHERE id = ?',
+          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.entryD || 1, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, finalRem, data.batchImage || null, data.visualProfile, Number(editBatchId)]
         );
         await logTacticalAction(db, 'UPDATE', 'BATCH', Number(editBatchId), type?.name || 'Item', Object.keys(diff).length > 0 ? JSON.stringify(diff) : null);
       } else {
         const res = await db.runAsync(
-          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, entry_day, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.entryD || 1, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, (data.portions_total && data.q > 1) ? (data.portions_remaining + (data.portions_total * (data.q - 1))) : data.portions_remaining]
+          `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, entry_day, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining, image_uri, visual_profile) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [Number(data.typeId), data.q, data.finalSize, data.expMVal, data.expYVal, data.entryM, data.entryY, data.entryD || 1, data.selectedCabinetId, data.batchIntel || null, data.supplier || null, data.productRange || null, data.portions_total, (data.portions_total && data.q > 1) ? (data.portions_remaining + (data.portions_total * (data.q - 1))) : data.portions_remaining, data.batchImage || null, data.visualProfile]
         );
         await logTacticalAction(db, 'ADD', 'BATCH', Number(res.lastInsertRowId), type?.name || 'Item',
           JSON.stringify({ q: data.q, size: data.finalSize }));
@@ -1057,8 +1110,19 @@ export default function AddInventoryScreen() {
         }
       }
 
+      if (data.batchImage && batchImageId) {
+        await VisualSupplyService.finalizeTacticalAsset(batchImageId, data.visualProfile);
+      }
+      if (data.quickAddImage && quickAddImageId) {
+        await VisualSupplyService.finalizeTacticalAsset(quickAddImageId, data.visualProfile);
+      }
+
       await markModified(db);
       setDeferredSave(null);
+      setBatchImageId(null);
+      setBatchImageStaging(null);
+      setQuickAddImageId(null);
+      setQuickAddImageStaging(null);
       router.replace({ pathname: '/', params: { targetCatId: categoryId ? Number(categoryId) : undefined, targetTypeId: typeId ? Number(typeId) : undefined, timestamp: Date.now().toString() } });
     } catch (err: any) {
       console.error('Commit failed:', err);
@@ -1079,7 +1143,7 @@ export default function AddInventoryScreen() {
     }
     try {
       const res = await db.runAsync(
-        'INSERT INTO ItemTypes (name, category_id, unit_type, min_stock_level, max_stock_level, default_size, freeze_months, default_supplier, default_product_range, default_cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO ItemTypes (name, category_id, unit_type, min_stock_level, max_stock_level, default_size, freeze_months, default_supplier, default_product_range, default_cabinet_id, image_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           quickAddName.trim(), 
           selectedQuickAddCat, 
@@ -1090,7 +1154,8 @@ export default function AddInventoryScreen() {
           quickAddFreezeMonths ? parseInt(quickAddFreezeMonths) : null,
           quickAddSupplier || null,
           quickAddRange || null,
-          quickAddDefaultCabinet
+          quickAddDefaultCabinet,
+          quickAddImage
         ]
       );
       const newTypeId = res.lastInsertRowId;
@@ -1179,6 +1244,8 @@ export default function AddInventoryScreen() {
               <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
             </TouchableOpacity>
           </View>
+
+
 
           <View style={styles.formSection}>
             <Text style={styles.miniLabel}>NAME <Text style={{ color: '#f43f5e' }}>*</Text></Text>
@@ -1357,6 +1424,71 @@ export default function AddInventoryScreen() {
                 <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginTop: -2, marginBottom: 8 }}>❄ Designated Freezer Cabinet</Text>
               )}
             </View>
+
+            <View style={styles.formSection}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={styles.miniLabel}>TACTICAL VISUAL INTEL</Text>
+              
+              <View style={{ flexDirection: 'row', backgroundColor: '#1e293b', borderRadius: 6, padding: 2, alignItems: 'center' }}>
+                {(['standard', 'hq'] as const).map(p => {
+                  const isActive = (p === 'hq' ? currentQuality === 70 : currentQuality === 40);
+                  const hasImage = !!quickAddImage;
+                  
+                  return (
+                    <TouchableOpacity 
+                      key={p} 
+                      onPress={() => { 
+                        if (!canSwitch && hasImage) return;
+                        VisualSupplyService.setProfile(p); 
+                        setCurrentQuality(p === 'hq' ? 70 : 40); 
+                        if (quickAddImageStaging) {
+                           setQuickAddImage(p === 'hq' ? quickAddImageStaging.hq : quickAddImageStaging.standard);
+                        }
+                      }}
+                      disabled={!canSwitch && hasImage}
+                      style={{ 
+                        paddingHorizontal: 10, 
+                        paddingVertical: 4, 
+                        borderRadius: 4, 
+                        backgroundColor: isActive ? '#3b82f6' : 'transparent',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
+                        opacity: (!canSwitch && hasImage && !isActive) ? 0.3 : 1
+                      }}
+                    >
+                      <Text style={{ color: isActive ? '#fff' : '#64748b', fontSize: 9, fontWeight: '900' }}>{p.toUpperCase()}</Text>
+                      {isActive && hasImage && <MaterialCommunityIcons name={canSwitch ? "check-circle" : "lock"} size={10} color="#fff" />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                {quickAddImage ? (
+                  <View style={{ position: 'relative' }}>
+                    <Image 
+                      source={{ uri: quickAddImage }} 
+                      style={{ width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' }} 
+                      onLoad={() => console.log('[VisualSupply] QuickAdd Image loaded:', quickAddImage)}
+                      onError={(e) => console.error('[VisualSupply] QuickAdd Image error:', e.nativeEvent.error)}
+                    />
+                    <TouchableOpacity onPress={() => { setQuickAddImage(null); setQuickAddImageId(null); setQuickAddImageStaging(null); }} style={{ position: 'absolute', top: -6, right: -6, backgroundColor: '#f43f5e', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+                      <MaterialCommunityIcons name="close" size={14} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity onPress={handleCaptureQuickAddImage} disabled={isProcessingQuickAddImage} style={{ width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' }}>
+                    {isProcessingQuickAddImage ? (
+                      <ActivityIndicator size="small" color="#3b82f6" />
+                    ) : (
+                      <MaterialCommunityIcons name="camera-plus" size={24} color="#64748b" />
+                    )}
+                  </TouchableOpacity>
+                )}
+                <Text style={{ flex: 1, color: '#64748b', fontSize: 10, fontStyle: 'italic' }}>Visual references help during fast audits and quick visual inspections.</Text>
+              </View>
+            </View>
           </View>
 
           <TouchableOpacity 
@@ -1489,6 +1621,8 @@ export default function AddInventoryScreen() {
             <MaterialCommunityIcons name="close" size={24} color="#f8fafc" />
           </TouchableOpacity>
         </View>
+
+
 
       <View 
         style={[styles.formGroup, errorField === 'quantity' && { borderColor: '#ef4444', borderWidth: 1, borderRadius: 8, padding: 4 }]} 
@@ -1995,6 +2129,90 @@ export default function AddInventoryScreen() {
               placeholderTextColor="#64748b"
               testID="batch-intel-input"
             />
+          </View>
+
+          {/* Visual Supply Verification */}
+          <View style={{ marginTop: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={styles.label}>Visual Verification</Text>
+              
+              <View style={{ flexDirection: 'row', backgroundColor: '#1e293b', borderRadius: 6, padding: 2, alignItems: 'center' }}>
+                {(['standard', 'hq'] as const).map(p => {
+                  const isActive = (p === 'hq' ? currentQuality === 70 : currentQuality === 40);
+                  const hasImage = !!batchImage;
+                  const canSwitch = !!batchImageStaging;
+
+                  return (
+                    <TouchableOpacity 
+                      key={p} 
+                      onPress={() => { 
+                        if (!canSwitch && hasImage) return;
+                        VisualSupplyService.setProfile(p); 
+                        setCurrentQuality(p === 'hq' ? 70 : 40); 
+                        if (batchImageStaging) {
+                           setBatchImage(p === 'hq' ? batchImageStaging.hq : batchImageStaging.standard);
+                        }
+                      }}
+                      disabled={!canSwitch && hasImage}
+                      style={{ 
+                        paddingHorizontal: 10, 
+                        paddingVertical: 4, 
+                        borderRadius: 4, 
+                        backgroundColor: isActive ? '#3b82f6' : 'transparent',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
+                        opacity: (!canSwitch && hasImage && !isActive) ? 0.3 : 1
+                      }}
+                    >
+                      <Text style={{ color: isActive ? '#fff' : '#64748b', fontSize: 9, fontWeight: '900' }}>{p.toUpperCase()}</Text>
+                      {isActive && hasImage && <MaterialCommunityIcons name={canSwitch ? "check-circle" : "lock"} size={10} color="#fff" />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              {batchImage ? (
+                <View style={{ position: 'relative' }}>
+                  <Image 
+                    source={{ uri: batchImage }} 
+                    style={{ width: 80, height: 80, borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' }} 
+                    onLoad={() => console.log('[VisualSupply] Image loaded successfully:', batchImage)}
+                    onError={(e) => console.error('[VisualSupply] Image failed to load:', e.nativeEvent.error)}
+                  />
+                  <TouchableOpacity onPress={() => { setBatchImage(null); setBatchImageId(null); setBatchImageStaging(null); }} style={{ position: 'absolute', top: -8, right: -8, backgroundColor: '#ef4444', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#0f172a' }}>
+                    <MaterialCommunityIcons name="close" size={14} color="white" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity 
+                  onPress={handleCapturePhoto} 
+                  disabled={isProcessingImage}
+                  style={{ width: 80, height: 80, borderRadius: 8, backgroundColor: '#0f172a', borderStyle: 'dashed', borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  {isProcessingImage ? (
+                    <ActivityIndicator size="small" color="#3b82f6" />
+                  ) : (
+                    <>
+                      <MaterialCommunityIcons name="camera" size={24} color="#64748b" />
+                      <Text style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>CAPTURE</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic', lineHeight: 15 }}>
+                  {batchImage ? "Batch photo captured. This will be used for rapid visual audits." : "Capture a photo of this specific batch to assist with visual identification during audits."}
+                </Text>
+                {batchImage && !batchImage.startsWith('http') && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                    <MaterialCommunityIcons name="check-circle" size={12} color="#10b981" />
+                    <Text style={{ color: '#10b981', fontSize: 10, fontWeight: 'bold' }}>TACTICAL COMPLIANT (300px)</Text>
+                  </View>
+                )}
+              </View>
+            </View>
           </View>
 
           {/* FRACTIONAL CONSUMPTION (Sergeant+) */}

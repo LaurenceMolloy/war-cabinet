@@ -22,6 +22,7 @@ import { CabinetFormModal } from '../components/CabinetFormModal';
 import { CommandLedgerView } from '../components/CommandLedgerView';
 import { CloudRestoreModal } from '../components/CloudRestoreModal';
 import { formatQuantity } from '../utils/measurements';
+import { VisualSupplyService } from '../services/VisualSupplyService';
 
 export default function CatalogScreen() {
   const router = useRouter();
@@ -41,6 +42,9 @@ export default function CatalogScreen() {
   const [editingTypeName, setEditingTypeName] = useState('');
   const [editingTypeDefaultSize, setEditingTypeDefaultSize] = useState('');
   const [editingTypeUnit, setEditingTypeUnit] = useState('weight');
+  const [editingTypeImage, setEditingTypeImage] = useState<string | null>(null);
+  const [editingTypeImageId, setEditingTypeImageId] = useState<string | null>(null);
+  const [editingTypeImageStaging, setEditingTypeImageStaging] = useState<{standard: string, hq: string} | null>(null);
   const [editingTypeDefaultCabinet, setEditingTypeDefaultCabinet] = useState<number | null>(null);
   const [editingTypeMinStock, setEditingTypeMinStock] = useState('');
   const [editingTypeMaxStock, setEditingTypeMaxStock] = useState('');
@@ -49,6 +53,9 @@ export default function CatalogScreen() {
   const [editingTypeCategoryId, setEditingTypeCategoryId] = useState<number | null>(null);
   const [newItemSupplier, setNewItemSupplier] = useState('');
   const [newItemRange, setNewItemRange] = useState('');
+  const [newItemImage, setNewItemImage] = useState<string | null>(null);
+  const [newItemImageId, setNewItemImageId] = useState<string | null>(null);
+  const [newItemImageStaging, setNewItemImageStaging] = useState<{standard: string, hq: string} | null>(null);
 
   const [newItemMinStock, setNewItemMinStock] = useState('');
   const [newItemMaxStock, setNewItemMaxStock] = useState('');
@@ -63,6 +70,11 @@ export default function CatalogScreen() {
 
   const [cabinets, setCabinets] = useState<any[]>([]);
   const [showCabinetModal, setShowCabinetModal] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [modalImageUri, setModalImageUri] = useState<string | null>(null);
+  const [modalItemName, setModalItemName] = useState('');
+  const [modalItemBrand, setModalItemBrand] = useState('');
+  const [modalItemRange, setModalItemRange] = useState('');
   const [selectedCabinetForEdit, setSelectedCabinetForEdit] = useState<any>(null);
   const [showSectorTag, setShowSectorTag] = useState(false);
   const [selectedCabinetForTag, setSelectedCabinetForTag] = useState<any>(null);
@@ -71,6 +83,25 @@ export default function CatalogScreen() {
   
   const params = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<'catalog' | 'cabinets' | 'system' | 'backups' | 'rank'>('catalog');
+  const [isProcessingTypeImage, setIsProcessingTypeImage] = useState(false);
+
+  const handleCaptureTypeImage = async (mode: 'new' | 'edit') => {
+    const res = await VisualSupplyService.capturePhotoDetailed();
+    if (res) {
+      setIsProcessingTypeImage(true);
+      const chosenUri = currentQuality === 70 ? res.hq : res.standard;
+      if (mode === 'new') {
+        setNewItemImage(chosenUri);
+        setNewItemImageId(res.id);
+        setNewItemImageStaging({ standard: res.standard, hq: res.hq });
+      } else {
+        setEditingTypeImage(chosenUri);
+        setEditingTypeImageId(res.id);
+        setEditingTypeImageStaging({ standard: res.standard, hq: res.hq });
+      }
+      setIsProcessingTypeImage(false);
+    }
+  };
 
   const handlePrintSectorTag = async () => {
     if (!selectedCabinetForTag) return;
@@ -295,6 +326,7 @@ export default function CatalogScreen() {
     categories: number;
     cabinets: number;
   } | null>(null);
+  const [currentQuality, setCurrentQuality] = useState(VisualSupplyService.simulatedQuality);
   
   
   /**
@@ -556,7 +588,7 @@ export default function CatalogScreen() {
 
   const load = async () => {
     const rows = await db.getAllAsync(`
-      SELECT c.id as cat_id, c.name as cat_name, c.is_mess_hall as cat_is_mess_hall, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size,
+      SELECT c.id as cat_id, c.name as cat_name, c.is_mess_hall as cat_is_mess_hall, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size, i.image_uri, i.visual_profile,
              i.min_stock_level, i.max_stock_level, i.freeze_months, i.default_cabinet_id, i.default_supplier, i.default_product_range,
              (SELECT COUNT(*) FROM Inventory v WHERE v.item_type_id = i.id) as type_stock_count,
              EXISTS(SELECT 1 FROM Inventory v JOIN Cabinets cab ON v.cabinet_id = cab.id WHERE v.item_type_id = i.id AND cab.cabinet_type = 'freezer') as in_freezer
@@ -587,6 +619,8 @@ export default function CatalogScreen() {
             default_cabinet_id: row.default_cabinet_id,
             default_supplier: row.default_supplier || '',
             default_product_range: row.default_product_range || '',
+            image_uri: row.image_uri || null,
+            visual_profile: row.visual_profile || 'standard',
         });
       }
       return acc;
@@ -854,16 +888,21 @@ export default function CatalogScreen() {
       }
     }
 
-    const res = await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size, min_stock_level, max_stock_level, freeze_months, default_cabinet_id, default_supplier, default_product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+    const res = await db.runAsync('INSERT INTO ItemTypes (category_id, name, unit_type, default_size, min_stock_level, max_stock_level, freeze_months, default_cabinet_id, default_supplier, default_product_range, image_uri, visual_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
         catId, newItemName, newItemUnit, finalDefaultSize, 
         newItemMinStock ? parseInt(newItemMinStock) : null,
         newItemMaxStock ? parseInt(newItemMaxStock) : null,
         newItemFreezeMonths ? parseInt(newItemFreezeMonths) : null,
         newItemDefaultCabinet,
         newItemSupplier || null,
-        newItemRange || null
+        newItemRange || null,
+        newItemImage || null,
+        currentQuality === 70 ? 'hq' : 'standard'
     ]);
     await logTacticalAction(db, 'ADD', 'ITEM_TYPE', Number(res.lastInsertRowId), newItemName);
+    if (newItemImage && newItemImageId) {
+      await VisualSupplyService.finalizeTacticalAsset(newItemImageId, currentQuality === 70 ? 'hq' : 'standard');
+    }
     setNewItemName('');
     setNewItemDefaultSize('');
     setSelectedCat(null);
@@ -873,6 +912,9 @@ export default function CatalogScreen() {
     setNewItemFreezeMonths('');
     setNewItemSupplier('');
     setNewItemRange('');
+    setNewItemImage(null);
+    setNewItemImageId(null);
+    setNewItemImageStaging(null);
     setNewItemDefaultCabinet(null);
     load();
   };
@@ -1132,15 +1174,19 @@ export default function CatalogScreen() {
        if (norm(old.freeze_months) !== norm(editingTypeFreezeMonths ? parseInt(editingTypeFreezeMonths) : null)) diff.freeze_months = editingTypeFreezeMonths;
        if (norm(old.default_supplier) !== norm(editingTypeSupplier)) diff.supplier = editingTypeSupplier;
        if (norm(old.default_product_range) !== norm(editingTypeRange)) diff.range = editingTypeRange;
+       if (norm(old.image_uri) !== norm(editingTypeImage)) diff.image_uri = editingTypeImage;
+       if (norm(old.visual_profile) !== norm(currentQuality === 70 ? 'hq' : 'standard')) diff.visual_profile = currentQuality === 70 ? 'hq' : 'standard';
     }
 
-    await db.runAsync('UPDATE ItemTypes SET name = ?, category_id = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ?, freeze_months = ?, default_supplier = ?, default_product_range = ? WHERE id = ?', [
+    await db.runAsync('UPDATE ItemTypes SET name = ?, category_id = ?, unit_type = ?, default_size = ?, default_cabinet_id = ?, min_stock_level = ?, max_stock_level = ?, freeze_months = ?, default_supplier = ?, default_product_range = ?, image_uri = ?, visual_profile = ? WHERE id = ?', [
         editingTypeName, editingTypeCategoryId, editingTypeUnit, finalDefaultSize, editingTypeDefaultCabinet,
         editingTypeMinStock ? parseInt(editingTypeMinStock) : null,
         editingTypeMaxStock ? parseInt(editingTypeMaxStock) : null,
         editingTypeFreezeMonths ? parseInt(editingTypeFreezeMonths) : null,
         editingTypeSupplier || null,
         editingTypeRange || null,
+        editingTypeImage || null,
+        currentQuality === 70 ? 'hq' : 'standard',
         typeId
     ]);
     await logTacticalAction(db, 'UPDATE', 'ITEM_TYPE', typeId, editingTypeName, Object.keys(diff).length > 0 ? JSON.stringify(diff) : null);
@@ -1153,10 +1199,16 @@ export default function CatalogScreen() {
         }, 150);
       }
     }
+    if (editingTypeImage && editingTypeImageId) {
+       await VisualSupplyService.finalizeTacticalAsset(editingTypeImageId, currentQuality === 70 ? 'hq' : 'standard');
+    }
     setEditingTypeId(null);
     setEditingTypeFreezeMonths('');
     setEditingTypeSupplier('');
     setEditingTypeRange('');
+    setEditingTypeImage(null);
+    setEditingTypeImageId(null);
+    setEditingTypeImageStaging(null);
     load();
   };
 
@@ -1289,6 +1341,7 @@ export default function CatalogScreen() {
               <View key={type.id} style={styles.typeRow} testID={`type-row-${type.name.toLowerCase().replace(/\s+/g, '-')}`}>
                 {editingTypeId === type.id ? (
                   <View style={{flexDirection: 'column', padding: 12, backgroundColor: '#0f172a', borderRadius: 10, marginTop: 8}}>
+
                     <View style={styles.formSection}>
                       <Text style={styles.miniLabel}>NAME <Text style={{color: '#f43f5e'}}>*</Text></Text>
                       <TextInput style={styles.inputSmall} value={editingTypeName} onChangeText={setEditingTypeName} placeholder="Item Name" placeholderTextColor="#64748b" />
@@ -1315,6 +1368,72 @@ export default function CatalogScreen() {
                         <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'weight' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('weight')}><Text style={[styles.unitChipText, editingTypeUnit === 'weight' && styles.unitChipTextActive]}>Weight</Text></TouchableOpacity>
                         <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'volume' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('volume')}><Text style={[styles.unitChipText, editingTypeUnit === 'volume' && styles.unitChipTextActive]}>Volume</Text></TouchableOpacity>
                         <TouchableOpacity style={[styles.unitChip, editingTypeUnit === 'count' && styles.unitChipActive]} onPress={() => setEditingTypeUnit('count')}><Text style={[styles.unitChipText, editingTypeUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View style={styles.formSection}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text style={styles.miniLabel}>TACTICAL VISUAL INTEL</Text>
+                        
+                        <View style={{ flexDirection: 'row', backgroundColor: '#0f172a', borderRadius: 6, padding: 2, alignItems: 'center' }}>
+                          {(['standard', 'hq'] as const).map(p => {
+                            const isActive = (p === 'hq' ? currentQuality === 70 : currentQuality === 40);
+                            const hasImage = !!editingTypeImage;
+                            const canSwitch = !!editingTypeImageStaging;
+
+                            return (
+                              <TouchableOpacity 
+                                key={p} 
+                                onPress={() => { 
+                                  if (!canSwitch && hasImage) return;
+                                  VisualSupplyService.setProfile(p); 
+                                  setCurrentQuality(p === 'hq' ? 70 : 40); 
+                                  if (editingTypeImageStaging) {
+                                    setEditingTypeImage(p === 'hq' ? editingTypeImageStaging.hq : editingTypeImageStaging.standard);
+                                  }
+                                }}
+                                disabled={!canSwitch && hasImage}
+                                style={{ 
+                                  paddingHorizontal: 10, 
+                                  paddingVertical: 4, 
+                                  borderRadius: 4, 
+                                  backgroundColor: isActive ? '#3b82f6' : 'transparent',
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  opacity: (!canSwitch && hasImage && !isActive) ? 0.3 : 1
+                                }}
+                              >
+                                <Text style={{ color: isActive ? '#fff' : '#64748b', fontSize: 9, fontWeight: '900' }}>{p.toUpperCase()}</Text>
+                                {isActive && hasImage && <MaterialCommunityIcons name={canSwitch ? "check-circle" : "lock"} size={10} color="#fff" />}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+                        {editingTypeImage ? (
+                           <View style={{position: 'relative'}}>
+                             <Image 
+                               source={{uri: editingTypeImage}} 
+                               style={{width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a'}} 
+                               onLoad={() => console.log('[VisualSupply] Edit Image loaded:', editingTypeImage)}
+                               onError={(e) => console.error('[VisualSupply] Edit Image error:', e.nativeEvent.error)}
+                             />
+                             <TouchableOpacity onPress={() => { setEditingTypeImage(null); setEditingTypeImageId(null); setEditingTypeImageStaging(null); }} style={{position: 'absolute', top: -6, right: -6, backgroundColor: '#f43f5e', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center'}}>
+                               <MaterialCommunityIcons name="close" size={14} color="#fff" />
+                             </TouchableOpacity>
+                           </View>
+                        ) : (
+                          <TouchableOpacity onPress={() => handleCaptureTypeImage('edit')} disabled={isProcessingTypeImage} style={{width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center'}}>
+                             {isProcessingTypeImage ? (
+                               <ActivityIndicator size="small" color="#3b82f6" />
+                             ) : (
+                               <MaterialCommunityIcons name="camera-plus" size={24} color="#64748b" />
+                             )}
+                          </TouchableOpacity>
+                        )}
+                        <Text style={{flex: 1, color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Visual references help during fast audits and quick visual inspections.</Text>
                       </View>
                     </View>
 
@@ -1481,7 +1600,31 @@ export default function CatalogScreen() {
                       </TouchableOpacity>
                       <Text style={styles.typeText}>{type.name}</Text>
                       <View style={styles.catActions}>
-                        <TouchableOpacity onPress={async () => { setEditingTypeId(type.id); setEditingTypeName(type.name); setEditingTypeUnit(type.unit_type || 'weight'); setEditingTypeDefaultSize(type.default_size || ''); setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : ''); setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : ''); setEditingTypeFreezeMonths(type.freeze_months !== null && type.freeze_months !== undefined ? type.freeze_months.toString() : ''); setEditingTypeDefaultCabinet(type.default_cabinet_id || null); setEditingTypeSupplier(type.default_supplier || ''); setEditingTypeRange(type.default_product_range || ''); setEditingTypeCategoryId(cat.id); }} style={{marginRight: 10, marginTop: 4}} testID={`edit-type-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
+                        {type.image_uri ? (
+                           <TouchableOpacity 
+                             onPress={() => { setModalImageUri(type.image_uri); setShowImageModal(true); }}
+                             style={{ marginRight: 10, width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#3b82f6', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(59, 130, 246, 0.1)' }}
+                           >
+                             <MaterialCommunityIcons name="eye" size={16} color="#3b82f6" />
+                           </TouchableOpacity>
+                        ) : null}
+                        <TouchableOpacity onPress={async () => { 
+                          setEditingTypeId(type.id); 
+                          setEditingTypeName(type.name); 
+                          setEditingTypeUnit(type.unit_type || 'weight'); 
+                          setEditingTypeDefaultSize(type.default_size || ''); 
+                          setEditingTypeMinStock(type.min_stock !== null ? type.min_stock.toString() : ''); 
+                          setEditingTypeMaxStock(type.max_stock !== null ? type.max_stock.toString() : ''); 
+                          setEditingTypeFreezeMonths(type.freeze_months !== null && type.freeze_months !== undefined ? type.freeze_months.toString() : ''); 
+                          setEditingTypeDefaultCabinet(type.default_cabinet_id || null); 
+                          setEditingTypeSupplier(type.default_supplier || ''); 
+                          setEditingTypeRange(type.default_product_range || ''); 
+                          setEditingTypeCategoryId(cat.id); 
+                          setEditingTypeImage(type.image_uri || null);
+                          const prof = type.visual_profile || 'standard';
+                          setCurrentQuality(prof === 'hq' ? 70 : 40);
+                          VisualSupplyService.setProfile(prof as any);
+                        }} style={{marginRight: 10, marginTop: 4}} testID={`edit-type-btn-${type.name.toLowerCase().replace(/\s+/g, '-')}`}><MaterialCommunityIcons name="pencil" size={20} color="#3b82f6" /></TouchableOpacity>
                         <TouchableOpacity disabled={type.stock_count > 0} onPress={() => handleDeleteItemType(type.id)} style={{marginTop: 4}}><MaterialCommunityIcons name="delete" size={20} color={type.stock_count > 0 ? "#334155" : "#ef4444"} /></TouchableOpacity>
                       </View>
                     </View>
@@ -1528,6 +1671,70 @@ export default function CatalogScreen() {
                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'volume' && styles.unitChipActive]} onPress={() => setNewItemUnit('volume')} testID="unit-selector-volume"><Text style={[styles.unitChipText, newItemUnit === 'volume' && styles.unitChipTextActive]}>Volume</Text></TouchableOpacity>
                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'count' && styles.unitChipActive]} onPress={() => setNewItemUnit('count')} testID="unit-selector-count"><Text style={[styles.unitChipText, newItemUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
                    </View>
+                </View>
+
+                <View style={styles.formSection}>
+                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                     <Text style={styles.miniLabel}>TACTICAL VISUAL INTEL</Text>
+                     <View style={{ flexDirection: 'row', backgroundColor: '#0f172a', borderRadius: 6, padding: 2, alignItems: 'center' }}>
+                        {(['standard', 'hq'] as const).map(p => {
+                          const isActive = (p === 'hq' ? currentQuality === 70 : currentQuality === 40);
+                          const hasImage = !!newItemImage;
+                          const canSwitch = !!newItemImageStaging;
+
+                          return (
+                            <TouchableOpacity 
+                              key={p} 
+                              onPress={() => { 
+                                VisualSupplyService.setProfile(p); 
+                                setCurrentQuality(p === 'hq' ? 70 : 40); 
+                                if (newItemImageStaging) {
+                                  setNewItemImage(p === 'hq' ? newItemImageStaging.hq : newItemImageStaging.standard);
+                                }
+                              }}
+                              disabled={!canSwitch && hasImage}
+                              style={{ 
+                                paddingHorizontal: 10, 
+                                paddingVertical: 4, 
+                                borderRadius: 4, 
+                                backgroundColor: isActive ? '#3b82f6' : 'transparent',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                opacity: (!canSwitch && hasImage && !isActive) ? 0.3 : 1
+                              }}
+                            >
+                              <Text style={{ color: isActive ? '#fff' : '#64748b', fontSize: 9, fontWeight: '900' }}>{p.toUpperCase()}</Text>
+                              {isActive && hasImage && <MaterialCommunityIcons name={canSwitch ? "check-circle" : "lock"} size={10} color="#fff" />}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                   </View>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+                        {newItemImage ? (
+                           <View style={{position: 'relative'}}>
+                             <Image 
+                               source={{uri: newItemImage}} 
+                               style={{width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a'}} 
+                               onLoad={() => console.log('[VisualSupply] New Image loaded:', newItemImage)}
+                               onError={(e) => console.error('[VisualSupply] New Image error:', e.nativeEvent.error)}
+                             />
+                             <TouchableOpacity onPress={() => { setNewItemImage(null); setNewItemImageId(null); setNewItemImageStaging(null); }} style={{position: 'absolute', top: -6, right: -6, backgroundColor: '#f43f5e', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center'}}>
+                               <MaterialCommunityIcons name="close" size={14} color="#fff" />
+                             </TouchableOpacity>
+                           </View>
+                        ) : (
+                          <TouchableOpacity onPress={() => handleCaptureTypeImage('new')} disabled={isProcessingTypeImage} style={{width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center'}}>
+                             {isProcessingTypeImage ? (
+                               <ActivityIndicator size="small" color="#3b82f6" />
+                             ) : (
+                               <MaterialCommunityIcons name="camera-plus" size={24} color="#64748b" />
+                             )}
+                          </TouchableOpacity>
+                        )}
+                    <Text style={{flex: 1, color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Visual references help during fast audits and quick visual inspections.</Text>
+                  </View>
                 </View>
 
                 <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
@@ -3263,6 +3470,66 @@ export default function CatalogScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+      {/* --- VISUAL VERIFICATION PREVIEW MODAL --- */}
+      <Modal visible={showImageModal} transparent animationType="fade">
+        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(2, 6, 23, 0.9)' }]}>
+          <View style={{ width: '90%', maxWidth: 400, backgroundColor: '#0f172a', borderRadius: 20, borderWidth: 1, borderColor: '#334155', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 10 }}>
+            {/* Tactical Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#1e293b', borderBottomWidth: 1, borderBottomColor: '#334155' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3b82f6', shadowColor: '#3b82f6', shadowRadius: 4, shadowOpacity: 0.8, elevation: 5 }} />
+                <Text style={{ color: '#f8fafc', fontWeight: '900', letterSpacing: 1.5, fontSize: 13 }}>TACTICAL FEED</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setShowImageModal(false)}
+                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#334155' }}
+              >
+                <MaterialCommunityIcons name="close" size={20} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={{ padding: 12 }}>
+              {modalImageUri ? (
+                <View style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#1e293b' }}>
+                  <Image 
+                    source={{ uri: modalImageUri }} 
+                    style={{ width: '100%', aspectRatio: 1 }} 
+                    resizeMode="cover"
+                  />
+                  {/* Tactical Overlays */}
+                  <View style={{ position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(15, 23, 42, 0.8)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.4)', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <MaterialCommunityIcons name="target" size={12} color="#3b82f6" />
+                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>
+                      {modalImageUri.includes('q70') || modalImageUri.includes('_hq') ? 'HQ' : 'STD'}
+                    </Text>
+                  </View>
+                  
+                  <View style={{ position: 'absolute', bottom: 12, left: 12, backgroundColor: 'rgba(15, 23, 42, 0.6)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 }}>
+                    <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 9, fontWeight: 'bold', letterSpacing: 1 }}>VERIFIED ASSET v2.0</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={{ width: '100%', aspectRatio: 1, backgroundColor: '#0f172a', borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#1e293b', borderStyle: 'dashed' }}>
+                  <MaterialCommunityIcons name="image-off-outline" size={48} color="#1e293b" />
+                  <Text style={{ color: '#334155', fontSize: 12, marginTop: 12, fontWeight: 'bold' }}>NO ASSET DATA</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Subtle Footer Telemetry */}
+            <View style={{ padding: 16, paddingTop: 4, paddingBottom: 20, alignItems: 'center' }}>
+               <Text style={{ color: '#475569', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 }}>TAP OUTSIDE OR USE HEADER TO DISMISS</Text>
+            </View>
+          </View>
+          
+          {/* Backdrop Dismissal Trigger */}
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={() => setShowImageModal(false)}
+            style={{ position: 'absolute', width: '100%', height: '100%', zIndex: -1 }}
+          />
         </View>
       </Modal>
     </View>

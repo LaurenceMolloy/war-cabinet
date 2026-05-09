@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
  *    script is lagging and requires an audit.
  * 4. Only after auditing BackupService.ts should the versions be re-aligned.
  */
-export const CURRENT_SCHEMA_VERSION = 109;
+export const CURRENT_SCHEMA_VERSION = 111;
 
 // Helper to record last action for backup context
 export const recordActivity = async (db: any, description: string) => {
@@ -301,6 +301,25 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
         );
       `);
       await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v109_complete', '1']);
+    }
+
+    // Iteration 110: Visual Supply Verification
+    const hasImageUriItem = columnsRes.some(col => col.name === 'image_uri');
+    if (!hasImageUriItem) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN image_uri TEXT');
+    }
+    const hasImageUriInv = iInv.some(col => col.name === 'image_uri');
+    if (!hasImageUriInv) {
+      await db.execAsync('ALTER TABLE Inventory ADD COLUMN image_uri TEXT');
+    }
+
+    const hasVisualProfileItem = columnsRes.some(col => col.name === 'visual_profile');
+    if (!hasVisualProfileItem) {
+      await db.execAsync('ALTER TABLE ItemTypes ADD COLUMN visual_profile TEXT DEFAULT \'standard\'');
+    }
+    const hasVisualProfileInv = iInv.some(col => col.name === 'visual_profile');
+    if (!hasVisualProfileInv) {
+      await db.execAsync('ALTER TABLE Inventory ADD COLUMN visual_profile TEXT DEFAULT \'standard\'');
     }
 
 

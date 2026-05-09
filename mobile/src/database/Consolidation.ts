@@ -10,6 +10,7 @@ export interface ConsolidationCandidate {
   supplier: string | null;
   product_range: string | null;
   size: string;
+  image_uri: string | null;
 }
 
 export interface NewBatchData {
@@ -24,6 +25,7 @@ export interface NewBatchData {
   portions_total: number | null;
   portions_remaining: number;
   selectedCabinetId: number;
+  batchImage?: string | null;
   entryM: number;
   entryY: number;
   entryD: number;
@@ -50,7 +52,7 @@ export const Consolidation = {
     const { typeId, size, cabinetId, expiryMonth, expiryYear, excludeId, newSupplier, newRange } = params;
 
     const query = `
-      SELECT id, batch_intel, expiry_month, expiry_year, supplier, product_range, size 
+      SELECT id, batch_intel, expiry_month, expiry_year, supplier, product_range, size, image_uri 
       FROM Inventory 
       WHERE item_type_id = ? AND size = ? AND cabinet_id = ?
         AND ( (expiry_month IS NULL AND ? IS NULL) OR (expiry_month = ?) )
@@ -95,7 +97,7 @@ export const Consolidation = {
   }) {
     if (targetId) {
       const existing = await db.getFirstAsync<any>(
-        'SELECT quantity, portions_total, portions_remaining, supplier, product_range, batch_intel FROM Inventory WHERE id = ?', 
+        'SELECT quantity, portions_total, portions_remaining, supplier, product_range, batch_intel, image_uri FROM Inventory WHERE id = ?', 
         [targetId]
       );
 
@@ -106,11 +108,13 @@ export const Consolidation = {
       let finalS = data.supplier;
       let finalR = data.productRange;
       let finalI = data.batchIntel;
+      let finalImg = data.batchImage;
 
       if (strategy === 'ADOPT') {
         finalS = data.supplier || existing?.supplier || null;
         finalR = data.productRange || existing?.product_range || null;
         finalI = data.batchIntel || existing?.batch_intel || null;
+        finalImg = data.batchImage || existing?.image_uri || null;
       } else if (strategy === 'STRIP') {
         finalS = null;
         finalR = null;
@@ -120,6 +124,7 @@ export const Consolidation = {
         finalS = existing?.supplier || null;
         finalR = existing?.product_range || null;
         finalI = existing?.batch_intel || null;
+        finalImg = existing?.image_uri || null;
       }
 
       await db.runAsync(
@@ -129,15 +134,16 @@ export const Consolidation = {
           portions_total = ?,
           supplier = ?,
           product_range = ?,
-          batch_intel = ?
+          batch_intel = ?,
+          image_uri = ?
          WHERE id = ?`,
-        [data.q, currentRem + addedRem, currentTotal, finalS, finalR, finalI, targetId]
+        [data.q, currentRem + addedRem, currentTotal, finalS, finalR, finalI, finalImg || null, targetId]
       );
       return targetId;
     } else {
       const res = await db.runAsync(
-        `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, entry_day, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, entry_day, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining, image_uri) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           data.typeId, data.q, data.finalSize, 
           data.expMVal, data.expYVal, 
@@ -145,7 +151,8 @@ export const Consolidation = {
           data.selectedCabinetId, data.batchIntel || null, 
           data.supplier || null, data.productRange || null, 
           data.portions_total, 
-          (data.portions_total && data.q > 1) ? (data.portions_remaining + (data.portions_total * (data.q - 1))) : data.portions_remaining
+          (data.portions_total && data.q > 1) ? (data.portions_remaining + (data.portions_total * (data.q - 1))) : data.portions_remaining,
+          data.batchImage || null
         ]
       );
       return res.lastInsertRowId;
