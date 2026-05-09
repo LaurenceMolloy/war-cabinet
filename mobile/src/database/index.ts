@@ -3,6 +3,7 @@ import { Ledger } from './Ledger';
 import { ItemTypes } from './ItemTypes';
 import { Inventory } from './Inventory';
 import { Consolidation } from './Consolidation';
+import { Views } from './Views';
 
 /**
  * The Database Layer (DAL) for the War Cabinet.
@@ -15,4 +16,5 @@ export const Database = {
   ItemTypes,
   Inventory,
   Consolidation,
+  Views,
 };

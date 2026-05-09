@@ -35,6 +35,23 @@ export const Cabinets = {
   },
 
   /**
+   * Fetches a minimal list of cabinets for UI dropdown selectors.
+   */
+  async getBasicList(db: SQLiteDatabase): Promise<{id: number, name: string}[]> {
+    return await db.getAllAsync<{id: number, name: string}>(`
+      SELECT id, name FROM Cabinets ORDER BY name
+    `);
+  },
+
+  /**
+   * Resolves the name of a cabinet by ID.
+   */
+  async getName(db: SQLiteDatabase, id: number | string): Promise<string | null> {
+    const cab = await db.getFirstAsync<{name: string}>('SELECT name FROM Cabinets WHERE id = ?', [id]);
+    return cab?.name || null;
+  },
+
+  /**
    * Identifies all storage sites currently containing stock for a specific item type.
    * Useful for "Location Conflict" detection and logistical pooling.
    */

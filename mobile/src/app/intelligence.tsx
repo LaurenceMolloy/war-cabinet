@@ -60,7 +60,7 @@ export default function IntelligenceScreen() {
   useEffect(() => {
     const loadCabinets = async () => {
       try {
-        const rows = await db.getAllAsync<any>('SELECT id, name FROM Cabinets ORDER BY name');
+        const rows = await Database.Cabinets.getBasicList(db);
         setCabinets(rows);
       } catch (err) {
         console.error('Failed to load cabinets:', err);
@@ -74,128 +74,15 @@ export default function IntelligenceScreen() {
       const now = new Date();
       const currentStamp = now.getFullYear() * 12 + (now.getMonth() + 1);
 
-      // Fetch hierarchical data: Category -> ItemType -> Inventory Batches
-      let query = `
-        SELECT c.id as cat_id, c.name as cat_name,
-               it.id as type_id, it.name as type_name, it.default_size as type_default_size, it.unit_type as type_unit,
-               inv.id as inv_id, inv.quantity, inv.expiry_month, inv.expiry_year,
-               COALESCE(inv.size, it.default_size) as resolved_raw_size,
-               inv.size as bespoke_size, inv.supplier, inv.product_range, inv.batch_intel,
-               cab.cabinet_type as cab_type, cab.name as cab_name
-        FROM Categories c
-        JOIN ItemTypes it ON c.id = it.category_id
-        JOIN Inventory inv ON it.id = inv.item_type_id
-        LEFT JOIN Cabinets cab ON inv.cabinet_id = cab.id
-      `;
-      
-      const params: any[] = [];
-      if (activeCabinetId) {
-        query += ` WHERE inv.cabinet_id = ? `;
-        params.push(activeCabinetId);
-      }
-      
-      query += ` ORDER BY c.name, it.name, inv.expiry_year, inv.expiry_month `;
-      
-      const rows = await db.getAllAsync<any>(query, params);
+      const finalData = await Database.Views.getStarburstHierarchy(db, activeCabinetId);
 
       // Resolve context name
       if (activeCabinetId) {
-        const cab = await db.getFirstAsync<any>('SELECT name FROM Cabinets WHERE id = ?', [activeCabinetId]);
-        setContextName(cab?.name?.toUpperCase() || 'CABINET');
+        const cabName = await Database.Cabinets.getName(db, activeCabinetId);
+        setContextName(cabName?.toUpperCase() || 'CABINET');
       } else {
         setContextName('THE BUNKER');
       }
-
-      const categories: any = {};
-      rows.forEach(row => {
-        if (!categories[row.cat_id]) {
-          categories[row.cat_id] = { id: row.cat_id, name: row.cat_name, types: {}, total: 0 };
-        }
-        if (!categories[row.cat_id].types[row.type_id]) {
-          categories[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, batches: [], total: 0 };
-        }
-        
-        // Calculate Batch Color based on NEW triage definitions
-        let batchColor = '#22c55e'; // Green (Safe)
-        if (row.expiry_year && row.expiry_month) {
-          const expStamp = row.expiry_year * 12 + row.expiry_month;
-          const remaining = expStamp - currentStamp;
-          if (remaining < 0) batchColor = '#991b1b'; // Deep Red (Expired: Prior months)
-          else if (remaining === 0) batchColor = '#f43f5e'; // Red (Urgent: This month)
-          else if (remaining <= 3) batchColor = '#f97316'; // Orange (Soon: 1-3M)
-          else if (remaining <= 6) batchColor = '#fde047'; // Yellow (Upcoming: 4-6M)
-        }
-
-        const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-        const formattedExp = row.expiry_month && row.expiry_year 
-          ? `${monthNames[row.expiry_month - 1]} ${row.expiry_year}` 
-          : null;
-
-        // Resolve Smart Size: Use SQL-resolved raw size with tactical unit appending
-        let resolvedSize = String(row.resolved_raw_size || "").trim();
-        
-        // Auto-Append unit label if size is purely numeric and we have a unit type
-        if (resolvedSize !== "" && /^\d+$/.test(resolvedSize)) {
-          if (row.type_unit === 'weight') resolvedSize += 'G';
-          else if (row.type_unit === 'volume') resolvedSize += 'ML';
-        }
-
-        const getMass = (s: any) => {
-          const n = parseFloat(String(s).replace(/[^0-9.]/g, ''));
-          return isNaN(n) ? null : n;
-        };
-        const bSize = getMass(row.bespoke_size);
-        const defSize = getMass(row.type_default_size);
-
-        let unitWeight = 1;
-        if (bSize !== null && defSize !== null && defSize > 0) {
-            unitWeight = bSize / defSize;
-        }
-
-        const batchWeight = row.quantity * unitWeight;
-
-        categories[row.cat_id].types[row.type_id].batches.push({
-          id: row.inv_id,
-          qty: row.quantity,
-          weight: batchWeight,
-          unitWeight: unitWeight,
-          color: batchColor,
-          size: resolvedSize,
-          bespoke_size: row.bespoke_size,
-          default_size: row.type_default_size,
-          brand: row.supplier,
-          range: row.product_range,
-          intel: row.batch_intel,
-          exp: formattedExp,
-          exp_month: row.expiry_month,
-          exp_year: row.expiry_year
-        });
-        categories[row.cat_id].types[row.type_id].total += row.quantity;
-        categories[row.cat_id].total += row.quantity;
-        categories[row.cat_id].types[row.type_id].weight = (categories[row.cat_id].types[row.type_id].weight || 0) + batchWeight;
-        categories[row.cat_id].weight = (categories[row.cat_id].weight || 0) + batchWeight;
-      });
-
-      // Convert to array and sort
-      const finalData = Object.values(categories).map((cat: any) => {
-        cat.types = Object.values(cat.types).map((type: any) => {
-          // Single-Batch Propagation: If only one batch, promote its meta to the type level
-          if (type.batches.length === 1) {
-            const b = type.batches[0];
-            type.brand = b.brand;
-            type.range = b.range;
-            type.intel = b.intel;
-            type.size = b.size;
-            type.exp = b.exp;
-            type.default_size = b.default_size;
-          } else if (type.batches.length > 1) {
-            // Even with multiple batches, store the default size for the type
-            type.default_size = type.batches[0].default_size;
-          }
-          return type;
-        });
-        return cat;
-      });
 
       const totalCategories = finalData.length;
       const totalProducts = finalData.reduce((acc, cat) => acc + (cat.types?.length || 0), 0);
