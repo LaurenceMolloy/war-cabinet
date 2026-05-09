@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
  *    script is lagging and requires an audit.
  * 4. Only after auditing BackupService.ts should the versions be re-aligned.
  */
-export const CURRENT_SCHEMA_VERSION = 111;
+export const CURRENT_SCHEMA_VERSION = 112;
 
 // Helper to record last action for backup context
 export const recordActivity = async (db: any, description: string) => {
@@ -58,6 +58,7 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     await db.execAsync(`CREATE TABLE IF NOT EXISTS BarcodeSignatures (barcode TEXT PRIMARY KEY, item_type_id INTEGER NOT NULL, supplier TEXT, size TEXT, FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS TacticalLogs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, action_type TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER, entity_name TEXT, details TEXT);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS Missions (id TEXT PRIMARY KEY, completed_at INTEGER NOT NULL, points INTEGER NOT NULL);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS AssetDeletionsCache (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, asset_type TEXT NOT NULL, deleted_timestamp INTEGER NOT NULL);`);
 
 
   // Migration: add unit_type to ItemTypes if it does not exist
@@ -339,6 +340,20 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
         while (m > 12) { m -= 12; y += 1; }
         await db.runAsync('UPDATE Inventory SET expiry_month = ?, expiry_year = ? WHERE id = ?', [m, y, row.id]);
       }
+    }
+
+    // Iteration 112: Out-of-band Asset Sync Purgatory
+    const i112Migrated = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'migration_v112_complete');
+    if (!i112Migrated || (i112Migrated as any).count === 0) {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS AssetDeletionsCache (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          filename TEXT NOT NULL,
+          asset_type TEXT NOT NULL,
+          deleted_timestamp INTEGER NOT NULL
+        );
+      `);
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v112_complete', '1']);
     }
 
     // Set formal schema version

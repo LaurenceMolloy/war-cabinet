@@ -13,7 +13,7 @@ import * as Network from 'expo-network';
  * createBackup and restore methods to account for all structural 
  * changes in sqlite.ts.
  */
-export const BACKUP_MANIFEST_VERSION = 107; // SYNCED TO ITERATION 107
+export const BACKUP_MANIFEST_VERSION = 112; // SYNCED TO ITERATION 112
 
 const getBackupDir = () => (FileSystem.documentDirectory || "") + 'backups/';
 const MAX_BACKUPS = 7;
@@ -65,6 +65,8 @@ export const BackupService = {
       const settings = await db.getAllAsync<any>('SELECT * FROM Settings');
       const barcodeSignatures = await db.getAllAsync<any>('SELECT * FROM BarcodeSignatures');
       const tacticalLogs = await db.getAllAsync<any>('SELECT * FROM TacticalLogs');
+      const missions = await db.getAllAsync<any>('SELECT * FROM Missions');
+      const assetDeletionsCache = await db.getAllAsync<any>('SELECT * FROM AssetDeletionsCache');
 
       const lastActionRes = settings.find((s: any) => s.key === 'last_activity_log');
       let lastAction = lastActionRes ? lastActionRes.value : 'No operational changes recorded';
@@ -117,7 +119,9 @@ export const BackupService = {
           Cabinets: cabinets,
           Settings: settings,
           BarcodeSignatures: barcodeSignatures,
-          TacticalLogs: tacticalLogs
+          TacticalLogs: tacticalLogs,
+          Missions: missions,
+          AssetDeletionsCache: assetDeletionsCache
         }
       };
 
@@ -434,6 +438,8 @@ export const BackupService = {
         await db.runAsync("DELETE FROM Settings");
         await db.runAsync("DELETE FROM BarcodeSignatures");
         await db.runAsync("DELETE FROM TacticalLogs");
+        await db.runAsync("DELETE FROM Missions");
+        await db.runAsync("DELETE FROM AssetDeletionsCache");
 
         const { tables } = jsonData;
         if (!tables) throw new Error("Invalid tactical data packet: Missing tables.");
@@ -450,14 +456,16 @@ export const BackupService = {
         const itemTypes = tables.ItemTypes || [];
         for (const it of itemTypes) {
           await db.runAsync(
-            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months, default_supplier, default_product_range, vanguard_resolved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months, default_supplier, default_product_range, vanguard_resolved, image_uri, visual_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
             it.id, it.category_id, it.name, it.unit_type || 'weight', it.default_size || null, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0,
             it.min_stock_level !== undefined ? it.min_stock_level : null,
             it.max_stock_level !== undefined ? it.max_stock_level : null,
             it.freeze_months !== undefined ? it.freeze_months : null,
             it.default_supplier || null,
             it.default_product_range || null,
-            it.vanguard_resolved !== undefined ? it.vanguard_resolved : 0
+            it.vanguard_resolved !== undefined ? it.vanguard_resolved : 0,
+            it.image_uri || null,
+            it.visual_profile || 'standard'
           );
         }
 
@@ -469,7 +477,7 @@ export const BackupService = {
         const invs = tables.Inventory || [];
         for (const inv of invs) {
           await db.runAsync(
-            "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining, image_uri, visual_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
             inv.id, inv.item_type_id, inv.quantity, inv.size || '', 
             inv.expiry_month !== undefined ? inv.expiry_month : null, 
             inv.expiry_year !== undefined ? inv.expiry_year : null, 
@@ -480,7 +488,9 @@ export const BackupService = {
             inv.supplier || null,
             inv.product_range || null,
             inv.portions_total !== undefined ? inv.portions_total : null,
-            inv.portions_remaining !== undefined ? inv.portions_remaining : null
+            inv.portions_remaining !== undefined ? inv.portions_remaining : null,
+            inv.image_uri || null,
+            inv.visual_profile || 'standard'
           );
         }
 
@@ -507,6 +517,22 @@ export const BackupService = {
           await db.runAsync(
             "INSERT INTO TacticalLogs (id, timestamp, action_type, entity_type, entity_id, entity_name, details) VALUES (?, ?, ?, ?, ?, ?, ?)",
             log.id, log.timestamp, log.action_type, log.entity_type, log.entity_id, log.entity_name, log.details || null
+          );
+        }
+
+        const missions = tables.Missions || [];
+        for (const m of missions) {
+          await db.runAsync(
+            "INSERT INTO Missions (id, completed_at, points) VALUES (?, ?, ?)",
+            m.id, m.completed_at, m.points
+          );
+        }
+
+        const assetDeletionsCache = tables.AssetDeletionsCache || [];
+        for (const ad of assetDeletionsCache) {
+          await db.runAsync(
+            "INSERT INTO AssetDeletionsCache (id, filename, asset_type, deleted_timestamp) VALUES (?, ?, ?, ?)",
+            ad.id, ad.filename, ad.asset_type, ad.deleted_timestamp
           );
         }
       });
