@@ -11,10 +11,10 @@ export const Views = {
 
     let query = `
       SELECT c.id as cat_id, c.name as cat_name,
-             it.id as type_id, it.name as type_name, it.default_size as type_default_size, it.unit_type as type_unit,
+             it.id as type_id, it.name as type_name, it.default_size as type_default_size, it.unit_type as type_unit, it.image_uri as type_image_uri,
              inv.id as inv_id, inv.quantity, inv.expiry_month, inv.expiry_year,
              COALESCE(inv.size, it.default_size) as resolved_raw_size,
-             inv.size as bespoke_size, inv.supplier, inv.product_range, inv.batch_intel,
+             inv.size as bespoke_size, inv.supplier, inv.product_range, inv.batch_intel, inv.image_uri as inv_image_uri,
              cab.cabinet_type as cab_type, cab.name as cab_name
       FROM Categories c
       JOIN ItemTypes it ON c.id = it.category_id
@@ -38,7 +38,7 @@ export const Views = {
         categories[row.cat_id] = { id: row.cat_id, name: row.cat_name, types: {}, total: 0 };
       }
       if (!categories[row.cat_id].types[row.type_id]) {
-        categories[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, batches: [], total: 0 };
+        categories[row.cat_id].types[row.type_id] = { id: row.type_id, name: row.type_name, image_uri: row.type_image_uri, batches: [], total: 0 };
       }
       
       // Calculate Batch Color based on triage definitions
@@ -89,6 +89,7 @@ export const Views = {
         brand: row.supplier,
         range: row.product_range,
         intel: row.batch_intel,
+        image_uri: row.inv_image_uri,
         exp: formattedExp,
         exp_month: row.expiry_month,
         exp_year: row.expiry_year

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, LayoutAnimation, Modal } from 'react-native';
-import Svg, { G, Path, Text as SvgText, Circle, Defs, TextPath, TSpan, Line, Rect } from 'react-native-svg';
+import Svg, { G, Path, Text as SvgText, Circle, Defs, TextPath, TSpan, Line, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
 import { Database } from '../database';
 import { useSQLiteContext } from 'expo-sqlite';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -524,7 +524,25 @@ export default function IntelligenceScreen() {
 
                     return (
                       <>
-                          <Path d={capPath} fill={statusColor} />
+                          {/* CIRCULAR IMAGE BACKGROUND (Products Only) */}
+                          {selectedSector.type === 'item_type' && selectedSector.image_uri && (
+                            <G pointerEvents="none">
+                              <ClipPath id={`clip-img-${selectedSector.id || 'hub'}`}>
+                                <Circle cx={centerX} cy={centerY} r={capR} />
+                              </ClipPath>
+                              <SvgImage
+                                x={centerX - capR}
+                                y={centerY - capR}
+                                width={capR * 2}
+                                height={capR * 2}
+                                href={{ uri: selectedSector.image_uri }}
+                                clipPath={`url(#clip-img-${selectedSector.id || 'hub'})`}
+                                preserveAspectRatio="xMidYMid slice"
+                              />
+                            </G>
+                          )}
+
+                          <Path d={capPath} fill={statusColor} pointerEvents="none" />
 
                         <G pointerEvents="none">
                           {/* TOP ORBIT: CONTEXT (Dominant Identity) */}
@@ -546,36 +564,39 @@ export default function IntelligenceScreen() {
                             </TextPath>
                           </SvgText>
 
-                          {/* TACTICAL HORIZON (Refined Symmetry) */}
-                          <Line x1={centerX-20} y1={centerY+10} x2={centerX+20} y2={centerY+10} stroke="#475569" strokeWidth={1} />
+                          {/* TEXT & DIVIDER (Hidden when showing a Product Image to keep it clean) */}
+                          {!(selectedSector.type === 'item_type' && selectedSector.image_uri) && (
+                            <G>
+                              <Line x1={centerX-20} y1={centerY+10} x2={centerX+20} y2={centerY+10} stroke="#475569" strokeWidth={1} />
 
-                          {/* LOGISTICAL DECK (Refined Symmetry) */}
-                          {selectedSector.brand && (
-                            <SvgText x={centerX} y={centerY + 25} fill="#f8fafc" fontSize={11} style={{ fontSize: 11 }} fontWeight="900" textAnchor="middle" letterSpacing={1.5}>
-                              {selectedSector.brand.toUpperCase()}
-                            </SvgText>
-                          )}
-                          
-                          {selectedSector.range && (
-                            <SvgText x={centerX} y={centerY + 35} fill="#94a3b8" fontSize={7.5} style={{ fontSize: 7.5 }} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>
-                              {selectedSector.range.toUpperCase()}
-                            </SvgText>
-                          )}
+                              {selectedSector.brand && (
+                                <SvgText x={centerX} y={centerY + 25} fill="#f8fafc" fontSize={11} style={{ fontSize: 11 }} fontWeight="900" textAnchor="middle" letterSpacing={1.5}>
+                                  {selectedSector.brand.toUpperCase()}
+                                </SvgText>
+                              )}
+                              
+                              {selectedSector.range && (
+                                <SvgText x={centerX} y={centerY + 35} fill="#94a3b8" fontSize={7.5} style={{ fontSize: 7.5 }} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>
+                                  {selectedSector.range.toUpperCase()}
+                                </SvgText>
+                              )}
 
-                          {selectedSector.intel && (
-                            <SvgText 
-                              x={centerX} 
-                              y={centerY + 50} 
-                              fill="#64748b" 
-                              fontSize={7} 
-                              style={{ fontSize: 7 }} 
-                              fontWeight="bold"
-                              fontStyle="italic" 
-                              textAnchor="middle"
-                              letterSpacing={1}
-                            >
-                              "{selectedSector.intel.toUpperCase()}"
-                            </SvgText>
+                              {selectedSector.intel && (
+                                <SvgText 
+                                  x={centerX} 
+                                  y={centerY + 50} 
+                                  fill="#64748b" 
+                                  fontSize={7} 
+                                  style={{ fontSize: 7 }} 
+                                  fontWeight="bold"
+                                  fontStyle="italic" 
+                                  textAnchor="middle"
+                                  letterSpacing={1}
+                                >
+                                  "{selectedSector.intel.toUpperCase()}"
+                                </SvgText>
+                              )}
+                            </G>
                           )}
 
                           {/* MANIFEST TELEMETRY (Restored to SVG) */}
@@ -625,7 +646,7 @@ export default function IntelligenceScreen() {
                                       {'EXPIRY: ' + selectedSector.exp.trim().toUpperCase()}
                                     </SvgText>
                                   )}
-                                </G>
+                                  </G>
                               );
                           })()}
                         </G>
