@@ -1,6 +1,5 @@
 import { Platform, Alert, Image } from 'react-native';
-
-/**
+import * as ImagePicker from 'expo-image-picker';/**
  * Visual Supply Verification Service
  * Handles image capture and processing with fallbacks for development.
  */
@@ -64,17 +63,55 @@ export const VisualSupplyService = {
   },
 
   /**
-   * Captures a photo and immediately prepares BOTH tactical profiles.
-   * This avoids flicker when the user toggles resolution in the UI.
+   * Captures a photo using the device camera and processes it for tactical profiles.
+   * Falls back to the mock library on the web or if the device has no camera (e.g. simulators).
    */
   async capturePhotoDetailed(): Promise<{id: string, standard: string, hq: string} | null> {
+    if (Platform.OS === 'web') {
+      console.log('[VisualSupply] Web platform detected. Falling back to mock camera.');
+      return this._generateMockAsset();
+    }
+
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Camera access is required to capture tactical intel.');
+        return null;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8, // Base high quality capture
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const capturedUri = result.assets[0].uri;
+        const newId = `asset_${Date.now()}`;
+        
+        console.log(`[VisualSupply] Real camera capture successful for asset ${newId}`);
+        // For now, mapping both profiles to the captured image. 
+        // ImagePicker compresses down to quality: 0.8. We can refine multi-step scaling later.
+        return { id: newId, standard: capturedUri, hq: capturedUri };
+      }
+    } catch (e) {
+      console.log('[VisualSupply] Camera launch failed (likely simulator). Falling back to mock camera.', e);
+      return this._generateMockAsset();
+    }
+
+    return null;
+  },
+
+  /**
+   * Generates a mock asset from the static library.
+   * Used as a fallback for web and simulators.
+   */
+  _generateMockAsset(): {id: string, standard: string, hq: string} | null {
     const item = MOCK_LIBRARY[Math.floor(Math.random() * MOCK_LIBRARY.length)];
-    
-    // SIMULATION: In production, we take one raw photo and then generate both sizes.
     const standard = this.resolveAsset(item.standard);
     const hq = this.resolveAsset(item.hq);
-    
-    console.log(`[VisualSupply] Dual-stream processing complete for asset ${item.id}.`);
+    console.log(`[VisualSupply] Mock dual-stream processing complete for asset ${item.id}.`);
     return (standard && hq) ? { id: item.id, standard, hq } : null;
   },
 
