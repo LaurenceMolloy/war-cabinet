@@ -118,3 +118,7 @@ Selective, product-based audit ("did I remember to log my recent use of Prawn Sk
 
 width of items in eagle-eyes view:
 DONE (default size) % of min desired or % of default pack size (default to 1 when NULL)
+
+
+Do we want to move item/batch image display to a central location and cross reference
+it from wherever it is used (inventory & catalog)?
