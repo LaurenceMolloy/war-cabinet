@@ -266,6 +266,12 @@ export default function IntelligenceScreen() {
 
   // Helper to calculate SVG arc path
   const getArcPath = (startAngle: number, endAngle: number, innerR: number, outerR: number) => {
+    // SVG arcs cannot draw a full 360 degree circle (start and end points are identical).
+    // If it's a full circle, reduce the end angle by a tiny fraction to force rendering.
+    if (endAngle - startAngle >= 2 * Math.PI - 0.0001) {
+      endAngle = startAngle + 2 * Math.PI - 0.0001;
+    }
+
     const x1 = centerX + innerR * Math.cos(startAngle);
     const y1 = centerY + innerR * Math.sin(startAngle);
     const x2 = centerX + outerR * Math.cos(startAngle);
@@ -289,6 +295,7 @@ export default function IntelligenceScreen() {
     
 
     const sectors: any[] = [];
+    const activeHighlights: any[] = [];
 
     data.forEach((cat, catIdx) => {
       const catAngleSize = (cat.weight / totalWeight) * 2 * Math.PI;
@@ -304,8 +311,8 @@ export default function IntelligenceScreen() {
           <Path
             d={getArcPath(currentAngle, catEndAngle, catInnerR, catOuterR)}
             fill={baseColor}
-            stroke={(isCatActive && activeLevel === 1) ? "#ffffff" : "#0a0a0a"}
-            strokeWidth={(isCatActive && activeLevel === 1) ? 2 : 1}
+            stroke="#0a0a0a"
+            strokeWidth={1.5}
             opacity={catOpacity}
             onPress={() => {
               setActiveLevel(1);
@@ -314,6 +321,19 @@ export default function IntelligenceScreen() {
           />
         </G>
       );
+
+      if (isCatActive && activeLevel === 1) {
+        activeHighlights.push(
+          <Path
+            key={`cat-active-${cat.id}`}
+            d={getArcPath(currentAngle, catEndAngle, catInnerR, catOuterR)}
+            fill="transparent"
+            stroke="#ffffff"
+            strokeWidth={2}
+            pointerEvents="none"
+          />
+        );
+      }
 
       // 2. MIDDLE RING: Products (Thick)
       let typeAngle = currentAngle;
@@ -338,8 +358,8 @@ export default function IntelligenceScreen() {
             <Path
               d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
               fill="transparent"
-              stroke={(isTypeActive && activeLevel === 2) ? "#ffffff" : "#0a0a0a"}
-              strokeWidth={(isTypeActive && activeLevel === 2) ? 2 : 1}
+              stroke="#0a0a0a"
+              strokeWidth={1.5}
               onPress={() => {
                 setActiveLevel(2);
                 setActiveIndices({ cat: catIdx, type: typeIdx, batch: 0 });
@@ -347,6 +367,19 @@ export default function IntelligenceScreen() {
             />
           </G>
         );
+
+        if (isTypeActive && activeLevel === 2) {
+          activeHighlights.push(
+            <Path
+              key={`type-active-${type.id}`}
+              d={getArcPath(typeAngle, typeEndAngle, catOuterR + 2, prodOuterR)}
+              fill="transparent"
+              stroke="#ffffff"
+              strokeWidth={2}
+              pointerEvents="none"
+            />
+          );
+        }
 
         // 3. OUTER RING: Batches (Volume-Weighted Pips)
         const pixelGap = 5;
@@ -432,7 +465,7 @@ export default function IntelligenceScreen() {
       currentAngle = catEndAngle;
     });
 
-    return sectors;
+    return [...sectors, ...activeHighlights];
   };
 
   return (
