@@ -1433,6 +1433,7 @@ export default function AddInventoryScreen() {
                 {(['standard', 'hq'] as const).map(p => {
                   const isActive = (p === 'hq' ? currentQuality === 70 : currentQuality === 40);
                   const hasImage = !!quickAddImage;
+                  const canSwitch = !!quickAddImageStaging;
                   
                   return (
                     <TouchableOpacity 
