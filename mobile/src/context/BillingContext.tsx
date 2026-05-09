@@ -84,6 +84,7 @@ export const FEATURE_TIER: Record<string, 'SERGEANT' | 'GENERAL'> = {
   CABINET_AUDIT:    'GENERAL',
   STOCK_ROTATION:   'SERGEANT',
   ROTATION_ALERTS:  'GENERAL',
+  RADAR:            'SERGEANT',
 };
 
 // Feature descriptions (Marketing Layer)
@@ -105,6 +106,7 @@ const FEATURE_COPY: Record<string, { title: string; desc: string; tier: 'SERGEAN
   CABINET_AUDIT:    { title: 'Household Audit Mode',    desc: 'Streamlined flow for regular stock-take and reconciliation.',             tier: 'GENERAL'  },
   STOCK_ROTATION:   { title: 'Organisation Tools',      desc: 'Bring order to secondary storage with rotation tracking.',                tier: 'SERGEANT' },
   ROTATION_ALERTS:  { title: 'Rotation Reminders',      desc: 'Helpful nudges to keep your deep-storage fresh.',                         tier: 'GENERAL'  },
+  RADAR:            { title: 'Tactical Radar',          desc: 'Advanced eagle-eye visualisation of household logistics.',                tier: 'SERGEANT' },
 };
 
 const TIER_PRICE: Record<'SERGEANT' | 'GENERAL', string> = {
