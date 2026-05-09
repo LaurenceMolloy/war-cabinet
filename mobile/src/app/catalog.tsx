@@ -1602,7 +1602,7 @@ export default function CatalogScreen() {
                       <View style={styles.catActions}>
                         {type.image_uri ? (
                            <TouchableOpacity 
-                             onPress={() => { setModalImageUri(type.image_uri); setShowImageModal(true); }}
+                             onPress={() => { setModalImageUri(type.image_uri); setModalItemName(type.name); setModalItemBrand(type.default_supplier || ''); setModalItemRange(type.default_product_range || ''); setShowImageModal(true); }}
                              style={{ marginRight: 10, width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#3b82f6', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(59, 130, 246, 0.1)' }}
                            >
                              <MaterialCommunityIcons name="eye" size={16} color="#3b82f6" />
@@ -1671,70 +1671,6 @@ export default function CatalogScreen() {
                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'volume' && styles.unitChipActive]} onPress={() => setNewItemUnit('volume')} testID="unit-selector-volume"><Text style={[styles.unitChipText, newItemUnit === 'volume' && styles.unitChipTextActive]}>Volume</Text></TouchableOpacity>
                      <TouchableOpacity style={[styles.unitChip, newItemUnit === 'count' && styles.unitChipActive]} onPress={() => setNewItemUnit('count')} testID="unit-selector-count"><Text style={[styles.unitChipText, newItemUnit === 'count' && styles.unitChipTextActive]}>Count</Text></TouchableOpacity>
                    </View>
-                </View>
-
-                <View style={styles.formSection}>
-                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                     <Text style={styles.miniLabel}>TACTICAL VISUAL INTEL</Text>
-                     <View style={{ flexDirection: 'row', backgroundColor: '#0f172a', borderRadius: 6, padding: 2, alignItems: 'center' }}>
-                        {(['standard', 'hq'] as const).map(p => {
-                          const isActive = (p === 'hq' ? currentQuality === 70 : currentQuality === 40);
-                          const hasImage = !!newItemImage;
-                          const canSwitch = !!newItemImageStaging;
-
-                          return (
-                            <TouchableOpacity 
-                              key={p} 
-                              onPress={() => { 
-                                VisualSupplyService.setProfile(p); 
-                                setCurrentQuality(p === 'hq' ? 70 : 40); 
-                                if (newItemImageStaging) {
-                                  setNewItemImage(p === 'hq' ? newItemImageStaging.hq : newItemImageStaging.standard);
-                                }
-                              }}
-                              disabled={!canSwitch && hasImage}
-                              style={{ 
-                                paddingHorizontal: 10, 
-                                paddingVertical: 4, 
-                                borderRadius: 4, 
-                                backgroundColor: isActive ? '#3b82f6' : 'transparent',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                                opacity: (!canSwitch && hasImage && !isActive) ? 0.3 : 1
-                              }}
-                            >
-                              <Text style={{ color: isActive ? '#fff' : '#64748b', fontSize: 9, fontWeight: '900' }}>{p.toUpperCase()}</Text>
-                              {isActive && hasImage && <MaterialCommunityIcons name={canSwitch ? "check-circle" : "lock"} size={10} color="#fff" />}
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                   </View>
-                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
-                        {newItemImage ? (
-                           <View style={{position: 'relative'}}>
-                             <Image 
-                               source={{uri: newItemImage}} 
-                               style={{width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a'}} 
-                               onLoad={() => console.log('[VisualSupply] New Image loaded:', newItemImage)}
-                               onError={(e) => console.error('[VisualSupply] New Image error:', e.nativeEvent.error)}
-                             />
-                             <TouchableOpacity onPress={() => { setNewItemImage(null); setNewItemImageId(null); setNewItemImageStaging(null); }} style={{position: 'absolute', top: -6, right: -6, backgroundColor: '#f43f5e', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center'}}>
-                               <MaterialCommunityIcons name="close" size={14} color="#fff" />
-                             </TouchableOpacity>
-                           </View>
-                        ) : (
-                          <TouchableOpacity onPress={() => handleCaptureTypeImage('new')} disabled={isProcessingTypeImage} style={{width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center'}}>
-                             {isProcessingTypeImage ? (
-                               <ActivityIndicator size="small" color="#3b82f6" />
-                             ) : (
-                               <MaterialCommunityIcons name="camera-plus" size={24} color="#64748b" />
-                             )}
-                          </TouchableOpacity>
-                        )}
-                    <Text style={{flex: 1, color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Visual references help during fast audits and quick visual inspections.</Text>
-                  </View>
                 </View>
 
                 <View style={{ backgroundColor: '#1e293b', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 16 }}>
@@ -1886,6 +1822,71 @@ export default function CatalogScreen() {
                         <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', marginTop: -2, marginBottom: 4 }}>❄ Designated Freezer Cabinet</Text>
                     )}
                 </View>
+
+                <View style={styles.formSection}>
+                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                     <Text style={styles.miniLabel}>TACTICAL VISUAL INTEL</Text>
+                     <View style={{ flexDirection: 'row', backgroundColor: '#0f172a', borderRadius: 6, padding: 2, alignItems: 'center' }}>
+                        {(['standard', 'hq'] as const).map(p => {
+                          const isActive = (p === 'hq' ? currentQuality === 70 : currentQuality === 40);
+                          const hasImage = !!newItemImage;
+                          const canSwitch = !!newItemImageStaging;
+
+                          return (
+                            <TouchableOpacity 
+                              key={p} 
+                              onPress={() => { 
+                                VisualSupplyService.setProfile(p); 
+                                setCurrentQuality(p === 'hq' ? 70 : 40); 
+                                if (newItemImageStaging) {
+                                  setNewItemImage(p === 'hq' ? newItemImageStaging.hq : newItemImageStaging.standard);
+                                }
+                              }}
+                              disabled={!canSwitch && hasImage}
+                              style={{ 
+                                paddingHorizontal: 10, 
+                                paddingVertical: 4, 
+                                borderRadius: 4, 
+                                backgroundColor: isActive ? '#3b82f6' : 'transparent',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                opacity: (!canSwitch && hasImage && !isActive) ? 0.3 : 1
+                              }}
+                            >
+                              <Text style={{ color: isActive ? '#fff' : '#64748b', fontSize: 9, fontWeight: '900' }}>{p.toUpperCase()}</Text>
+                              {isActive && hasImage && <MaterialCommunityIcons name={canSwitch ? "check-circle" : "lock"} size={10} color="#fff" />}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                   </View>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+                        {newItemImage ? (
+                           <View style={{position: 'relative'}}>
+                             <Image 
+                               source={{uri: newItemImage}} 
+                               style={{width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a'}} 
+                               onLoad={() => console.log('[VisualSupply] New Image loaded:', newItemImage)}
+                               onError={(e) => console.error('[VisualSupply] New Image error:', e.nativeEvent.error)}
+                             />
+                             <TouchableOpacity onPress={() => { setNewItemImage(null); setNewItemImageId(null); setNewItemImageStaging(null); }} style={{position: 'absolute', top: -6, right: -6, backgroundColor: '#f43f5e', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center'}}>
+                               <MaterialCommunityIcons name="close" size={14} color="#fff" />
+                             </TouchableOpacity>
+                           </View>
+                        ) : (
+                          <TouchableOpacity onPress={() => handleCaptureTypeImage('new')} disabled={isProcessingTypeImage} style={{width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center'}}>
+                             {isProcessingTypeImage ? (
+                               <ActivityIndicator size="small" color="#3b82f6" />
+                             ) : (
+                               <MaterialCommunityIcons name="camera-plus" size={24} color="#64748b" />
+                             )}
+                          </TouchableOpacity>
+                        )}
+                    <Text style={{flex: 1, color: '#64748b', fontSize: 10, fontStyle: 'italic'}}>Visual references help during fast audits and quick visual inspections.</Text>
+                  </View>
+                </View>
+
                 </View>
 
 
@@ -3473,64 +3474,58 @@ export default function CatalogScreen() {
         </View>
       </Modal>
       {/* --- VISUAL VERIFICATION PREVIEW MODAL --- */}
-      <Modal visible={showImageModal} transparent animationType="fade">
-        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(2, 6, 23, 0.9)' }]}>
-          <View style={{ width: '90%', maxWidth: 400, backgroundColor: '#0f172a', borderRadius: 20, borderWidth: 1, borderColor: '#334155', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 10 }}>
-            {/* Tactical Header */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#1e293b', borderBottomWidth: 1, borderBottomColor: '#334155' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3b82f6', shadowColor: '#3b82f6', shadowRadius: 4, shadowOpacity: 0.8, elevation: 5 }} />
-                <Text style={{ color: '#f8fafc', fontWeight: '900', letterSpacing: 1.5, fontSize: 13 }}>TACTICAL FEED</Text>
+      <Modal visible={showImageModal} transparent animationType="fade" onRequestClose={() => setShowImageModal(false)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.92)', alignItems: 'center', justifyContent: 'center' }}
+          onPress={() => setShowImageModal(false)}
+        >
+          <View style={{ width: '88%', maxWidth: 380, backgroundColor: '#0f172a', borderRadius: 16, borderWidth: 1, borderColor: '#334155', overflow: 'hidden' }}>
+
+            {/* Header: name + brand/range */}
+            <View style={{ paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#1e293b', borderBottomWidth: 1, borderBottomColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3b82f6' }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#f1f5f9', fontSize: 16, fontWeight: '900', letterSpacing: 0.3 }} numberOfLines={1}>{modalItemName}</Text>
+                {(modalItemBrand || modalItemRange) ? (
+                  <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600', marginTop: 2 }} numberOfLines={1}>
+                    {[modalItemBrand, modalItemRange].filter(Boolean).join(' | ').toUpperCase()}
+                  </Text>
+                ) : null}
               </View>
-              <TouchableOpacity 
-                onPress={() => setShowImageModal(false)}
-                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#334155' }}
-              >
-                <MaterialCommunityIcons name="close" size={20} color="#94a3b8" />
-              </TouchableOpacity>
             </View>
-            
+
+            {/* Image */}
             <View style={{ padding: 12 }}>
               {modalImageUri ? (
-                <View style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#1e293b' }}>
-                  <Image 
-                    source={{ uri: modalImageUri }} 
-                    style={{ width: '100%', aspectRatio: 1 }} 
-                    resizeMode="cover"
+                <View style={{ borderRadius: 10, overflow: 'hidden', backgroundColor: '#020617', borderWidth: 1, borderColor: '#1e293b' }}>
+                  <Image
+                    source={{ uri: modalImageUri }}
+                    style={{ width: '100%', aspectRatio: 1 }}
+                    resizeMode="contain"
                   />
-                  {/* Tactical Overlays */}
-                  <View style={{ position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(15, 23, 42, 0.8)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.4)', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <MaterialCommunityIcons name="target" size={12} color="#3b82f6" />
-                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>
+                  {/* Quality badge */}
+                  <View style={{ position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(15,23,42,0.85)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(59,130,246,0.5)', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <MaterialCommunityIcons name="target" size={10} color="#3b82f6" />
+                    <Text style={{ color: '#ffffff', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 }}>
                       {modalImageUri.includes('q70') || modalImageUri.includes('_hq') ? 'HQ' : 'STD'}
                     </Text>
                   </View>
-                  
-                  <View style={{ position: 'absolute', bottom: 12, left: 12, backgroundColor: 'rgba(15, 23, 42, 0.6)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 }}>
-                    <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 9, fontWeight: 'bold', letterSpacing: 1 }}>VERIFIED ASSET v2.0</Text>
-                  </View>
                 </View>
               ) : (
-                <View style={{ width: '100%', aspectRatio: 1, backgroundColor: '#0f172a', borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#1e293b', borderStyle: 'dashed' }}>
-                  <MaterialCommunityIcons name="image-off-outline" size={48} color="#1e293b" />
+                <View style={{ width: '100%', aspectRatio: 1, backgroundColor: '#020617', borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#1e293b', borderStyle: 'dashed' }}>
+                  <MaterialCommunityIcons name="image-off-outline" size={48} color="#334155" />
                   <Text style={{ color: '#334155', fontSize: 12, marginTop: 12, fontWeight: 'bold' }}>NO ASSET DATA</Text>
                 </View>
               )}
             </View>
 
-            {/* Subtle Footer Telemetry */}
-            <View style={{ padding: 16, paddingTop: 4, paddingBottom: 20, alignItems: 'center' }}>
-               <Text style={{ color: '#475569', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 }}>TAP OUTSIDE OR USE HEADER TO DISMISS</Text>
+            {/* Footer */}
+            <View style={{ paddingBottom: 18, paddingTop: 4, alignItems: 'center' }}>
+              <Text style={{ color: '#334155', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 }}>TAP ANYWHERE TO DISMISS</Text>
             </View>
+
           </View>
-          
-          {/* Backdrop Dismissal Trigger */}
-          <TouchableOpacity 
-            activeOpacity={1} 
-            onPress={() => setShowImageModal(false)}
-            style={{ position: 'absolute', width: '100%', height: '100%', zIndex: -1 }}
-          />
-        </View>
+        </Pressable>
       </Modal>
     </View>
   );
