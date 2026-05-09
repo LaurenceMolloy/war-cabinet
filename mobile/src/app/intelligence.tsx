@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, LayoutAnimation } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, LayoutAnimation, Modal } from 'react-native';
 import Svg, { G, Path, Text as SvgText, Circle, Defs, TextPath, TSpan, Line, Rect } from 'react-native-svg';
 import { Database } from '../database';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -39,7 +39,10 @@ const getRainbowColor = (index: number, total: number): string => {
 export default function IntelligenceScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { cabinetId } = useLocalSearchParams<{ cabinetId?: string }>();
+  const { cabinetId: initialCabinetId } = useLocalSearchParams<{ cabinetId?: string }>();
+  const [activeCabinetId, setActiveCabinetId] = useState<string | undefined>(initialCabinetId);
+  const [cabinets, setCabinets] = useState<any[]>([]);
+  const [showCabinetSelector, setShowCabinetSelector] = useState(false);
   const [data, setData] = useState<any[]>([]);
   const [selectedSector, setSelectedSector] = useState<any>(null);
   const [contextName, setContextName] = useState('THE BUNKER');
@@ -53,6 +56,18 @@ export default function IntelligenceScreen() {
   const [activeIndices, setActiveIndices] = useState({ cat: 0, type: 0, batch: 0 });
   const [isMagnified, setIsMagnified] = useState(false);
   const [readinessMap, setReadinessMap] = useState<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    const loadCabinets = async () => {
+      try {
+        const rows = await db.getAllAsync<any>('SELECT id, name FROM Cabinets ORDER BY name');
+        setCabinets(rows);
+      } catch (err) {
+        console.error('Failed to load cabinets:', err);
+      }
+    };
+    loadCabinets();
+  }, [db]);
 
   const loadData = useCallback(async () => {
     try {
@@ -74,9 +89,9 @@ export default function IntelligenceScreen() {
       `;
       
       const params: any[] = [];
-      if (cabinetId) {
+      if (activeCabinetId) {
         query += ` WHERE inv.cabinet_id = ? `;
-        params.push(cabinetId);
+        params.push(activeCabinetId);
       }
       
       query += ` ORDER BY c.name, it.name, inv.expiry_year, inv.expiry_month `;
@@ -84,8 +99,8 @@ export default function IntelligenceScreen() {
       const rows = await db.getAllAsync<any>(query, params);
 
       // Resolve context name
-      if (cabinetId) {
-        const cab = await db.getFirstAsync<any>('SELECT name FROM Cabinets WHERE id = ?', [cabinetId]);
+      if (activeCabinetId) {
+        const cab = await db.getFirstAsync<any>('SELECT name FROM Cabinets WHERE id = ?', [activeCabinetId]);
         setContextName(cab?.name?.toUpperCase() || 'CABINET');
       } else {
         setContextName('THE BUNKER');
@@ -228,7 +243,7 @@ export default function IntelligenceScreen() {
     } catch (err) {
       console.error('Failed to load starburst data:', err);
     }
-  }, [db, cabinetId]);
+  }, [db, activeCabinetId]);
 
   const handleNav = (dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'RESET') => {
     if (!data.length) return;
@@ -539,9 +554,13 @@ export default function IntelligenceScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <MaterialCommunityIcons name="chevron-left" size={32} color="#fff" />
         </TouchableOpacity>
-        <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>STOCK INTELLIGENCE</Text>
-          <Text style={styles.headerSub}>EAGLE-EYES VIEW</Text>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={[styles.headerSub, { marginBottom: 6 }]}>ACTIVE SCAN TARGET</Text>
+          <TouchableOpacity style={styles.targetPill} onPress={() => setShowCabinetSelector(true)}>
+            <MaterialCommunityIcons name="radar" size={14} color="#fbbf24" />
+            <Text style={styles.targetPillText}>{contextName}</Text>
+            <MaterialCommunityIcons name="chevron-down" size={16} color="#94a3b8" />
+          </TouchableOpacity>
         </View>
         <View style={{ width: 40 }} />
       </View>
@@ -787,6 +806,25 @@ export default function IntelligenceScreen() {
           <Text style={styles.joystickLabel}>TACTICAL NAVIGATION</Text>
         </View>
       </ScrollView>
+
+      <Modal visible={showCabinetSelector} transparent animationType="fade">
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCabinetSelector(false)}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>TARGET SECTOR</Text>
+            <TouchableOpacity style={styles.modalOption} onPress={() => { setActiveCabinetId(undefined); setShowCabinetSelector(false); }}>
+              <MaterialCommunityIcons name="shield-cross" size={20} color={!activeCabinetId ? "#fbbf24" : "#94a3b8"} />
+              <Text style={[styles.modalOptionText, !activeCabinetId && styles.modalOptionTextActive]}>THE BUNKER (GLOBAL)</Text>
+            </TouchableOpacity>
+            <View style={styles.modalDivider} />
+            {cabinets.map(cab => (
+              <TouchableOpacity key={cab.id} style={styles.modalOption} onPress={() => { setActiveCabinetId(cab.id.toString()); setShowCabinetSelector(false); }}>
+                <MaterialCommunityIcons name="locker" size={20} color={activeCabinetId === cab.id.toString() ? "#fbbf24" : "#94a3b8"} />
+                <Text style={[styles.modalOptionText, activeCabinetId === cab.id.toString() && styles.modalOptionTextActive]}>{cab.name.toUpperCase()}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -828,4 +866,13 @@ const styles = StyleSheet.create({
   joyCenter: { width: 84, height: 84, backgroundColor: '#020617', borderRadius: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fbbf2444' },
   resetText: { color: '#fbbf24', fontSize: 9, fontWeight: '900', marginTop: 2 },
   joystickLabel: { color: '#475569', fontSize: 9, fontWeight: 'bold', letterSpacing: 2, marginTop: 12 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.8)', justifyContent: 'flex-start', paddingTop: 100, alignItems: 'center' },
+  modalContent: { width: '80%', backgroundColor: '#0f172a', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#1e293b' },
+  modalTitle: { color: '#94a3b8', fontSize: 10, fontWeight: 'bold', letterSpacing: 1.5, marginBottom: 12, textAlign: 'center' },
+  modalOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, gap: 12 },
+  modalOptionText: { color: '#f8fafc', fontSize: 14, fontWeight: 'bold', letterSpacing: 1 },
+  modalOptionTextActive: { color: '#fbbf24' },
+  modalDivider: { height: 1, backgroundColor: '#1e293b', marginVertical: 8 },
+  targetPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: '#334155', gap: 6 },
+  targetPillText: { color: '#f8fafc', fontSize: 12, fontWeight: 'bold', letterSpacing: 1 }
 });
