@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, LayoutAnimation, Modal } from 'react-native';
 import Svg, { G, Path, Text as SvgText, Circle, Defs, TextPath, TSpan, Line, Rect, Image as SvgImage, ClipPath, LinearGradient, Stop } from 'react-native-svg';
 import { Database } from '../database';
@@ -56,6 +56,7 @@ export default function IntelligenceScreen() {
   const [activeIndices, setActiveIndices] = useState({ cat: 0, type: 0, batch: 0 });
   const [isMagnified, setIsMagnified] = useState(false);
   const [readinessMap, setReadinessMap] = useState<Map<number, string>>(new Map());
+  const trackingBatchIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     const loadCabinets = async () => {
@@ -127,6 +128,26 @@ export default function IntelligenceScreen() {
       // Fetch readiness colour map from DAL (trial vehicle — ReadinessCommandView unchanged)
       const rmap = await Database.ItemTypes.getStockReadinessMap(db);
       setReadinessMap(rmap);
+
+      // Restore batch selection if we pivoted via cabinet shortcut
+      if (trackingBatchIdRef.current !== null) {
+        const targetId = trackingBatchIdRef.current;
+        let found = false;
+        for (let c = 0; c < finalData.length; c++) {
+          for (let t = 0; t < finalData[c].types.length; t++) {
+            for (let b = 0; b < finalData[c].types[t].batches.length; b++) {
+              if (finalData[c].types[t].batches[b].id === targetId) {
+                setActiveIndices({ cat: c, type: t, batch: b });
+                found = true;
+                break;
+              }
+            }
+            if (found) break;
+          }
+          if (found) break;
+        }
+        trackingBatchIdRef.current = null;
+      }
     } catch (err) {
       console.error('Failed to load starburst data:', err);
     }
@@ -690,6 +711,7 @@ export default function IntelligenceScreen() {
                 fill="#020617" 
                 stroke={selectedSector ? getRainbowColor(activeIndices.cat, data.length) : '#1e293b'}
                 strokeWidth={2}
+                onPress={() => setIsMagnified(prev => !prev)}
               />
 
                 {selectedSector ? (() => {
@@ -700,7 +722,7 @@ export default function IntelligenceScreen() {
                     const capPath = `M ${centerX - chordX} ${centerY + chordY} A ${capR} ${capR} 0 0 1 ${centerX + chordX} ${centerY + chordY} Z`;
 
                     return (
-                      <G pointerEvents="none">
+                      <G pointerEvents="box-none">
                           {/* CIRCULAR IMAGE BACKGROUND (Products Only) */}
                           {selectedSector.type === 'item_type' && selectedSector.image_uri && (
                             <G pointerEvents="none">
@@ -727,7 +749,20 @@ export default function IntelligenceScreen() {
                                   <Stop offset="1" stopColor={statusColor} stopOpacity="0.4" />
                                 </LinearGradient>
                               </Defs>
-                              <Path d={capPath} fill="url(#capGrad)" stroke={statusColor} strokeWidth={1.5} pointerEvents="none" />
+                              <Path 
+                                d={capPath} 
+                                fill="url(#capGrad)" 
+                                stroke={statusColor} 
+                                strokeWidth={1.5} 
+                                onPress={() => {
+                                  trackingBatchIdRef.current = selectedSector.id;
+                                  if (activeCabinetId) {
+                                    setActiveCabinetId(undefined);
+                                  } else if (selectedSector.cab_id && String(selectedSector.cab_id) !== String(activeCabinetId)) {
+                                    setActiveCabinetId(String(selectedSector.cab_id));
+                                  }
+                                }}
+                              />
                             </G>
                           )}
 
@@ -792,19 +827,22 @@ export default function IntelligenceScreen() {
                               let m2 = "";
                               
                               if (selectedSector.type === 'batch') {
-                                let cName = (selectedSector.cab_name || "UNKNOWN CABINET").toUpperCase();
-                                let cLoc = selectedSector.cab_location ? selectedSector.cab_location.toLowerCase() : "";
-                                
-                                if (cName.length > 14) cName = cName.substring(0, 13) + '…';
-                                if (cLoc.length > 20) cLoc = cLoc.substring(0, 19) + '…';
+                                if (activeCabinetId) {
+                                  m1 = "ZOOM OUT";
+                                  m2 = "TO BUNKER VIEW";
+                                } else {
+                                  let cName = (selectedSector.cab_name || "UNKNOWN CABINET").toUpperCase();
+                                  
+                                  if (cName.length > 18) cName = cName.substring(0, 17) + '…';
 
-                                m1 = cName;
-                                m2 = cLoc;
+                                  m1 = "ZOOM IN TO";
+                                  m2 = cName;
+                                }
                               }
 
                               if (!m1) return null;
 
-                              const textY = centerY - 42;
+                              const textY = centerY - 47;
 
                               return (
                                 <G>
@@ -899,14 +937,6 @@ export default function IntelligenceScreen() {
                   </G>
                 )}
 
-              {/* MAGNIFICATION TRIGGER (Top Level Overlay) */}
-              <Circle 
-                cx={centerX} 
-                cy={centerY} 
-                r={hubRingR} 
-                fill="transparent" 
-                onPress={() => setIsMagnified(prev => !prev)}
-              />
             </Svg>
           </View>
         </View>
