@@ -15,7 +15,7 @@ export const Views = {
              inv.id as inv_id, inv.quantity, inv.expiry_month, inv.expiry_year,
              COALESCE(inv.size, it.default_size) as resolved_raw_size,
              inv.size as bespoke_size, inv.supplier, inv.product_range, inv.batch_intel, inv.image_uri as inv_image_uri,
-             cab.cabinet_type as cab_type, cab.name as cab_name
+             cab.cabinet_type as cab_type, cab.name as cab_name, cab.location as cab_location
       FROM Categories c
       JOIN ItemTypes it ON c.id = it.category_id
       JOIN Inventory inv ON it.id = inv.item_type_id
@@ -92,7 +92,9 @@ export const Views = {
         image_uri: row.inv_image_uri,
         exp: formattedExp,
         exp_month: row.expiry_month,
-        exp_year: row.expiry_year
+        exp_year: row.expiry_year,
+        cab_name: row.cab_name,
+        cab_location: row.cab_location
       });
       categories[row.cat_id].types[row.type_id].total += row.quantity;
       categories[row.cat_id].total += row.quantity;

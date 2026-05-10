@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, LayoutAnimation, Modal } from 'react-native';
-import Svg, { G, Path, Text as SvgText, Circle, Defs, TextPath, TSpan, Line, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
+import Svg, { G, Path, Text as SvgText, Circle, Defs, TextPath, TSpan, Line, Rect, Image as SvgImage, ClipPath, LinearGradient, Stop } from 'react-native-svg';
 import { Database } from '../database';
 import { useSQLiteContext } from 'expo-sqlite';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -490,15 +490,15 @@ export default function IntelligenceScreen() {
         <View style={styles.chartArea}>
           <View style={styles.vizWrapper}>
 
-            {/* ── METRIC CIRCLES (Level 1: Category, Level 2: Product) ── */}
-            {(activeLevel === 1 || activeLevel === 2) && selectedSector && (() => {
+            {/* ── METRIC CIRCLES (Level 1: Category, Level 2: Product, Level 3: Batch) ── */}
+            {(activeLevel === 1 || activeLevel === 2 || activeLevel === 3) && selectedSector && (() => {
               const catColor = getRainbowColor(activeIndices.cat, data.length);
               const cat = data[activeIndices.cat];
 
               let leftLabel = '';
-              let leftValue = 0;
+              let leftValue: string | number = 0;
               let rightLabel = '';
-              let rightValue = 0;
+              let rightValue: string | number = 0;
 
               if (activeLevel === 1 && cat) {
                 leftLabel = 'BATCHES';
@@ -511,6 +511,13 @@ export default function IntelligenceScreen() {
                 leftValue = type?.total || 0;
                 rightLabel = 'BATCHES';
                 rightValue = type?.batches?.length || 0;
+              } else if (activeLevel === 3 && cat) {
+                const type = cat.types?.[activeIndices.type];
+                const batch = type?.batches?.[activeIndices.batch];
+                leftLabel = 'ITEMS';
+                leftValue = batch?.qty || 0;
+                rightLabel = 'PACK SIZE';
+                rightValue = batch?.size || 'N/A';
               }
 
               // ── Mathematically Precise Geometry ──
@@ -569,7 +576,7 @@ export default function IntelligenceScreen() {
                     x={cx_L}
                     y={cy + cr * 0.35} // Manual vertical centering offset for RN SVG Android
                     fill="#000000"
-                    fontSize={cr * 1.1}
+                    fontSize={String(leftValue).length > 3 ? cr * 0.75 : cr * 1.1}
                     fontWeight="900"
                     textAnchor="middle"
                   >{String(leftValue)}</SvgText>
@@ -585,14 +592,48 @@ export default function IntelligenceScreen() {
                     letterSpacing={1.5}
                     textAnchor="end"
                   >{rightLabel}</SvgText>
-                  <SvgText
-                    x={cx_R}
-                    y={cy + cr * 0.35} // Manual vertical centering offset for RN SVG Android
-                    fill="#000000"
-                    fontSize={cr * 1.1}
-                    fontWeight="900"
-                    textAnchor="middle"
-                  >{String(rightValue)}</SvgText>
+                  {(() => {
+                    let rNum = String(rightValue);
+                    let rUnit = "";
+                    const match = String(rightValue).match(/^([\d.]+)\s*([A-Za-z]+)$/);
+                    if (match) {
+                      rNum = match[1];
+                      rUnit = match[2];
+                    }
+                    if (rUnit) {
+                      return (
+                        <G>
+                          <SvgText
+                            x={cx_R}
+                            y={cy + cr * 0.15}
+                            fill="#000000"
+                            fontSize={rNum.length > 3 ? cr * 0.8 : cr * 1.0}
+                            fontWeight="900"
+                            textAnchor="middle"
+                          >{rNum}</SvgText>
+                          <SvgText
+                            x={cx_R}
+                            y={cy + cr * 0.7}
+                            fill="#000000"
+                            fontSize={cr * 0.45}
+                            fontWeight="900"
+                            textAnchor="middle"
+                          >{rUnit}</SvgText>
+                        </G>
+                      );
+                    } else {
+                      return (
+                        <SvgText
+                          x={cx_R}
+                          y={cy + cr * 0.35} // Manual vertical centering offset for RN SVG Android
+                          fill="#000000"
+                          fontSize={String(rightValue).length > 3 ? cr * 0.75 : cr * 1.1}
+                          fontWeight="900"
+                          textAnchor="middle"
+                        >{String(rightValue)}</SvgText>
+                      );
+                    }
+                  })()}
                 </Svg>
               );
             })()}
@@ -624,7 +665,7 @@ export default function IntelligenceScreen() {
 
                 {selectedSector ? (() => {
                     const statusColor = selectedSector.color || baseColors[0];
-                    const capR = radius * 0.40;
+                    const capR = radius * 0.46;
                     const chordY = -25;
                     const chordX = Math.sqrt(Math.pow(capR, 2) - Math.pow(chordY, 2));
                     const capPath = `M ${centerX - chordX} ${centerY + chordY} A ${capR} ${capR} 0 0 1 ${centerX + chordX} ${centerY + chordY} Z`;
@@ -650,7 +691,15 @@ export default function IntelligenceScreen() {
                           )}
 
                           {selectedSector.type === 'batch' && (
-                            <Path d={capPath} fill={statusColor} pointerEvents="none" />
+                            <G>
+                              <Defs>
+                                <LinearGradient id="capGrad" x1="0" y1="0" x2="0" y2="1">
+                                  <Stop offset="0" stopColor={statusColor} stopOpacity="1" />
+                                  <Stop offset="1" stopColor={statusColor} stopOpacity="0.4" />
+                                </LinearGradient>
+                              </Defs>
+                              <Path d={capPath} fill="url(#capGrad)" stroke={statusColor} strokeWidth={1.5} pointerEvents="none" />
+                            </G>
                           )}
 
                         <G pointerEvents="none">
@@ -714,23 +763,28 @@ export default function IntelligenceScreen() {
                               let m2 = "";
                               
                               if (selectedSector.type === 'batch') {
-                                const q = selectedSector.qty || 0;
-                                const s = (selectedSector.size || "").toUpperCase();
-                                m1 = s ? `${q} X ${s}` : (q === 1 ? '1 ITEM' : `${q} ITEMS`);
+                                let cName = (selectedSector.cab_name || "UNKNOWN CABINET").toUpperCase();
+                                let cLoc = selectedSector.cab_location ? selectedSector.cab_location.toLowerCase() : "";
+                                
+                                if (cName.length > 14) cName = cName.substring(0, 13) + '…';
+                                if (cLoc.length > 20) cLoc = cLoc.substring(0, 19) + '…';
+
+                                m1 = cName;
+                                m2 = cLoc;
                               }
 
                               if (!m1) return null;
 
-                              const textY = centerY - 38;
+                              const textY = centerY - 42;
 
                               return (
                                 <G>
-                                  <SvgText x={centerX} y={textY} fill="#000" fontSize={13} fontWeight="900" textAnchor="middle">
+                                  <SvgText x={centerX} y={textY} fill="#000" fontSize={11} fontWeight="900" textAnchor="middle">
                                     {m1.trim().toUpperCase()}
                                   </SvgText>
                                   {m2 ? (
-                                    <SvgText x={centerX} y={textY + 14} fill="#000" fontSize={10} fontWeight="900" textAnchor="middle">
-                                      {m2.trim().toUpperCase()}
+                                    <SvgText x={centerX} y={textY + 11} fill="#000" fontSize={10} fontWeight="900" textAnchor="middle">
+                                      {m2.trim()}
                                     </SvgText>
                                   ) : null}
                                   {selectedSector.type === 'batch' && selectedSector.exp && (
