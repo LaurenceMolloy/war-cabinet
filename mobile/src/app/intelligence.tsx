@@ -489,6 +489,114 @@ export default function IntelligenceScreen() {
         {/* The Visualization */}
         <View style={styles.chartArea}>
           <View style={styles.vizWrapper}>
+
+            {/* ── METRIC CIRCLES (Level 1: Category, Level 2: Product) ── */}
+            {(activeLevel === 1 || activeLevel === 2) && selectedSector && (() => {
+              const catColor = getRainbowColor(activeIndices.cat, data.length);
+              const cat = data[activeIndices.cat];
+
+              let leftLabel = '';
+              let leftValue = 0;
+              let rightLabel = '';
+              let rightValue = 0;
+
+              if (activeLevel === 1 && cat) {
+                leftLabel = 'BATCHES';
+                leftValue = cat.types?.reduce((sum: number, t: any) => sum + (t.batches?.length || 0), 0) || 0;
+                rightLabel = 'PRODUCTS';
+                rightValue = cat.types?.length || 0;
+              } else if (activeLevel === 2 && cat) {
+                const type = cat.types?.[activeIndices.type];
+                leftLabel = 'ITEMS';
+                leftValue = type?.total || 0;
+                rightLabel = 'BATCHES';
+                rightValue = type?.batches?.length || 0;
+              }
+
+              // ── Mathematically Precise Geometry ──
+              // To sit perfectly on a concentric circle outside the radar:
+              // Radar centre is (radius, radius).
+              // We want the distance between centres to be precisely:
+              //   Distance = radius (main) + gap + cr (small)
+              const cr = size * 0.065; // ~50% smaller
+              const gap = 12; // visual padding gap
+              const dist = radius + gap + cr;
+
+              // X-distance between centres.
+              // Left circle has cx = cr (so its left edge is at x=0).
+              const dx = radius - cr; 
+              
+              // Y-distance calculated via Pythagorean theorem (dy² + dx² = dist²)
+              const dy = Math.sqrt(Math.pow(dist, 2) - Math.pow(dx, 2));
+
+              // The y-coordinate relative to the vizWrapper top (y=0)
+              const cy_relative = radius - dy;
+
+              // Create an overlay that safely covers the area above the radar
+              const topPad = 100;
+              const overlayH = size + topPad;
+
+              // Final coordinates in the overlay SVG
+              const cx_L = cr;
+              const cx_R = size - cr;
+              const cy = cy_relative + topPad;
+
+              return (
+                <Svg
+                  width={size}
+                  height={overlayH}
+                  viewBox={`0 0 ${size} ${overlayH}`}
+                  style={{
+                    position: 'absolute',
+                    top: -topPad,
+                    left: 0,
+                    zIndex: 10,
+                  }}
+                  pointerEvents="none"
+                >
+                  {/* LEFT circle */}
+                  <Circle cx={cx_L} cy={cy} r={cr} fill={catColor} />
+                  <SvgText
+                    x={0}
+                    y={cy - cr - 8}
+                    fill={catColor}
+                    fontSize={10}
+                    fontWeight="900"
+                    letterSpacing={1.5}
+                    textAnchor="start"
+                  >{leftLabel}</SvgText>
+                  <SvgText
+                    x={cx_L}
+                    y={cy + cr * 0.35} // Manual vertical centering offset for RN SVG Android
+                    fill="#000000"
+                    fontSize={cr * 1.1}
+                    fontWeight="900"
+                    textAnchor="middle"
+                  >{String(leftValue)}</SvgText>
+
+                  {/* RIGHT circle */}
+                  <Circle cx={cx_R} cy={cy} r={cr} fill={catColor} />
+                  <SvgText
+                    x={size}
+                    y={cy - cr - 8}
+                    fill={catColor}
+                    fontSize={10}
+                    fontWeight="900"
+                    letterSpacing={1.5}
+                    textAnchor="end"
+                  >{rightLabel}</SvgText>
+                  <SvgText
+                    x={cx_R}
+                    y={cy + cr * 0.35} // Manual vertical centering offset for RN SVG Android
+                    fill="#000000"
+                    fontSize={cr * 1.1}
+                    fontWeight="900"
+                    textAnchor="middle"
+                  >{String(rightValue)}</SvgText>
+                </Svg>
+              );
+            })()}
+
             <Svg 
               width={size} 
               height={size} 
@@ -800,7 +908,7 @@ const styles = StyleSheet.create({
     height: size,
     backgroundColor: '#020617', 
     borderRadius: size / 2, 
-    overflow: 'hidden',
+    overflow: 'visible',
     alignSelf: 'center',
     position: 'relative'
   },
