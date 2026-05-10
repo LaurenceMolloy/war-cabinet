@@ -649,7 +649,9 @@ export default function IntelligenceScreen() {
                             </G>
                           )}
 
-                          <Path d={capPath} fill={statusColor} pointerEvents="none" />
+                          {selectedSector.type === 'batch' && (
+                            <Path d={capPath} fill={statusColor} pointerEvents="none" />
+                          )}
 
                         <G pointerEvents="none">
                           {/* TOP ORBIT: CONTEXT (Dominant Identity) */}
@@ -715,21 +717,11 @@ export default function IntelligenceScreen() {
                                 const q = selectedSector.qty || 0;
                                 const s = (selectedSector.size || "").toUpperCase();
                                 m1 = s ? `${q} X ${s}` : (q === 1 ? '1 ITEM' : `${q} ITEMS`);
-                              } else if (selectedSector.type === 'item_type') {
-                                const q = selectedSector.total || 0;
-                                const b = selectedSector.batches?.length || 0;
-                                m1 = q === 1 ? '1 ITEM' : `${q} ITEMS`;
-                                m2 = `ACROSS ${b} ${b === 1 ? 'BATCH' : 'BATCHES'}`;
-                              } else if (selectedSector.type === 'category') {
-                                const pCount = selectedSector.types?.length || 0;
-                                const bCount = selectedSector.types?.reduce((sum: number, t: any) => sum + (t.batches?.length || 0), 0) || 0;
-                                m1 = bCount === 1 ? '1 BATCH' : `${bCount} BATCHES`;
-                                m2 = `ACROSS ${pCount} ${pCount === 1 ? 'PRODUCT' : 'PRODUCTS'}`;
                               }
 
                               if (!m1) return null;
 
-                              const textY = selectedSector.type === 'batch' ? centerY - 38 : centerY - 43;
+                              const textY = centerY - 38;
 
                               return (
                                 <G>
