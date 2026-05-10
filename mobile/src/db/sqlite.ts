@@ -150,8 +150,6 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     const hasRotDest = cabColsRes.some(col => col.name === 'default_rotation_cabinet_id');
     if (!hasRotDest) {
       await db.execAsync('ALTER TABLE Cabinets ADD COLUMN default_rotation_cabinet_id INTEGER');
-      // Cleanup: Accidental '3' default from previous turn's schema migration
-      await db.execAsync('UPDATE Cabinets SET rotation_interval_months = NULL WHERE rotation_interval_months = 3');
     }
 
     const iInv = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');

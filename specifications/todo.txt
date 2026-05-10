@@ -122,3 +122,5 @@ DONE (default size) % of min desired or % of default pack size (default to 1 whe
 
 Do we want to move item/batch image display to a central location and cross reference
 it from wherever it is used (inventory & catalog)?
+
+implement image file sync with cloud and deletion cache sync with 7 day grace period

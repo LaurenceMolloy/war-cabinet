@@ -52,6 +52,12 @@
           "photosPermission": "The app accesses your photos to let you attach them to your inventory items.",
           "cameraPermission": "The app accesses your camera to let you take photos of inventory items."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow the app to use the camera to scan product expiry dates."
+        }
       ]
     ],
     "experiments": {

@@ -471,7 +471,12 @@ export const BackupService = {
 
         const cabs = tables.Cabinets || [];
         for (const cab of cabs) {
-          await db.runAsync("INSERT INTO Cabinets (id, name, location, cabinet_type) VALUES (?, ?, ?, ?)", cab.id, cab.name, cab.location || '', cab.cabinet_type || 'standard');
+          await db.runAsync(
+            "INSERT INTO Cabinets (id, name, location, cabinet_type, rotation_interval_months, default_rotation_cabinet_id) VALUES (?, ?, ?, ?, ?, ?)", 
+            cab.id, cab.name, cab.location || '', cab.cabinet_type || 'standard',
+            cab.rotation_interval_months !== undefined ? cab.rotation_interval_months : null,
+            cab.default_rotation_cabinet_id !== undefined ? cab.default_rotation_cabinet_id : null
+          );
         }
 
         const invs = tables.Inventory || [];
