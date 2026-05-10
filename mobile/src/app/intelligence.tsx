@@ -725,7 +725,7 @@ export default function IntelligenceScreen() {
                       <G pointerEvents="box-none">
                           {/* CIRCULAR IMAGE BACKGROUND (Products Only) */}
                           {selectedSector.type === 'item_type' && selectedSector.image_uri && (
-                            <G pointerEvents="none">
+                            <G onPress={() => setIsMagnified(prev => !prev)}>
                               <ClipPath id={`clip-img-${selectedSector.id || 'hub'}`}>
                                 <Circle cx={centerX} cy={centerY} r={capR} />
                               </ClipPath>
@@ -778,13 +778,25 @@ export default function IntelligenceScreen() {
                           </SvgText>
 
                           {/* BOTTOM ORBIT: IDENTITY (Categorical Anchor) */}
-                          <SvgText fill={getRainbowColor(activeIndices.cat, data.length)} fontSize={12} style={{ fontSize: 12 }} fontWeight="900" letterSpacing={2}>
-                            <TextPath href="#hubArchBottom" startOffset="50%" textAnchor="middle">
-                              <TSpan dy={8} textAnchor="middle">
-                                {(selectedSector.parent_name || selectedSector.name).toUpperCase()}
-                              </TSpan>
-                            </TextPath>
-                          </SvgText>
+                          {(() => {
+                            let labelText = (selectedSector.parent_name || selectedSector.name || "").toUpperCase();
+                            if (labelText.length > 35) labelText = labelText.substring(0, 34) + '…';
+                            
+                            let fSize = 12;
+                            let lSpacing = 2;
+                            if (labelText.length > 25) { fSize = 11; lSpacing = 1.8; }
+                            if (labelText.length > 30) { fSize = 10; lSpacing = 1.5; }
+
+                            return (
+                              <SvgText fill={getRainbowColor(activeIndices.cat, data.length)} fontSize={fSize} style={{ fontSize: fSize }} fontWeight="900" letterSpacing={lSpacing}>
+                                <TextPath href="#hubArchBottom" startOffset="50%" textAnchor="middle">
+                                  <TSpan dy={8} textAnchor="middle">
+                                    {labelText}
+                                  </TSpan>
+                                </TextPath>
+                              </SvgText>
+                            );
+                          })()}
 
                           {/* TEXT & DIVIDER (Hidden when showing a Product Image to keep it clean) */}
                           {!(selectedSector.type === 'item_type' && selectedSector.image_uri) && (
