@@ -408,30 +408,59 @@ export default function IntelligenceScreen() {
             const gapAngle = 0.008; // High-viz gap within batch
             const pipAngleSize = (batchAngleSize - (gapAngle * (batch.qty - 1))) / batch.qty;
             
-            for (let i = 0; i < batch.qty; i++) {
-              const pStart = batchAngle + i * (pipAngleSize + gapAngle);
-              const pEnd = pStart + pipAngleSize;
-              const safeEnd = Math.min(pEnd, batchEndAngle);
-              
+            if (pipAngleSize <= 0) {
+              // Fallback: not enough space for gaps, render as a single solid block
+              const minAngle = 1.5 / batchOuterR; // minimum 1.5px physical width
+              const renderAngle = Math.max(batchAngleSize, minAngle);
+              const pw = renderAngle * batchOuterR;
+
               pips.push(
                 <Path
-                  key={`batch-${batch.id}-pip-${i}`}
-                  d={getArcPath(pStart, safeEnd, prodOuterR + 2, batchOuterR)}
+                  key={`batch-${batch.id}-solid-fallback`}
+                  d={getArcPath(batchAngle, batchAngle + renderAngle, prodOuterR + 2, batchOuterR)}
                   fill={batchDisplayColor}
                   stroke="#0a0a0a"
-                  strokeWidth={0.5}
+                  strokeWidth={pw < 2.0 ? 0 : 0.5}
                   opacity={batchOpacity}
                 />
               );
+            } else {
+              for (let i = 0; i < batch.qty; i++) {
+                const pStart = batchAngle + i * (pipAngleSize + gapAngle);
+                let pEnd = pStart + pipAngleSize;
+                let safeEnd = Math.min(pEnd, batchEndAngle);
+                
+                // Enforce a minimum physical width for visibility
+                let pipW = (safeEnd - pStart) * batchOuterR;
+                if (pipW < 1.0) {
+                  safeEnd = pStart + (1.0 / batchOuterR);
+                  pipW = 1.0;
+                }
+
+                pips.push(
+                  <Path
+                    key={`batch-${batch.id}-pip-${i}`}
+                    d={getArcPath(pStart, safeEnd, prodOuterR + 2, batchOuterR)}
+                    fill={batchDisplayColor}
+                    stroke="#0a0a0a"
+                    strokeWidth={pipW < 2.0 ? 0 : 0.5}
+                    opacity={batchOpacity}
+                  />
+                );
+              }
             }
           } else {
+            const minAngle = 1.5 / batchOuterR; // minimum 1.5px physical width
+            const renderAngle = Math.max(batchAngleSize, minAngle);
+            const pw = renderAngle * batchOuterR;
+
             pips.push(
               <Path
                 key={`batch-${batch.id}-solid`}
-                d={getArcPath(batchAngle, batchEndAngle, prodOuterR + 2, batchOuterR)}
+                d={getArcPath(batchAngle, batchAngle + renderAngle, prodOuterR + 2, batchOuterR)}
                 fill={batchDisplayColor}
                 stroke="#0a0a0a"
-                strokeWidth={0.5}
+                strokeWidth={pw < 2.0 ? 0 : 0.5}
                 opacity={batchOpacity}
               />
             );
