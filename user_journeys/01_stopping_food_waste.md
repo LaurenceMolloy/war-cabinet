@@ -47,6 +47,23 @@ Once you reach the **Batch Level**, the radar will have zoomed all the way in. T
 
 Here, you'll see the specific brand, the quantity, and most importantly, the exact **Expiry Date** highlighted clearly for you. 
 
+**Pro Tip:** If the Radar segments look a bit tight, **tap the black centre hub** at any time. This will physically magnify the entire visualization, making it much easier to read product names and spot those tiny expiry markers!
+
 Now you know exactly which items to pull to the front of the cupboard and use for dinner tonight!
 
 > *[Suggested Image: A screenshot of the final Batch-level view, with the central hub displaying the specific item details and its expiry date.]*
+
+---
+
+### Step 5: The Cabinet Pivot (Power User Shortcut)
+Finding that expiring tin of beans in the Garage Freezer is great, but while you're out there grabbing it, shouldn't you check what else needs using?
+
+This is where the Radar gets really smart. When you are zoomed all the way in on an item, you'll see its physical location (like "GARAGE FREEZER") displayed right at the bottom of the central hub.
+- **Tap that location!** 
+- The Radar will instantly filter itself to *only* show you the contents of that specific cabinet, without losing your place on the beans you were just looking at.
+- You can now spin around and see exactly what else is expiring in the Garage Freezer.
+- Once you're done, simply tap the **ZOOM OUT TO BUNKER VIEW** button in the centre to instantly zoom back out and see your entire home again. 
+
+It's the absolute fastest way to seamlessly jump between hunting down a specific ingredient and managing an entire cupboard!
+
+> *[Suggested Image: A split-screen screenshot showing the Batch-level view with "GARAGE FREEZER" in the centre, alongside the fully filtered cabinet view showing the "ZOOM OUT TO BUNKER VIEW" button.]*
