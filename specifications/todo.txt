@@ -124,3 +124,5 @@ Do we want to move item/batch image display to a central location and cross refe
 it from wherever it is used (inventory & catalog)?
 
 implement image file sync with cloud and deletion cache sync with 7 day grace period
+
+I wonder if it would be useful to filter the Eagle-Eye view on expiry? Or low stock?
