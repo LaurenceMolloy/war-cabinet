@@ -12,7 +12,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 // This is a standalone "sandbox" file for V1 PoC.
 
 const screenWidth = Dimensions.get('window').width;
-const size = screenWidth - 40;
+const IS_WEB = typeof window !== 'undefined' && (window as any).navigator?.userAgent?.includes('Html'); // Simple check for web platform
+const size = Math.min(screenWidth - 40, 500); 
 const radius = size / 2;
 const centerX = radius;
 const centerY = radius;
@@ -21,6 +22,10 @@ const catInnerR = radius * 0.66;
 const catOuterR = radius * 0.72;
 const prodOuterR = radius * 0.88;
 const batchOuterR = radius;
+
+// Font scaling helper to keep text proportional to the radar size
+const fs = (base: number) => (base / 350) * size; 
+
 
 // Rainbow colormap helpers — category ring only (intelligence.tsx)
 const hslToHex = (h: number, s: number, l: number): string => {
@@ -734,7 +739,7 @@ export default function IntelligenceScreen() {
                                 y={centerY - capR}
                                 width={capR * 2}
                                 height={capR * 2}
-                                href={{ uri: selectedSector.image_uri }}
+                                href={selectedSector.image_uri}
                                 clipPath={`url(#clip-img-${selectedSector.id || 'hub'})`}
                                 preserveAspectRatio="xMidYMid slice"
                               />
@@ -801,16 +806,16 @@ export default function IntelligenceScreen() {
                           {/* TEXT & DIVIDER (Hidden when showing a Product Image to keep it clean) */}
                           {!(selectedSector.type === 'item_type' && selectedSector.image_uri) && (
                             <G>
-                              <Line x1={centerX-20} y1={centerY+10} x2={centerX+20} y2={centerY+10} stroke="#475569" strokeWidth={1} />
+                              <Line x1={centerX-fs(20)} y1={centerY+fs(10)} x2={centerX+fs(20)} y2={centerY+fs(10)} stroke="#475569" strokeWidth={1} />
 
                               {selectedSector.brand && (
-                                <SvgText x={centerX} y={centerY + 25} fill="#f8fafc" fontSize={11} style={{ fontSize: 11 }} fontWeight="900" textAnchor="middle" letterSpacing={1.5}>
+                                <SvgText x={centerX} y={centerY + fs(25)} fill="#f8fafc" fontSize={fs(11)} style={{ fontSize: fs(11) }} fontWeight="900" textAnchor="middle" letterSpacing={1.5}>
                                   {selectedSector.brand.toUpperCase()}
                                 </SvgText>
                               )}
                               
                               {selectedSector.range && (
-                                <SvgText x={centerX} y={centerY + 35} fill="#94a3b8" fontSize={7.5} style={{ fontSize: 7.5 }} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>
+                                <SvgText x={centerX} y={centerY + fs(35)} fill="#94a3b8" fontSize={fs(7.5)} style={{ fontSize: fs(7.5) }} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>
                                   {selectedSector.range.toUpperCase()}
                                 </SvgText>
                               )}
@@ -818,10 +823,10 @@ export default function IntelligenceScreen() {
                               {selectedSector.intel && (
                                 <SvgText 
                                   x={centerX} 
-                                  y={centerY + 50} 
+                                  y={centerY + fs(50)} 
                                   fill="#64748b" 
-                                  fontSize={7} 
-                                  style={{ fontSize: 7 }} 
+                                  fontSize={fs(7)} 
+                                  style={{ fontSize: fs(7) }} 
                                   fontWeight="bold"
                                   fontStyle="italic" 
                                   textAnchor="middle"
@@ -854,24 +859,24 @@ export default function IntelligenceScreen() {
 
                               if (!m1) return null;
 
-                              const textY = centerY - 47;
+                              const textY = centerY - fs(47);
 
                               return (
                                 <G>
-                                  <SvgText x={centerX} y={textY} fill="#000" fontSize={11} fontWeight="900" textAnchor="middle">
+                                  <SvgText x={centerX} y={textY} fill="#000" fontSize={fs(11)} fontWeight="900" textAnchor="middle">
                                     {m1.trim().toUpperCase()}
                                   </SvgText>
                                   {m2 ? (
-                                    <SvgText x={centerX} y={textY + 11} fill="#000" fontSize={10} fontWeight="900" textAnchor="middle">
+                                    <SvgText x={centerX} y={textY + fs(11)} fill="#000" fontSize={fs(10)} fontWeight="900" textAnchor="middle">
                                       {m2.trim()}
                                     </SvgText>
                                   ) : null}
                                   {selectedSector.type === 'batch' && selectedSector.exp && (
                                     <SvgText 
                                       x={centerX}
-                                      y={centerY - 6} 
+                                      y={centerY - fs(6)} 
                                       fill={selectedSector.color || '#fbbf24'} 
-                                      fontSize={12} 
+                                      fontSize={fs(12)} 
                                       fontWeight="900" 
                                       textAnchor="middle"
                                     >
@@ -886,63 +891,63 @@ export default function IntelligenceScreen() {
                     );
                 })() : (
                   <G pointerEvents="none">
-                    <SvgText fill="#f8fafc" fontSize={11} style={{ fontSize: 11 }} fontWeight="500" letterSpacing={2.5} textAnchor="middle">
+                    <SvgText fill="#f8fafc" fontSize={fs(11)} style={{ fontSize: fs(11) }} fontWeight="500" letterSpacing={2.5} textAnchor="middle">
                       <TextPath href="#hubArchTop" startOffset="50%" textAnchor="middle" dominantBaseline="middle">
-                        <TSpan dy={-4} textAnchor="middle">CABINET INTEL</TSpan>
+                        <TSpan dy={fs(-4)} textAnchor="middle">CABINET INTEL</TSpan>
                       </TextPath>
                     </SvgText>
 
-                    <SvgText fill="#fbbf24" fontSize={11} style={{ fontSize: 11 }} fontWeight="900" letterSpacing={2} textAnchor="middle">
+                    <SvgText fill="#fbbf24" fontSize={fs(11)} style={{ fontSize: fs(11) }} fontWeight="900" letterSpacing={2} textAnchor="middle">
                       <TextPath href="#hubArchBottom" startOffset="50%" textAnchor="middle">
-                        <TSpan dy={8} textAnchor="middle">{contextName}</TSpan>
+                        <TSpan dy={fs(8)} textAnchor="middle">{contextName}</TSpan>
                       </TextPath>
                     </SvgText>
 
                     <G y={centerY}>
                       {/* T1: READINESS TRIPTYCH BAR (Header) */}
-                      <G y={-43}>
-                        <SvgText x={centerX} y={-12} fill="#94a3b8" fontSize={8} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>BATCH EXPIRY</SvgText>
+                      <G y={fs(-43)}>
+                        <SvgText x={centerX} y={fs(-12)} fill="#94a3b8" fontSize={fs(8)} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>BATCH EXPIRY</SvgText>
                         
                         {/* Full Spectrum Readiness Bar (4 Segments) */}
-                        <Rect x={centerX - 55} y={-8} width={26} height={13} fill="#991b1b" rx={2} />
-                        <Rect x={centerX - 27} y={-8} width={26} height={13} fill="#f43f5e" rx={2} />
-                        <Rect x={centerX + 1} y={-8} width={26} height={13} fill="#f97316" rx={2} />
-                        <Rect x={centerX + 29} y={-8} width={26} height={13} fill="#fde047" rx={2} />
+                        <Rect x={centerX - fs(55)} y={fs(-8)} width={fs(26)} height={fs(13)} fill="#991b1b" rx={2} />
+                        <Rect x={centerX - fs(27)} y={fs(-8)} width={fs(26)} height={fs(13)} fill="#f43f5e" rx={2} />
+                        <Rect x={centerX + fs(1)} y={fs(-8)} width={fs(26)} height={fs(13)} fill="#f97316" rx={2} />
+                        <Rect x={centerX + fs(29)} y={fs(-8)} width={fs(26)} height={fs(13)} fill="#fde047" rx={2} />
                         
                         {/* Numbers (Inside Bar) */}
-                        <SvgText x={centerX - 42} y={2} fill="#ffffff" fontSize={11} fontWeight="900" textAnchor="middle">{stats.expired}</SvgText>
-                        <SvgText x={centerX - 14} y={2} fill="#ffffff" fontSize={11} fontWeight="900" textAnchor="middle">{stats.urgent}</SvgText>
-                        <SvgText x={centerX + 14} y={2} fill="#ffffff" fontSize={11} fontWeight="900" textAnchor="middle">{stats.soon}</SvgText>
-                        <SvgText x={centerX + 42} y={2} fill="#0f172a" fontSize={11} fontWeight="900" textAnchor="middle">{stats.upcoming}</SvgText>
+                        <SvgText x={centerX - fs(42)} y={fs(2)} fill="#ffffff" fontSize={fs(11)} fontWeight="900" textAnchor="middle">{stats.expired}</SvgText>
+                        <SvgText x={centerX - fs(14)} y={fs(2)} fill="#ffffff" fontSize={fs(11)} fontWeight="900" textAnchor="middle">{stats.urgent}</SvgText>
+                        <SvgText x={centerX + fs(14)} y={fs(2)} fill="#ffffff" fontSize={fs(11)} fontWeight="900" textAnchor="middle">{stats.soon}</SvgText>
+                        <SvgText x={centerX + fs(42)} y={fs(2)} fill="#0f172a" fontSize={fs(11)} fontWeight="900" textAnchor="middle">{stats.upcoming}</SvgText>
 
                         {/* Labels (Under Segments) */}
-                        <SvgText x={centerX - 42} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>EXP</SvgText>
-                        <SvgText x={centerX - 14} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>NOW</SvgText>
-                        <SvgText x={centerX + 14} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>1-3M</SvgText>
-                        <SvgText x={centerX + 42} y={14} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>4-6M</SvgText>
+                        <SvgText x={centerX - fs(42)} y={fs(14)} fill="#94a3b8" fontSize={fs(7)} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>EXP</SvgText>
+                        <SvgText x={centerX - fs(14)} y={fs(14)} fill="#94a3b8" fontSize={fs(7)} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>NOW</SvgText>
+                        <SvgText x={centerX + fs(14)} y={fs(14)} fill="#94a3b8" fontSize={fs(7)} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>1-3M</SvgText>
+                        <SvgText x={centerX + fs(42)} y={fs(14)} fill="#94a3b8" fontSize={fs(7)} fontWeight="bold" textAnchor="middle" letterSpacing={0.5}>4-6M</SvgText>
                       </G>
 
                       {/* T2: STRATEGIC LOGISTICS (Center Grid) */}
-                      <G y={5}>
-                        <G x={centerX - 34}>
-                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.categories}</SvgText>
-                          <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>CATEGORIES</SvgText>
+                      <G y={fs(5)}>
+                        <G x={centerX - fs(34)}>
+                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={fs(24)} fontWeight="900" textAnchor="middle">{stats.categories}</SvgText>
+                          <SvgText x={0} y={fs(10)} fill="#94a3b8" fontSize={fs(7)} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>CATEGORIES</SvgText>
                         </G>
-                        <G x={centerX + 35}>
-                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.products}</SvgText>
-                          <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>PRODUCTS</SvgText>
+                        <G x={centerX + fs(35)}>
+                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={fs(24)} fontWeight="900" textAnchor="middle">{stats.products}</SvgText>
+                          <SvgText x={0} y={fs(10)} fill="#94a3b8" fontSize={fs(7)} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>PRODUCTS</SvgText>
                         </G>
                       </G>
 
                       {/* T3: PHYSICAL INVENTORY (Center Grid) */}
-                      <G y={43}>
-                        <G x={centerX - 34}>
-                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.batches}</SvgText>
-                          <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>BATCHES</SvgText>
+                      <G y={fs(43)}>
+                        <G x={centerX - fs(34)}>
+                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={fs(24)} fontWeight="900" textAnchor="middle">{stats.batches}</SvgText>
+                          <SvgText x={0} y={fs(10)} fill="#94a3b8" fontSize={fs(7)} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>BATCHES</SvgText>
                         </G>
-                        <G x={centerX + 35}>
-                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={24} fontWeight="900" textAnchor="middle">{stats.items}</SvgText>
-                          <SvgText x={0} y={10} fill="#94a3b8" fontSize={7} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>ITEMS</SvgText>
+                        <G x={centerX + fs(35)}>
+                          <SvgText x={0} y={0} fill="#fbbf24" fontSize={fs(24)} fontWeight="900" textAnchor="middle">{stats.items}</SvgText>
+                          <SvgText x={0} y={fs(10)} fill="#94a3b8" fontSize={fs(7)} fontWeight="bold" textAnchor="middle" letterSpacing={1.5}>ITEMS</SvgText>
                         </G>
                       </G>
                     </G>
