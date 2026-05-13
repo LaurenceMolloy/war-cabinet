@@ -120,6 +120,13 @@ export default function HomeScreen() {
     }
   }, [params.forceFilter, params.setCabinetId, params.setCabinetName, params.targetCatId, params.targetTypeId, params.timestamp, cabinets, categories]);
 
+  const handleTitleTap = () => {
+    if (searchQuery === 'Hotel Quebec') {
+      setSearchQuery(''); // Clear it so it doesn't stay visible
+      router.push('/hq');
+    }
+  };
+
   // Scroll to bring the flashing batch row into view near the top of the screen.
   // We use a Two-Pass approach for pixel-perfect precision:
   // 1. Guess the Y offset using estimation to get the target visible & 'mounted'.
@@ -1301,7 +1308,9 @@ export default function HomeScreen() {
           <MaterialCommunityIcons name="chef-hat" size={26} color="#fbbf24" />
         </TouchableOpacity>
         <View style={{alignItems: 'center'}}>
-          <Text style={styles.headerTitle} testID="app-header-title">War Cabinet</Text>
+          <TouchableOpacity activeOpacity={1} onPress={handleTitleTap}>
+            <Text style={styles.headerTitle} testID="app-header-title">War Cabinet</Text>
+          </TouchableOpacity>
           <TouchableOpacity testID="rank-badge-pill" onPress={() => router.push('/catalog?tab=rank')} style={styles.rankPill}>
             <MaterialCommunityIcons name="shield-star" size={10} color={isPremium ? "#fbbf24" : "#94a3b8"} style={{marginRight: 4}} />
             <Text style={[styles.rankPillText, isPremium && {color: '#fbbf24'}]}>
