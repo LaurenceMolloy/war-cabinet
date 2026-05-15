@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
  *    script is lagging and requires an audit.
  * 4. Only after auditing BackupService.ts should the versions be re-aligned.
  */
-export const CURRENT_SCHEMA_VERSION = 112;
+export const CURRENT_SCHEMA_VERSION = 113;
 
 // Helper to record last action for backup context
 export const recordActivity = async (db: any, description: string) => {
@@ -60,6 +60,8 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     await db.execAsync(`CREATE TABLE IF NOT EXISTS Missions (id TEXT PRIMARY KEY, completed_at INTEGER NOT NULL, points INTEGER NOT NULL);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS AssetDeletionsCache (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, asset_type TEXT NOT NULL, deleted_timestamp INTEGER NOT NULL);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS AuditMetrics (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, cabinet_id INTEGER, item_type_id INTEGER, found_qty INTEGER, missing_qty INTEGER, audit_session_id TEXT);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS ProductEventLedger (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, product_id INTEGER NOT NULL, batch_id INTEGER, source TEXT NOT NULL, change_amount INTEGER NOT NULL, FOREIGN KEY(batch_id) REFERENCES Inventory(id) ON DELETE CASCADE, FOREIGN KEY(product_id) REFERENCES ItemTypes(id) ON DELETE CASCADE);`);
+
 
 
   // Migration: add unit_type to ItemTypes if it does not exist
@@ -359,6 +361,32 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
         );
       `);
       await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v112_complete', '1']);
+    }
+
+    // Iteration 113: Soft Deletes, High-Water Pruning, and Event Ledger
+    const i113Migrated = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'migration_v113_complete');
+    if (!i113Migrated || (i113Migrated as any).count === 0) {
+      console.log('[DB] Applying v113 Analytics & Ledger Architecture...');
+      
+      const iInvLatest = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
+      if (!iInvLatest.some(col => col.name === 'dead_at')) {
+        await db.execAsync('ALTER TABLE Inventory ADD COLUMN dead_at INTEGER');
+      }
+
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS ProductEventLedger (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp INTEGER NOT NULL,
+          product_id INTEGER NOT NULL,
+          batch_id INTEGER,
+          source TEXT NOT NULL,
+          change_amount INTEGER NOT NULL,
+          FOREIGN KEY(batch_id) REFERENCES Inventory(id) ON DELETE CASCADE,
+          FOREIGN KEY(product_id) REFERENCES ItemTypes(id) ON DELETE CASCADE
+        );
+      `);
+
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v113_complete', '1']);
     }
 
     // Set formal schema version

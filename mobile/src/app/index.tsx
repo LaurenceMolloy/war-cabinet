@@ -8,6 +8,9 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { requestPermissions, scheduleMonthlyBriefing } from '../services/notifications';
 import { initializeDatabase, logTacticalAction } from '../db/sqlite';
 import { BackupService } from '../services/BackupService';
+import { AssetDeletionsCache } from '../database/Ledger';
+import { Inventory as InventoryDAL } from '../database/Inventory';
+import TacticalSettingsModal from '../components/TacticalSettingsModal';
 import { useBilling } from '../context/BillingContext';
 import { CabinetFormModal } from '../components/CabinetFormModal';
 import { Database } from '../database';
@@ -494,17 +497,12 @@ export default function HomeScreen() {
     const type = typeId ? await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]) : null;
     const inv = await db.getFirstAsync<any>('SELECT size, supplier FROM Inventory WHERE id = ?', [invId]);
 
-    if (isDeletion) await db.runAsync('DELETE FROM Inventory WHERE id = ?', [invId]);
-    else {
-      // Portions-Aware Decrement: Ensure total remainder doesn't exceed new capacity
-      await db.runAsync(`
-        UPDATE Inventory 
-        SET quantity = quantity - 1, 
-            portions_remaining = CASE 
-              WHEN portions_total > 0 THEN MIN(IFNULL(portions_remaining, quantity * portions_total), (quantity - 1) * portions_total)
-              ELSE portions_remaining 
-            END 
-        WHERE id = ?`, [invId]);
+    const actualTypeId = typeId || inv?.item_type_id;
+
+    if (forceDelete) {
+      await InventoryDAL.softDeleteBatch(db, invId, actualTypeId, 'USER');
+    } else {
+      await InventoryDAL.consumeQuantity(db, invId, actualTypeId, 1, 'USER');
     }
     
     if (typeId) {
@@ -517,15 +515,10 @@ export default function HomeScreen() {
   };
 
   const addQuantity = async (invId: number, typeId?: number) => {
-    // Portions-Aware Increment: Ensure portions_remaining grows by portions_total
-    await db.runAsync(`
-      UPDATE Inventory 
-      SET quantity = quantity + 1, 
-          portions_remaining = CASE 
-            WHEN portions_total > 0 THEN IFNULL(portions_remaining, quantity * portions_total) + portions_total 
-            ELSE portions_remaining 
-          END 
-      WHERE id = ?`, invId);
+    const inv = await db.getFirstAsync<any>('SELECT item_type_id FROM Inventory WHERE id = ?', [invId]);
+    const actualTypeId = typeId || inv?.item_type_id;
+
+    await InventoryDAL.addQuantity(db, invId, actualTypeId, 1, 'USER');
     if (typeId) {
       const type = await db.getFirstAsync<any>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]);
       const inv = await db.getFirstAsync<any>('SELECT size, supplier FROM Inventory WHERE id = ?', [invId]);
@@ -849,7 +842,7 @@ export default function HomeScreen() {
         return next;
       });
 
-      await db.runAsync('DELETE FROM Inventory WHERE id = ?', [inv.id]);
+      await InventoryDAL.softDeleteBatch(db, inv.id, type.id, 'USER');
       triggerFeedback('BATCH DEPLETED');
       await logTacticalAction(db, 'DELETE', 'BATCH', inv.id, type.name, 'PORTION_DEPLETION');
       load();

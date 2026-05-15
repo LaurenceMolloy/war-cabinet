@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useRouter } from 'expo-router';
 import { SEEDER_SCENARIOS } from '../services/SeederService';
+import { Inventory } from '../database/Inventory';
 
 export default function SecretHQScreen() {
   const db = useSQLiteContext();
@@ -46,6 +47,71 @@ export default function SecretHQScreen() {
         }
       ]
     );
+  };
+
+  const testAnalyticsDAL = async () => {
+    setIsSeeding(true);
+    try {
+      // 1. Setup a fresh dummy batch
+      const catRes = await db.runAsync('INSERT INTO Categories (name) VALUES (?)', ['TEST_CAT_' + Date.now()]);
+      const catId = catRes.lastInsertRowId;
+      const prodRes = await db.runAsync('INSERT INTO ItemTypes (category_id, name) VALUES (?, ?)', [catId, 'TEST_PRODUCT']);
+      const prodId = prodRes.lastInsertRowId;
+      const invRes = await db.runAsync('INSERT INTO Inventory (item_type_id, quantity, size, entry_month, entry_year, entry_day) VALUES (?, ?, ?, ?, ?, ?)', [prodId, 0, '500', 1, 2026, 1]);
+      const batchId = invRes.lastInsertRowId;
+
+      let output = "DAL Test Sequence:\n";
+
+      // 2. Register New Batch (+5)
+      await db.runAsync('UPDATE Inventory SET quantity = 5 WHERE id = ?', [batchId]);
+      await Inventory.registerNewBatch(db, batchId, prodId, 5, 'USER');
+      output += "1. Registered +5 (User)\n";
+
+      // 3. Add Quantity (+2)
+      await Inventory.addQuantity(db, batchId, prodId, 2, 'USER');
+      output += "2. Consolidated +2 (User)\n";
+
+      // 4. Consume Quantity (3) by AUDIT
+      await Inventory.consumeQuantity(db, batchId, prodId, 3, 'AUDIT');
+      output += "3. Audit discovered 3 missing (Audit)\n";
+
+      // 5. OVER-Consume Quantity (10)
+      await Inventory.consumeQuantity(db, batchId, prodId, 10, 'USER');
+      output += "4. Attempted to consume 10 (User)\n";
+
+      // 6. Create second batch and soft delete by Audit
+      const invRes2 = await db.runAsync('INSERT INTO Inventory (item_type_id, quantity, size, entry_month, entry_year, entry_day) VALUES (?, ?, ?, ?, ?, ?)', [prodId, 1, '200', 1, 2026, 1]);
+      const batchId2 = invRes2.lastInsertRowId;
+      await Inventory.registerNewBatch(db, batchId2, prodId, 1, 'USER');
+      output += "5. Registered +1 (User) [Batch 2]\n";
+      
+      await Inventory.softDeleteBatch(db, batchId2, prodId, 'AUDIT');
+      output += "6. Soft Deleted by Audit [Batch 2]\n\n";
+
+      // 7. Verify Results across BOTH batches for this Product
+      const invRow1 = await db.getFirstAsync<{quantity: number, dead_at: number}>('SELECT quantity, dead_at FROM Inventory WHERE id = ?', [batchId]);
+      const invRow2 = await db.getFirstAsync<{quantity: number, dead_at: number}>('SELECT quantity, dead_at FROM Inventory WHERE id = ?', [batchId2]);
+      
+      const ledger = await db.getAllAsync<{source: string, change_amount: number}>('SELECT source, change_amount FROM ProductEventLedger WHERE product_id = ? ORDER BY id ASC', [prodId]);
+      
+      output += `FINAL INVENTORY:\nBatch 1 Qty: ${invRow1?.quantity}, Dead: ${invRow1?.dead_at ? 'YES' : 'NO'}\nBatch 2 Qty: ${invRow2?.quantity}, Dead: ${invRow2?.dead_at ? 'YES' : 'NO'}\n\n`;
+      output += `LEDGER EVENTS:\n`;
+      let userConsumed = 0;
+      let auditMIA = 0;
+      ledger.forEach(l => {
+        output += `- ${l.source}: ${l.change_amount > 0 ? '+' : ''}${l.change_amount}\n`;
+        if (l.source === 'USER' && l.change_amount < 0) userConsumed += Math.abs(l.change_amount);
+        if (l.source === 'AUDIT' && l.change_amount < 0) auditMIA += Math.abs(l.change_amount);
+      });
+
+      output += `\nANALYSIS:\nUser Consumed: ${userConsumed}\nAudit MIA: ${auditMIA}\nTotal Gone: ${userConsumed + auditMIA}`;
+
+      Alert.alert('DAL TEST SUCCESS', output);
+    } catch (e: any) {
+      Alert.alert('DAL TEST FAILED', e.message);
+    } finally {
+      setIsSeeding(false);
+    }
   };
 
   if (!isAuthenticated) {
@@ -161,6 +227,18 @@ export default function SecretHQScreen() {
             <Text style={styles.scenarioRank}>TEST ACOUSTIC-TO-SEMANTIC MAPPING</Text>
           </View>
           <MaterialCommunityIcons name="microphone" size={24} color="#fbbf24" />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.scenarioCard, { borderColor: '#10b981', marginTop: 12 }]}
+          onPress={testAnalyticsDAL}
+          disabled={isSeeding}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.scenarioId, { color: '#10b981' }]}>TEST ANALYTICS DAL</Text>
+            <Text style={styles.scenarioRank}>VERIFY SOFT-DELETE & LEDGER LOGIC</Text>
+          </View>
+          <MaterialCommunityIcons name="chart-bar" size={24} color="#10b981" />
         </TouchableOpacity>
 
         <View style={{ height: 24 }} />
