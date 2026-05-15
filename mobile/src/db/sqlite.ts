@@ -59,6 +59,7 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     await db.execAsync(`CREATE TABLE IF NOT EXISTS TacticalLogs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, action_type TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER, entity_name TEXT, details TEXT);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS Missions (id TEXT PRIMARY KEY, completed_at INTEGER NOT NULL, points INTEGER NOT NULL);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS AssetDeletionsCache (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, asset_type TEXT NOT NULL, deleted_timestamp INTEGER NOT NULL);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS AuditMetrics (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, cabinet_id INTEGER, item_type_id INTEGER, found_qty INTEGER, missing_qty INTEGER, audit_session_id TEXT);`);
 
 
   // Migration: add unit_type to ItemTypes if it does not exist
@@ -152,6 +153,11 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.execAsync('ALTER TABLE Cabinets ADD COLUMN default_rotation_cabinet_id INTEGER');
     }
 
+    const hasAuditFreq = cabColsRes.some(col => col.name === 'audit_frequency_days');
+    if (!hasAuditFreq) {
+      await db.execAsync('ALTER TABLE Cabinets ADD COLUMN audit_frequency_days INTEGER DEFAULT 0');
+    }
+
     const iInv = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
     if (!iInv.some(col => col.name === 'cabinet_id')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN cabinet_id INTEGER');
     if (!iInv.some(col => col.name === 'batch_intel')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN batch_intel TEXT');
@@ -160,6 +166,7 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     if (!iInv.some(col => col.name === 'portions_total')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN portions_total INTEGER');
     if (!iInv.some(col => col.name === 'portions_remaining')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN portions_remaining INTEGER');
     if (!iInv.some(col => col.name === 'last_rotated_at')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN last_rotated_at INTEGER');
+    if (!iInv.some(col => col.name === 'last_audited_at')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN last_audited_at INTEGER');
     
     const hasEntryDay = iInv.some(col => col.name === 'entry_day');
     if (!hasEntryDay) {

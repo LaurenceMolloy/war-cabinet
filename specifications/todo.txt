@@ -126,3 +126,9 @@ it from wherever it is used (inventory & catalog)?
 implement image file sync with cloud and deletion cache sync with 7 day grace period
 
 I wonder if it would be useful to filter the Eagle-Eye view on expiry? Or low stock?
+
+--
+total product weight/volume assumes whole packs - partial consumption not captured
+e.g. 1.5kg of product but one 500g bag is open and with 3/5 portions left - should 
+reduce to 1.3kg. (penne pasta exposed this oversight)
+--

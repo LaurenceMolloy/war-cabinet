@@ -1,0 +1,159 @@
+<mxfile host="Electron" modified="2024-05-14T00:00:00.000Z" agent="5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/21.6.8 Chrome/114.0.5735.289 Electron/25.5.0 Safari/537.36" etag="xxxx" version="21.6.8" type="device">
+  <diagram id="voice-audit-dialog" name="Tactical Voice Audit Dialog">
+    <mxGraphModel dx="1422" dy="791" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="START SESSION" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="354" y="40" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="Manual Button Press" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="349" y="130" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="ENGAGE VOICE INTEL MODE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="339" y="170" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="TTS: &quot;Voice Intel Active. Standing by.&quot;" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="309" y="260" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="WAITING FOR FRAME&lt;br&gt;(Low-Power Listening)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="334" y="360" width="160" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="User: &quot;Check... [Payload]... Go!&quot;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="319" y="490" width="190" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="PROCESS AUDIO BUFFER&lt;br&gt;(Offline STT + Regex)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="334" y="550" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="SQLITE FUZZY SEARCH&lt;br&gt;(Ring 1 -&gt; Ring 2)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="334" y="640" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="CONFIDENCE TRIAGE" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="334" y="730" width="160" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="HIGH MATCH&lt;br&gt;(&gt;70%)" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="494" y="750" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="TTS: &quot;Found [Brand] [Name]. Confirm?&quot;" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="584" y="760" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="LOW MATCH&lt;br&gt;(&lt;50%)" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="244" y="750" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="TTS: &quot;Target Unknown. Logged as Memo.&quot;" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="34" y="760" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="15" value="AMBIGUOUS&lt;br&gt;(50-70%)" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="369" y="860" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="16" value="TTS: &quot;Multiple matches. Which one?&quot;" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="309" y="920" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="17" value="USER VERIFICATION" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="609" y="860" width="160" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="18" value="&quot;Affirmative&quot; / &quot;Yes&quot;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="769" y="880" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="19" value="UPDATE LEDGER&lt;br&gt;(Reset Staleness)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="889" y="890" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="20" value="&quot;Negative&quot; / &quot;MIA&quot;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="769" y="930" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="21" value="CASUALTY REPORT&lt;br&gt;(Mark for Deletion)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="889" y="970" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="22" value="SECURE SESSION" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="354" y="1100" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="23" value="&quot;Check... Secure... Go!&quot;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="190" y="420" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="24" parent="1" source="2" target="4" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="25" parent="1" source="4" target="5" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="26" parent="1" source="5" target="6" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="27" parent="1" source="6" target="8" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="414" y="520" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="28" parent="1" source="8" target="9" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="29" parent="1" source="9" target="10" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="30" parent="1" source="10" target="12" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="31" parent="1" source="10" target="14" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="32" parent="1" source="10" target="16" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="33" parent="1" source="12" target="17" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="34" parent="1" source="17" target="19" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="35" parent="1" source="17" target="21" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="36" parent="1" source="14" target="6" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="139" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="37" parent="1" source="19" target="6" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1050" y="920" />
+              <mxPoint x="1050" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="38" parent="1" source="21" target="6" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1050" y="1000" />
+              <mxPoint x="1050" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="39" parent="1" source="6" target="22" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="260" y="420" />
+              <mxPoint x="260" y="1140" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="40" value="&quot;Abort&quot;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="659" y="1000" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="41" parent="1" source="17" target="6" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="689" y="1050" />
+              <mxPoint x="1050" y="1050" />
+              <mxPoint x="1050" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

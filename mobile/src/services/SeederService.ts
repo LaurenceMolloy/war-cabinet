@@ -352,5 +352,65 @@ export const SEEDER_SCENARIOS: Record<string, SeederScenario> = {
         throw e;
       }
     }
+  },
+  'soup_stress_test': {
+    rank: 'VETERAN',
+    description: 'SOUP MATRIX: Seeds 50+ overlapping soup types. High-density combinations of Brand (Heinz, Baxters, etc.) and Flavour (Tomato, Chicken, etc.) across multiple schema fields.',
+    apply: async (db) => {
+      console.log('[E2E] STARTING SOUP STRESS TEST...');
+      try {
+        await db.execAsync('DELETE FROM TacticalLogs; DELETE FROM Inventory; DELETE FROM ItemTypes; DELETE FROM Categories; DELETE FROM Cabinets; DELETE FROM Missions;');
+        await db.execAsync("DELETE FROM Settings WHERE key = 'last_used_cabinet_id'");
+        await db.execAsync("DELETE FROM sqlite_sequence WHERE name IN ('Inventory', 'ItemTypes', 'Categories', 'Cabinets', 'TacticalLogs', 'Missions')");
+
+        const cabRes = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type) VALUES (?, ?, ?)', ['KITCHEN CUPBOARD', 'KITCHEN', 'standard']);
+        const cabId = cabRes.lastInsertRowId;
+        const catRes = await db.runAsync('INSERT INTO Categories (name, icon, is_mess_hall) VALUES (?, ?, ?)', ['SOUPS', 'bowl-respect', 1]);
+        const catId = catRes.lastInsertRowId;
+
+        const flavours = ['Tomato', 'Chicken', 'Mushroom', 'Vegetable', 'Lentil', 'Leek & Potato', 'Minestrone', 'Onion', 'Pea & Ham', 'Oxtail'];
+        const brands = ['Heinz', 'Campbells', 'Baxters', 'Tesco', 'Aldi', 'Asda'];
+
+        // 1. THE VAGUE SOUP
+        await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id) VALUES (?, ?, ?, ?, ?)', 
+          ['SOUP', catId, 'weight', '400', cabId]);
+
+        // 2. BRAND-ONLY SOUPS
+        for (const brand of brands) {
+          await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id, default_supplier) VALUES (?, ?, ?, ?, ?, ?)', 
+            ['SOUP', catId, 'weight', '400', cabId, brand]);
+        }
+
+        // 3. FLAVOUR-ONLY SOUPS
+        for (const flavour of flavours) {
+          await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id) VALUES (?, ?, ?, ?, ?)', 
+            [`${flavour} Soup`.toUpperCase(), catId, 'weight', '400', cabId]);
+        }
+
+        // 4. THE FULL MATRIX (Brand + Flavour)
+        for (const brand of brands) {
+          for (const flavour of flavours) {
+            // Variation A: Name="Tomato Soup", Supplier="Heinz"
+            const typeA = await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id, default_supplier) VALUES (?, ?, ?, ?, ?, ?)', 
+              [`${flavour} Soup`.toUpperCase(), catId, 'weight', '400', cabId, brand]);
+            
+            await db.runAsync('INSERT INTO Inventory (item_type_id, quantity, size, entry_month, entry_year, cabinet_id, supplier) VALUES (?, ?, ?, ?, ?, ?, ?)', 
+              [typeA.lastInsertRowId, 2, '400', 1, 2024, cabId, brand]);
+
+            // Variation B: Name="Soup", Supplier="Heinz", Range="Tomato"
+            const typeB = await db.runAsync('INSERT INTO ItemTypes (name, category_id, unit_type, default_size, default_cabinet_id, default_supplier, default_product_range) VALUES (?, ?, ?, ?, ?, ?, ?)', 
+              ['SOUP', catId, 'weight', '400', cabId, brand, flavour]);
+            
+            await db.runAsync('INSERT INTO Inventory (item_type_id, quantity, size, entry_month, entry_year, cabinet_id, supplier, product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 
+              [typeB.lastInsertRowId, 1, '400', 1, 2024, cabId, brand, flavour]);
+          }
+        }
+
+        console.log('[E2E] SOUP STRESS TEST COMPLETE.');
+      } catch (e) {
+        console.error('[E2E] SOUP SEED FAILURE:', e);
+        throw e;
+      }
+    }
   }
 };

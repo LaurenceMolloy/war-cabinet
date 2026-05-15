@@ -81,7 +81,8 @@ export const FEATURE_TIER: Record<string, 'SERGEANT' | 'GENERAL'> = {
   SILO_ISOLATION:   'SERGEANT',
   VANGUARD_INTEGRITY: 'SERGEANT',
   ERROR_DETECTION:  'SERGEANT',
-  CABINET_AUDIT:    'GENERAL',
+  CABINET_AUDIT:    'SERGEANT',
+  BUDDY_MODE:       'SERGEANT',
   STOCK_ROTATION:   'SERGEANT',
   ROTATION_ALERTS:  'GENERAL',
   RADAR:            'SERGEANT',
@@ -103,7 +104,8 @@ const FEATURE_COPY: Record<string, { title: string; desc: string; tier: 'SERGEAN
   SILO_ISOLATION:   { title: 'Silo Management',       desc: 'Isolate stock tracking to specific household zones.',                     tier: 'SERGEANT' },
   VANGUARD_INTEGRITY: { title: 'Data Accuracy Tools',   desc: 'Automated checks to keep your inventory reliable.',                       tier: 'SERGEANT' },
   ERROR_DETECTION:  { title: 'Quick Scan & Entry',      desc: 'Smart validation to spot inconsistencies and near-misses.',               tier: 'SERGEANT' },
-  CABINET_AUDIT:    { title: 'Household Audit Mode',    desc: 'Streamlined flow for regular stock-take and reconciliation.',             tier: 'GENERAL'  },
+  CABINET_AUDIT:    { title: 'Household Audit Mode',    desc: 'Streamlined flow for regular stock-take and reconciliation.',             tier: 'SERGEANT' },
+  BUDDY_MODE:       { title: 'Voice "Buddy Mode"',      desc: 'Hands-free, eyes-free inventory auditing via tactical voice intel.',      tier: 'SERGEANT' },
   STOCK_ROTATION:   { title: 'Organisation Tools',      desc: 'Bring order to secondary storage with rotation tracking.',                tier: 'SERGEANT' },
   ROTATION_ALERTS:  { title: 'Rotation Reminders',      desc: 'Helpful nudges to keep your deep-storage fresh.',                         tier: 'GENERAL'  },
   RADAR:            { title: 'Tactical Radar',          desc: 'Advanced eagle-eye visualisation of household logistics.',                tier: 'SERGEANT' },
@@ -608,6 +610,10 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   <View style={styles.benefitRow}>
                     <MaterialCommunityIcons name="check-decagram-outline" size={18} color="#60a5fa" />
                     <Text style={styles.benefitSub}>Data Accuracy & Inconsistency Tools</Text>
+                  </View>
+                  <View style={styles.benefitRow}>
+                    <MaterialCommunityIcons name="microphone" size={18} color="#60a5fa" />
+                    <Text style={styles.benefitSub}>Hands-Free "Buddy Mode" Audit</Text>
                   </View>
                 </View>
                 <TouchableOpacity testID="paywall-buy-sergeant-btn" style={styles.buyBtnSergeant} onPress={() => handleSimulatedPurchase('SERGEANT')}>

@@ -731,6 +731,15 @@ export default function LogisticsScreen() {
           </TouchableOpacity>
           <TouchableOpacity 
             style={[{flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8}]}
+            onPress={() => { router.push('/recon'); }}
+          >
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+              <MaterialCommunityIcons name="radar" size={14} color="#64748b" />
+              <Text style={{color: '#64748b', fontSize: 11, fontWeight: 'bold'}}>RECON</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[{flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8}]}
             onPress={() => { if (checkEntitlement('RADAR')) router.push('/intelligence'); }}
           >
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>

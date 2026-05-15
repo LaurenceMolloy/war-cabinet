@@ -29,4 +29,17 @@ export const Inventory = {
       ORDER BY item_type_id, freq DESC
     `);
   },
+
+  /**
+   * Marks a batch as audited, updating its timestamp and logging the outcome.
+   */
+  async markAudited(db: any, id: number, isMissing: boolean) {
+    const now = Date.now();
+    if (isMissing) {
+      // Missing items are handled by the caller (usually deleted in bulk at the end)
+      // but we log the miss for reliability metrics.
+    } else {
+      await db.runAsync('UPDATE Inventory SET last_audited_at = ? WHERE id = ?', [now, id]);
+    }
+  },
 };

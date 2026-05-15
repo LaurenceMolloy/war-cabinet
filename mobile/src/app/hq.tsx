@@ -151,6 +151,18 @@ export default function SecretHQScreen() {
           <MaterialCommunityIcons name="nuke" size={24} color="#ef4444" />
         </TouchableOpacity>
 
+        <TouchableOpacity 
+          style={[styles.scenarioCard, { borderColor: '#fbbf24', marginTop: 12 }]}
+          onPress={() => router.push('/voice_poc')}
+          disabled={isSeeding}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.scenarioId, { color: '#fbbf24' }]}>VOICE INTEL POC</Text>
+            <Text style={styles.scenarioRank}>TEST ACOUSTIC-TO-SEMANTIC MAPPING</Text>
+          </View>
+          <MaterialCommunityIcons name="microphone" size={24} color="#fbbf24" />
+        </TouchableOpacity>
+
         <View style={{ height: 24 }} />
 
         <Text style={styles.sectionTitle}>SEEDER SCENARIOS</Text>
