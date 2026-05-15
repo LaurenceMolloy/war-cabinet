@@ -7,6 +7,14 @@ import { useRouter } from 'expo-router';
 import { useSpeechRecognitionEvent, ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import * as Speech from 'expo-speech';
 
+const VOICE_TRIGGERS = {
+  WAKE: 'CHECK',
+  TERMINATE: 'OVER',
+  SKIP: 'PASS',
+  ABANDON: 'QUIT',
+  OPTIONS: 'OPTIONS'
+};
+
 /**
  * VOICE INTEL POC: ACOUSTIC-TO-SEMANTIC MAPPING
  * 
@@ -57,13 +65,14 @@ export default function VoiceIntelPoCScreen() {
   const [callsign, setCallsign] = useState<'SIR' | "MA'AM" | 'COMMANDER'>('COMMANDER');
 
   // --- INTERROGATION STATE ---
-  type InterrogationPhase = 'IDLE' | 'SIZE' | 'BRAND' | 'RANGE' | 'MONTH' | 'YEAR' | 'QUANTITY_CHECK' | 'DONE';
+  type InterrogationPhase = 'IDLE' | 'PRODUCT' | 'SIZE' | 'BRAND' | 'RANGE' | 'MONTH' | 'YEAR' | 'QUANTITY_CHECK' | 'DONE';
   const [phase, setPhase] = useState<InterrogationPhase>('IDLE');
   const [candidates, setCandidates] = useState<VoiceSearchResult[]>([]);
   const [interrogationHistory, setInterrogationHistory] = useState<string[]>([]);
   const interrogationBuffer = React.useRef<string>('');
   const confirmedItem = React.useRef<VoiceSearchResult | null>(null);
-  const isSpeaking = React.useRef(false); // Blocks mic resurrection while TTS is active
+  const isSpeaking = React.useRef(false);
+  const retryCount = React.useRef(0); // Tracks failed attempts per question (max 3)
   const [recognitionService, setRecognitionService] = useState<string>('Detecting...');
   const [onDeviceAvailable, setOnDeviceAvailable] = useState<boolean | null>(null);
   const [knownVocab, setKnownVocab] = useState<string[]>([]);
@@ -175,8 +184,28 @@ export default function VoiceIntelPoCScreen() {
     if (currentText) {
       // INTERROGATION PHASE: Bypass sessionActive — Buddy is actively questioning
       if (phase !== 'IDLE' && phase !== 'DONE') {
-        if (currentText.endsWith('OVER') || currentText.includes(' OVER')) {
-          const currentAnswer = currentText.replace(/\s?OVER\s?/gi, '').trim();
+
+        // ABANDON AUDIT: Immediately kill the process
+        if (currentText.includes(VOICE_TRIGGERS.ABANDON)) {
+          console.log(`ABANDONING AUDIT`);
+          setPhase('IDLE');
+          setSessionActive(false);
+          interrogationBuffer.current = '';
+          Speech.speak('Audit abandoned.', { rate: 1.0 });
+          return;
+        }
+
+        // OPTIONS PLEASE: Read back available choices for the current question
+        if (currentText.includes(VOICE_TRIGGERS.OPTIONS)) {
+          console.log(`OPTIONS: phase="${phase}" candidates=${candidates.length} isSpeaking=${isSpeaking.current}`);
+          interrogationBuffer.current = '';
+          if (!isSpeaking.current) speakOptions(phase, candidates);
+          return;
+        }
+
+        if (currentText.endsWith(VOICE_TRIGGERS.TERMINATE) || currentText.includes(` ${VOICE_TRIGGERS.TERMINATE}`)) {
+          const regex = new RegExp(`\\s?${VOICE_TRIGGERS.TERMINATE}\\s?`, 'gi');
+          const currentAnswer = currentText.replace(regex, '').trim();
           // OR logic: use currentAnswer if non-empty, else fall back to buffer — prevents "TWO TWO" duplication
           const fullAnswer = (currentAnswer || interrogationBuffer.current).trim();
           interrogationBuffer.current = '';
@@ -198,20 +227,31 @@ export default function VoiceIntelPoCScreen() {
         return;
       }
 
-      // STAGE 1: WAITING FOR WAKE WORD "CHECK"
+      // STAGE 1: WAITING FOR WAKE WORD
       if (!sessionActive) {
-        if (currentText.includes('CHECK')) {
+        if (currentText.includes(VOICE_TRIGGERS.WAKE)) {
           setSessionActive(true);
           setFinalTranscript('');
           setPartialText('');
           Vibration.vibrate(100);
-          Speech.speak('Got it', { rate: 1.0 }); 
+          
+          // Mic Discipline: stop mic, ask leading question, restart
+          isSpeaking.current = true;
+          ExpoSpeechRecognitionModule.stop();
+          Speech.speak('What product?', { 
+            rate: 1.0,
+            onDone: () => {
+              isSpeaking.current = false;
+              Vibration.vibrate(50); startListening();
+            }
+          });
+          
           return;
         }
       } 
-      // STAGE 2: MISSION RECORDING (WAITING FOR OVER)
+      // STAGE 2: MISSION RECORDING (WAITING FOR TERMINATE)
       else {
-        if (currentText.endsWith('OVER') || currentText.includes(' OVER')) {
+        if (currentText.endsWith(VOICE_TRIGGERS.TERMINATE) || currentText.includes(` ${VOICE_TRIGGERS.TERMINATE}`)) {
           // Initial payload sign-off
           setSessionActive(false);
           setFinalTranscript(text);
@@ -387,45 +427,179 @@ export default function VoiceIntelPoCScreen() {
   const beginInterrogation = (currentCandidates: VoiceSearchResult[]) => {
     // Determine the first gap that varies across candidates
     const variations = {
-      size: new Set(currentCandidates.map(c => c.size)).size > 1,
-      brand: new Set(currentCandidates.map(c => c.brand)).size > 1,
-      range: new Set(currentCandidates.map(c => c.product_range)).size > 1,
+      name: new Set(currentCandidates.map(c => c.name?.toLowerCase().trim())).size > 1,
+      size: new Set(currentCandidates.map(c => c.size?.toString().toLowerCase().trim())).size > 1,
+      brand: new Set(currentCandidates.map(c => c.brand?.toLowerCase().trim())).size > 1,
+      range: new Set(currentCandidates.map(c => c.product_range?.toLowerCase().trim())).size > 1,
       month: new Set(currentCandidates.map(c => c.expiry_month)).size > 1,
       year: new Set(currentCandidates.map(c => c.expiry_year)).size > 1,
     };
 
-    if (variations.size) {
+    let nextPhase: InterrogationPhase | null = null;
+    let question = "";
+
+    if (variations.name) {
+      nextPhase = 'PRODUCT';
+      question = "Which product?";
+    } else if (variations.size) {
       const unit = currentCandidates[0].unit_type === 'weight' ? 'grammes' : 
                    currentCandidates[0].unit_type === 'volume' ? 'millilitres' : 'units';
-      askQuestion(`What size in ${unit}?`, 'SIZE');
+      nextPhase = 'SIZE';
+      question = `What size in ${unit}?`;
     } else if (variations.brand) {
-      askQuestion("What brand?", 'BRAND');
+      nextPhase = 'BRAND';
+      question = "What brand?";
     } else if (variations.range) {
-      askQuestion("What product range?", 'RANGE');
+      nextPhase = 'RANGE';
+      question = "What product range?";
     } else if (variations.month) {
-      askQuestion("What expiry month?", 'MONTH');
+      nextPhase = 'MONTH';
+      question = "What expiry month?";
     } else {
-      // If only years vary
-      askQuestion("What expiry year?", 'YEAR');
+      nextPhase = 'YEAR';
+      question = "What expiry year?";
+    }
+
+    // Anti-Loop Guard: If the user answered but it was too vague to clear the phase 
+    // (e.g. "Aldi" leaving both "Aldi Premium" and "Aldi Everyday"), automatically read options.
+    // ALSO: If the phase is PRODUCT, automatically read options to disambiguate base matches.
+    if (nextPhase === phase || nextPhase === 'PRODUCT') {
+      setPhase(nextPhase);
+      setInterrogationHistory(prev => [...prev, `Buddy: Disambiguating options.`]);
+      speakOptions(nextPhase, currentCandidates);
+    } else {
+      askQuestion(question, nextPhase);
     }
   };
 
-  const askQuestion = (text: string, nextPhase: InterrogationPhase) => {
-    setPhase(nextPhase);
-    interrogationBuffer.current = '';
-    setInterrogationHistory(prev => [...prev, `Buddy: ${text} (say answer then OVER)`]);
-    // Mic Discipline: stop before speaking, restart after onDone
+  // --- DRY OPTIONS HELPER ---
+  // Extracts distinct, speakable values from candidates for any interrogation phase.
+  const getOptionsForPhase = (currentPhase: InterrogationPhase, currentCandidates: VoiceSearchResult[]): string[] => {
+    const monthNames = ["January","February","March","April","May","June",
+                        "July","August","September","October","November","December"];
+    const distinct = (arr: (string | null | undefined)[]) =>
+      [...new Set(arr.filter(Boolean))].map(v => String(v));
+
+    switch (currentPhase) {
+      case 'PRODUCT': return distinct(currentCandidates.map(c => c.name));
+      case 'SIZE': {
+        const unit = currentCandidates[0]?.unit_type === 'weight' ? 'grammes' : 
+                     currentCandidates[0]?.unit_type === 'volume' ? 'millilitres' : 'units';
+        return distinct(currentCandidates.map(c => `${c.size} ${unit}`));
+      }
+      case 'BRAND':  return distinct(currentCandidates.map(c => c.brand));
+      case 'RANGE':  return distinct(currentCandidates.map(c => c.product_range));
+      case 'MONTH':  return distinct(currentCandidates.map(c =>
+                       c.expiry_month ? monthNames[c.expiry_month - 1] : null));
+      case 'YEAR':   return distinct(currentCandidates.map(c =>
+                       c.expiry_year ? String(c.expiry_year) : null));
+      default:       return [];
+    }
+  };
+
+  const speakOptions = (currentPhase: InterrogationPhase, currentCandidates: VoiceSearchResult[]) => {
+    const options = getOptionsForPhase(currentPhase, currentCandidates);
+    if (options.length === 0) {
+      askQuestion('No options available.', currentPhase);
+      return;
+    }
+    // Natural language list
+    const list = options.length === 1
+      ? options[0]
+      : options.slice(0, -1).join(', ') + ', and ' + options[options.length - 1];
+    const prompt = `I have ${list}. Which would you like?`;
+    setInterrogationHistory(prev => [...prev, `Buddy (options): ${list}`]);
     isSpeaking.current = true;
     ExpoSpeechRecognitionModule.stop();
-    Speech.speak(text, { 
+    Speech.speak(prompt, {
       rate: 1.0,
       onDone: () => {
         isSpeaking.current = false;
-        setTimeout(() => {
-          Vibration.vibrate(50);
-          startListening();
-        }, 300);
+        Vibration.vibrate(50);
+        startListening();
       }
+    });
+  };
+
+  // Core speech function — does NOT reset retry counter (used for retries)
+  const _speakQuestion = (text: string, nextPhase: InterrogationPhase) => {
+    setPhase(nextPhase);
+    interrogationBuffer.current = '';
+    setInterrogationHistory(prev => [...prev, `Buddy: ${text} (say answer then OVER)`]);
+    isSpeaking.current = true;
+    ExpoSpeechRecognitionModule.stop();
+    Speech.speak(text, {
+      rate: 1.0,
+      onDone: () => {
+        isSpeaking.current = false;
+        Vibration.vibrate(50); startListening();
+      }
+    });
+  };
+
+  // New question — resets retry counter
+  const askQuestion = (text: string, nextPhase: InterrogationPhase) => {
+    retryCount.current = 0;
+    _speakQuestion(text, nextPhase);
+  };
+
+  // DRY retry handler — used by ALL interrogation phases and quantity check
+  const handleNoMatch = (retryPrompt: string) => {
+    retryCount.current += 1;
+    if (retryCount.current < 3) {
+      const remaining = 3 - retryCount.current;
+      _speakQuestion(
+        `Sorry, I didn't catch that. ${remaining} ${remaining === 1 ? 'attempt' : 'attempts'} remaining. ${retryPrompt}`,
+        phase
+      );
+    } else {
+      retryCount.current = 0;
+      setPhase('IDLE');
+      setSessionActive(false);
+      Speech.speak(`Audit abandoned after 3 attempts, ${callsign}.`, { rate: 1.0 });
+    }
+  };
+
+  // Sørensen–Dice coefficient for robust phonetic/fuzzy string matching
+  const getSimilarity = (first: string, second: string) => {
+    first = first.replace(/\s+/g, '').toLowerCase();
+    second = second.replace(/\s+/g, '').toLowerCase();
+    if (!first.length && !second.length) return 1;
+    if (!first.length || !second.length) return 0;
+    if (first === second) return 1;
+    if (first.length === 1 && second.length === 1) return 0;
+    if (first.length < 2 || second.length < 2) return 0;
+
+    const firstBigrams = new Map();
+    for (let i = 0; i < first.length - 1; i++) {
+      const bigram = first.substring(i, i + 2);
+      firstBigrams.set(bigram, (firstBigrams.get(bigram) || 0) + 1);
+    }
+
+    let intersectionSize = 0;
+    for (let i = 0; i < second.length - 1; i++) {
+      const bigram = second.substring(i, i + 2);
+      const count = firstBigrams.get(bigram);
+      if (count && count > 0) {
+        firstBigrams.set(bigram, count - 1);
+        intersectionSize++;
+      }
+    }
+
+    return (2.0 * intersectionSize) / (first.length + second.length - 2);
+  };
+
+  const filterByTextIncludes = (
+    cands: VoiceSearchResult[], 
+    fieldExtractor: (c: VoiceSearchResult) => string | null | undefined, 
+    spokenText: string
+  ) => {
+    return cands.filter(c => {
+      const fieldVal = fieldExtractor(c)?.toLowerCase().trim();
+      if (!fieldVal) return false;
+      if (fieldVal.includes(spokenText) || spokenText.includes(fieldVal)) return true;
+      // Fallback: 40% bigram overlap covers terrible voice transcriptions (e.g. "basmati" -> "bass matty")
+      return getSimilarity(spokenText, fieldVal) > 0.4;
     });
   };
 
@@ -434,17 +608,51 @@ export default function VoiceIntelPoCScreen() {
     setInterrogationHistory(prev => [...prev, `User: ${text}`]);
     
     let filtered = candidates;
-    if (phase === 'SIZE') {
-      filtered = candidates.filter(c => String(c.size).includes(val) || val.includes(String(c.size)));
+
+    if (val === VOICE_TRIGGERS.SKIP.toLowerCase()) {
+      filtered = candidates.filter(c => {
+        if (phase === 'PRODUCT') return !c.name;
+        if (phase === 'SIZE') return !c.size;
+        if (phase === 'BRAND') return !c.brand;
+        if (phase === 'RANGE') return !c.product_range;
+        if (phase === 'MONTH') return !c.expiry_month;
+        if (phase === 'YEAR') return !c.expiry_year;
+        return true;
+      });
+    } else if (phase === 'PRODUCT') {
+      filtered = filterByTextIncludes(candidates, c => c.name, val);
+    } else if (phase === 'SIZE') {
+      filtered = filterByTextIncludes(candidates, c => String(c.size), val);
     } else if (phase === 'BRAND') {
-      filtered = candidates.filter(c => c.brand?.toLowerCase().includes(val) || val.includes(c.brand?.toLowerCase() || ''));
+      filtered = filterByTextIncludes(candidates, c => c.brand, val);
+    } else if (phase === 'RANGE') {
+      filtered = filterByTextIncludes(candidates, c => c.product_range, val);
     } else if (phase === 'MONTH') {
-      // Basic month mapping for POC
       const months: Record<string, number> = { 
-        january: 1, feb: 2, march: 3, april: 4, may: 5, june: 6, 
-        july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 
+        jan: 1, january: 1, one: 1, won: 1,
+        feb: 2, february: 2, two: 2, to: 2, too: 2,
+        mar: 3, march: 3, three: 3, free: 3,
+        apr: 4, april: 4, four: 4, for: 4, fore: 4,
+        may: 5, five: 5,
+        jun: 6, june: 6, six: 6,
+        jul: 7, july: 7, seven: 7,
+        aug: 8, august: 8, eight: 8, ate: 8,
+        sep: 9, sept: 9, september: 9, nine: 9,
+        oct: 10, october: 10, ten: 10,
+        nov: 11, november: 11, eleven: 11,
+        dec: 12, december: 12, twelve: 12
       };
-      const monthNum = months[val] || parseInt(val, 10);
+      
+      let monthNum = parseInt(val, 10);
+      if (isNaN(monthNum)) {
+        for (const [mName, mVal] of Object.entries(months)) {
+          if (new RegExp(`\\b${mName}\\b`).test(val)) {
+            monthNum = mVal;
+            break;
+          }
+        }
+      }
+      
       filtered = candidates.filter(c => Number(c.expiry_month) === monthNum);
     } else if (phase === 'YEAR') {
       const yearNum = val.length === 2 ? Number(`20${val}`) : Number(val);
@@ -460,8 +668,7 @@ export default function VoiceIntelPoCScreen() {
     if (filtered.length === 1) {
       finalizeAudit(filtered[0]);
     } else if (filtered.length === 0) {
-      Speech.speak("Intelligence lost. No matching facets found.", { rate: 1.0 });
-      setPhase('IDLE');
+      handleNoMatch('Please try again.');
     } else {
       setCandidates(resultsWithEvidence);
       setResults(resultsWithEvidence); 
@@ -499,10 +706,8 @@ export default function VoiceIntelPoCScreen() {
         rate: 1.0,
         onDone: () => {
           isSpeaking.current = false;
-          setTimeout(() => {
-            Vibration.vibrate(50);
-            startListening();
-          }, 300);
+          Vibration.vibrate(50);
+          startListening();
         }
       });
     } else {
@@ -567,7 +772,7 @@ export default function VoiceIntelPoCScreen() {
     Vibration.vibrate([0, 100, 50, 100]);
 
     if (found === null || found < 0 || found > 100) {
-      Speech.speak(`Could not understand the count. Audit incomplete, ${callsign}.`, { rate: 1.0 });
+      handleNoMatch('How many have you found?');
       return;
     }
 
