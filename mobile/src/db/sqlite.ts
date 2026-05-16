@@ -62,6 +62,20 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     await db.execAsync(`CREATE TABLE IF NOT EXISTS AuditMetrics (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, cabinet_id INTEGER, item_type_id INTEGER, found_qty INTEGER, missing_qty INTEGER, audit_session_id TEXT);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS ProductEventLedger (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, product_id INTEGER NOT NULL, batch_id INTEGER, source TEXT NOT NULL, change_amount INTEGER NOT NULL, FOREIGN KEY(batch_id) REFERENCES Inventory(id) ON DELETE CASCADE, FOREIGN KEY(product_id) REFERENCES ItemTypes(id) ON DELETE CASCADE);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS RotationLogs (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type_id INTEGER NOT NULL, source_cabinet_id INTEGER NOT NULL, target_cabinet_id INTEGER NOT NULL, quantity INTEGER NOT NULL, size TEXT NOT NULL, expiry_month INTEGER, expiry_year INTEGER, rotated_at INTEGER NOT NULL, FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id), FOREIGN KEY(source_cabinet_id) REFERENCES Cabinets(id), FOREIGN KEY(target_cabinet_id) REFERENCES Cabinets(id));`);
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS AuditPendingChanges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id INTEGER, -- NULL for new batches discovery
+        item_type_id INTEGER NOT NULL,
+        cabinet_id INTEGER,
+        change_type TEXT NOT NULL, -- 'ADJUST' | 'MIA' | 'NEW'
+        proposed_intel TEXT, -- JSON payload for new/adjusted fields
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(batch_id) REFERENCES Inventory(id) ON DELETE CASCADE,
+        FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE,
+        FOREIGN KEY(cabinet_id) REFERENCES Cabinets(id) ON DELETE CASCADE
+      );
+    `);
 
 
 
@@ -421,6 +435,31 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v114_complete', '1']);
     }
 
+    // Iteration 115: Logistics Authorization Gateway (Gated Audit) - GOLD STANDARD CLEAN SLATE
+    const i115Migrated = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'migration_v115_gold_standard');
+    if (!i115Migrated || (i115Migrated as any).count === 0) {
+      console.log('[DB] Implementing Gold Standard Gated Audit Schema (v115)...');
+      // Mandatory reset to purge all legacy/fragmented versions of this transient table
+      await db.execAsync('DROP TABLE IF EXISTS AuditPendingChanges');
+      await db.execAsync(`
+        CREATE TABLE AuditPendingChanges (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          batch_id INTEGER,
+          item_type_id INTEGER NOT NULL,
+          cabinet_id INTEGER,
+          change_type TEXT NOT NULL, -- 'ADJUST', 'MIA', 'NEW'
+          proposed_intel TEXT, -- JSON payload for new/adjusted fields
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY(batch_id) REFERENCES Inventory(id) ON DELETE CASCADE,
+          FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE,
+          FOREIGN KEY(cabinet_id) REFERENCES Cabinets(id) ON DELETE CASCADE
+        );
+      `);
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v115_gold_standard', '1']);
+    }
+
+
+
     // Set formal schema version
     await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['schema_version', CURRENT_SCHEMA_VERSION.toString()]);
 
@@ -476,6 +515,8 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     console.error('[DB] CRITICAL HANDSHAKE FAILURE:', globalErr);
   }
 }
+
+
 
 export async function markModified(db: any) {
   await db.runAsync("UPDATE Settings SET value = ? WHERE key = 'last_modified_time'", [Date.now().toString()]);

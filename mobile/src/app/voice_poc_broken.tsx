@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Platform, Linking, Vibration, Image, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Platform, Linking, Vibration, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -52,6 +52,8 @@ interface VoiceSearchResult {
   unit_type: string | null;
   batch_image: string | null;
   product_image: string | null;
+  last_audited_at: number | null;
+  last_audit_outcome: string | null;
 }
 
 export default function VoiceIntelPoCScreen() {
@@ -73,7 +75,7 @@ export default function VoiceIntelPoCScreen() {
   const [briefing, setBriefing] = useState<any>(null);
 
   // --- INTERROGATION STATE ---
-  type InterrogationPhase = 'IDLE' | 'PRODUCT' | 'SIZE' | 'BRAND' | 'RANGE' | 'MONTH' | 'YEAR' | 'QUANTITY_CHECK' | 'DONE';
+  type InterrogationPhase = 'IDLE' | 'PRODUCT' | 'SIZE' | 'BRAND' | 'RANGE' | 'MONTH' | 'YEAR' | 'QUANTITY_CHECK' | 'DISCOVERY_START' | 'DONE';
   const [phase, setPhase] = useState<InterrogationPhase>('IDLE');
   const [candidates, setCandidates] = useState<VoiceSearchResult[]>([]);
   const [interrogationHistory, setInterrogationHistory] = useState<string[]>([]);
@@ -81,7 +83,7 @@ export default function VoiceIntelPoCScreen() {
   const confirmedItem = React.useRef<VoiceSearchResult | null>(null);
   const isSpeaking = React.useRef(false);
   
-  // NEW: Discovery Mode & Gated Audit State
+  // NEW: Discovery Mode State
   const [isDiscoveryMode, setIsDiscoveryMode] = useState(false);
   const discoveryIntel = React.useRef<{ brand?: string, range?: string, size?: string, month?: number, year?: number }>({});
   const [pendingChanges, setPendingChanges] = useState<any[]>([]);
@@ -209,9 +211,6 @@ export default function VoiceIntelPoCScreen() {
 
   useEffect(() => {
     const loadData = async () => {
-      // NUCLEAR WIPE to guarantee we aren't looking at corrupted zombie records
-      await db.execAsync('DELETE FROM AuditPendingChanges');
-
       const [briefingData, pendingData] = await Promise.all([
         Database.Inventory.getAuditBriefing(db, selectedCabinetId),
         Database.Inventory.getPendingChanges(db)
@@ -490,11 +489,13 @@ export default function VoiceIntelPoCScreen() {
       const query = `
         SELECT 
           inv.id, inv.item_type_id, inv.quantity, inv.size, inv.cabinet_id, inv.expiry_month, inv.expiry_year,
-          inv.image_uri as batch_image,
           it.name, it.default_cabinet_id, it.unit_type,
-          it.image_uri as product_image,
           COALESCE(inv.supplier, it.default_supplier) as brand,
-          COALESCE(inv.product_range, it.default_product_range) as product_range
+          COALESCE(inv.product_range, it.default_product_range) as product_range,
+          inv.image_uri as batch_image,
+          it.image_uri as product_image,
+          inv.last_audited_at,
+          inv.last_audit_outcome
         FROM Inventory inv
         JOIN ItemTypes it ON inv.item_type_id = it.id
         WHERE inv.quantity > 0 AND (${placeholders})
@@ -526,8 +527,29 @@ export default function VoiceIntelPoCScreen() {
       }).filter(r => r.score > 0).sort((a, b) => b.score - a.score);
 
       if (scored.length === 0) {
-        Speech.speak("No tactical matches found.", { rate: 1.0 });
-        setPhase('IDLE');
+        // SECONDARY RECON: Search ItemTypes for a potential new discovery
+        const itQuery = `SELECT id, name, default_supplier as brand, default_product_range as product_range, unit_type FROM ItemTypes WHERE ${tokens.map(() => "name LIKE ?").join(' AND ')} LIMIT 5`;
+        const itParams = tokens.map(t => `%${t}%`);
+        const itRows = await db.getAllAsync<any>(itQuery, itParams);
+
+        if (itRows.length > 0) {
+          setIsDiscoveryMode(true);
+          discoveryIntel.current = {};
+          const itCandidates = itRows.map(r => ({ ...r, id: 0, item_type_id: r.id, score: 10, evidence: [], quantity: 0, expiry_month: null, expiry_year: null }));
+          setCandidates(itCandidates);
+          setResults(itCandidates);
+          
+          if (itCandidates.length === 1) {
+            setPhase('DISCOVERY_START');
+            askQuestion(`No existing batches found for ${itCandidates[0].name}. Is this a new discovery?`, 'DISCOVERY_START');
+          } else {
+            setPhase('PRODUCT');
+            askQuestion(`I found multiple product types but no active batches. Which one are you recruiting?`, 'PRODUCT');
+          }
+        } else {
+          Speech.speak("No tactical matches found in inventory or product master.", { rate: 1.0 });
+          setPhase('IDLE');
+        }
         return;
       }
 
@@ -542,7 +564,7 @@ export default function VoiceIntelPoCScreen() {
     } catch (err) {
       console.error(err);
     } finally {
-setIsProcessing(false);
+      setIsProcessing(false);
     }
   };
 
@@ -569,6 +591,8 @@ setIsProcessing(false);
         nextPhase = 'SIZE';
         question = `What size in ${unit}?`;
       } else if (phase !== 'QUANTITY_CHECK' && phase !== 'MONTH' && phase !== 'YEAR') {
+        // We've gathered BRAND, RANGE, SIZE. Now we need QUANTITY.
+        // We reuse QUANTITY_CHECK phase.
         confirmedItem.current = currentCandidates[0];
         setPhase('QUANTITY_CHECK');
         askQuestion(`Understood. How many of this new batch have you found?`, 'QUANTITY_CHECK');
@@ -581,7 +605,7 @@ setIsProcessing(false);
         question = "What expiry year?";
       }
     } else {
-      // Determination Protocol: Determine the first gap that varies across candidates
+      // Determine the first gap that varies across candidates
       const variations = {
         name: new Set(currentCandidates.map(c => c.name?.toLowerCase().trim())).size > 1,
         size: new Set(currentCandidates.map(c => c.size?.toString().toLowerCase().trim())).size > 1,
@@ -608,18 +632,15 @@ setIsProcessing(false);
       } else if (variations.month) {
         nextPhase = 'MONTH';
         question = "What expiry month?";
-      } else if (variations.year) {
+      } else {
         nextPhase = 'YEAR';
         question = "What expiry year?";
-      } else {
-        // NO REMAINING VARIATIONS: Force finalization on the top match
-        finalizeAudit(currentCandidates[0]);
-        return;
       }
     }
 
     // Anti-Loop Guard: If the user answered but it was too vague to clear the phase 
-    // automatically read options.
+    // (e.g. "Aldi" leaving both "Aldi Premium" and "Aldi Everyday"), automatically read options.
+    // ALSO: If the phase is PRODUCT, automatically read options to disambiguate base matches.
     if (nextPhase === phase || nextPhase === 'PRODUCT') {
       setPhase(nextPhase);
       setInterrogationHistory(prev => [...prev, `Buddy: Disambiguating options.`]);
@@ -761,7 +782,7 @@ setIsProcessing(false);
   };
 
   const handleInterrogationResponse = async (text: string) => {
-    const val = text.toLowerCase();
+    const val = text.toLowerCase().trim();
     setInterrogationHistory(prev => [...prev, `User: ${text}`]);
     
     if (phase === 'DISCOVERY_START') {
@@ -776,6 +797,7 @@ setIsProcessing(false);
     }
 
     if (isDiscoveryMode) {
+      // In Discovery Mode, we populate discoveryIntel instead of filtering candidates
       if (phase === 'BRAND') {
         discoveryIntel.current.brand = text.toUpperCase();
       } else if (phase === 'RANGE') {
@@ -791,6 +813,8 @@ setIsProcessing(false);
         if (!isNaN(yearNum)) discoveryIntel.current.year = yearNum;
         else { handleNoMatch('What expiry year?'); return; }
       }
+      
+      // Continue to next field
       beginInterrogation(candidates);
       return;
     }
@@ -826,7 +850,7 @@ setIsProcessing(false);
     // Preserve evidence across filtering
     const resultsWithEvidence = filtered.map(f => ({
       ...f,
-      evidence: [...f.evidence, { field: phase.toLowerCase() as any, token: text, confidence: 1.0 }]
+      evidence: [...f.evidence, { field: 'size' as any, token: text, confidence: 1.0 }]
     }));
 
     if (filtered.length === 1) {
@@ -838,6 +862,36 @@ setIsProcessing(false);
       setResults(resultsWithEvidence); 
       beginInterrogation(resultsWithEvidence);
     }
+  };
+
+  const parseMonth = (val: string): number | null => {
+    const months: Record<string, number> = { 
+      jan: 1, january: 1, one: 1, won: 1,
+      feb: 2, february: 2, two: 2, to: 2, too: 2,
+      mar: 3, march: 3, three: 3, free: 3,
+      apr: 4, april: 4, four: 4, for: 4, fore: 4,
+      may: 5, five: 5,
+      jun: 6, june: 6, six: 6,
+      jul: 7, july: 7, seven: 7,
+      aug: 8, august: 8, eight: 8, ate: 8,
+      sep: 9, sept: 9, september: 9, nine: 9,
+      oct: 10, october: 10, ten: 10,
+      nov: 11, november: 11, eleven: 11,
+      dec: 12, december: 12, twelve: 12
+    };
+    
+    let monthNum = parseInt(val, 10);
+    if (isNaN(monthNum)) {
+      for (const [mName, mVal] of Object.entries(months)) {
+        if (new RegExp(`\\b${mName}\\b`).test(val)) {
+          monthNum = mVal;
+          return monthNum;
+        }
+      }
+    } else if (monthNum >= 1 && monthNum <= 12) {
+      return monthNum;
+    }
+    return null;
   };
 
   const finalizeAudit = async (item: VoiceSearchResult) => {
@@ -855,6 +909,7 @@ setIsProcessing(false);
     const spec = `${item.brand || ''} ${item.name}, ${sizeVal} ${unitVerbal}. Expiry: ${date}.`;
 
     if (isDiscoveryMode) {
+      // For discovery, we skip straight to "How many?" but we need to pass thegathered intel
       confirmedItem.current = item;
       setPhase('QUANTITY_CHECK');
       setSessionActive(true);
@@ -1009,12 +1064,8 @@ setIsProcessing(false);
     setPhase('DONE');
     setSessionActive(false);
     
-    const [updatedBriefing, updatedPending] = await Promise.all([
-      Database.Inventory.getAuditBriefing(db, selectedCabinetId),
-      Database.Inventory.getPendingChanges(db)
-    ]);
+    const updatedBriefing = await Database.Inventory.getAuditBriefing(db, selectedCabinetId);
     setBriefing(updatedBriefing);
-    setPendingChanges(updatedPending);
   };
 
 
@@ -1047,10 +1098,8 @@ setIsProcessing(false);
     
     setInterrogationHistory(prev => [...prev, `MISSION COMPLETE: ${count} UNTOUCHED ITEMS LOGGED AS MIA`]);
     
-    const [updatedBriefing, updatedPending] = await Promise.all([
-      Database.Inventory.getAuditBriefing(db, selectedCabinetId),
-      Database.Inventory.getPendingChanges(db)
-    ]);
+    const updatedBriefing = await Database.Inventory.getAuditBriefing(db, selectedCabinetId);
+    const updatedPending = await Database.Inventory.getPendingChanges(db);
     setBriefing(updatedBriefing);
     setPendingChanges(updatedPending);
     setIsProcessing(false);
@@ -1074,11 +1123,6 @@ setIsProcessing(false);
     Speech.speak("All tactical updates authorized. Master records synchronized.", { rate: 1.0 });
   };
 
-  const handleDiscardChange = async (id: string) => {
-    await Database.Inventory.discardPendingChange(db, id);
-    await refreshPending();
-  };
-
   const handleResetAudit = async () => {
     if (!selectedCabinetId) return;
     Alert.alert(
@@ -1099,8 +1143,6 @@ setIsProcessing(false);
       ]
     );
   };
-
-
 
   const renderPendingModal = () => (
     <Modal
@@ -1138,41 +1180,29 @@ setIsProcessing(false);
                     ]} />
                     <View style={styles.reviewCardContent}>
                       <Text style={styles.reviewProductName}>{change.name}</Text>
-                      <Text style={styles.reviewDetail}>
-                        Cabinet: {change.cabinet_name || 'Unknown'}
-                      </Text>
-                      <Text style={styles.reviewDetail}>
-                        Brand: {isNew && intel.brand ? intel.brand : (change.brand || 'No Brand')}
-                      </Text>
-                      <Text style={styles.reviewDetail}>
-                        Range: {isNew && intel.range ? intel.range : (change.product_range || 'No Range')}
-                      </Text>
-                      <Text style={styles.reviewDetail}>
-                        Size: {isNew && intel.size ? intel.size : (change.size || 'STD')}{change.unit_type === 'weight' ? 'g' : (change.unit_type === 'volume' ? 'ml' : '')}
-                      </Text>
-                      <Text style={styles.reviewDetail}>
-                        Expiry: {(isNew && intel.month) || change.expiry_month ? `${(isNew && intel.month) || change.expiry_month}/${(isNew && intel.year) || change.expiry_year}` : 'No Date'}
-                      </Text>
                       
                       {isNew && (
-                        <Text style={[styles.reviewDetail, { color: '#10b981', fontWeight: 'bold', marginTop: 4 }]}>
-                          NEW RECRUIT: +{intel.quantity} units
+                        <Text style={styles.reviewDetail}>
+                          RECRUITING: {intel.brand} {intel.range} - {intel.size}{change.unit_type === 'weight' ? 'g' : 'ml'} ({intel.quantity} units)
                         </Text>
                       )}
                       {isMIA && (
-                        <Text style={[styles.reviewDetail, { color: '#ef4444', fontWeight: 'bold', marginTop: 4 }]}>
-                          MISSING: Count {change.current_qty} → 0
+                        <Text style={styles.reviewDetail}>
+                          MISSING: Removed {change.current_qty} units from record.
                         </Text>
                       )}
                       {isAdjust && (
-                        <Text style={[styles.reviewDetail, { color: '#fbbf24', fontWeight: 'bold', marginTop: 4 }]}>
-                          ADJUST: Count {change.current_qty} → {intel.quantity}
+                        <Text style={styles.reviewDetail}>
+                          ADJUST: {change.current_qty} → {intel.quantity} units.
                         </Text>
                       )}
                     </View>
                     <TouchableOpacity 
                       style={styles.discardButton}
-                      onPress={() => handleDiscardChange(change.id)}
+                      onPress={async () => {
+                        await Database.Inventory.discardPendingChange(db, change.id);
+                        await refreshPending();
+                      }}
                     >
                       <MaterialCommunityIcons name="trash-can-outline" size={20} color="#ef4444" />
                     </TouchableOpacity>
@@ -1204,6 +1234,9 @@ setIsProcessing(false);
       </View>
     </Modal>
   );
+
+
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1395,14 +1428,21 @@ setIsProcessing(false);
                   <Text style={styles.cardQty}>{item.quantity} × {item.size || 'STD'}</Text>
                   <Text style={styles.dateLabel}>EXP: {item.expiry_month}/{item.expiry_year}</Text>
                 </View>
-
+                
                 {item.last_audited_at && (Date.now() - item.last_audited_at < 24 * 60 * 60 * 1000) && (
-                  <View style={styles.auditedBadge}>
-                    <MaterialCommunityIcons name={item.last_audit_outcome === 'VERIFIED' ? "check-decagram" : "alert-rhombus"} size={12} color={item.last_audit_outcome === 'VERIFIED' ? "#10b981" : "#fbbf24"} />
-                    <Text style={[styles.auditedText, { color: item.last_audit_outcome === 'VERIFIED' ? "#10b981" : "#fbbf24" }]}>
-                      {item.last_audit_outcome === 'VERIFIED' ? 'SECURED' : 'PENDING REVIEW'}
-                    </Text>
-                  </View>
+                  <>
+                    {item.last_audit_outcome === 'VERIFIED' ? (
+                      <View style={styles.auditedBadge}>
+                        <MaterialCommunityIcons name="check-decagram" size={12} color="#10b981" />
+                        <Text style={styles.auditedText}>SECURED</Text>
+                      </View>
+                    ) : (item.last_audit_outcome === 'ADJUSTED' || item.last_audit_outcome === 'PENDING' || item.last_audit_outcome === 'MIA') ? (
+                      <View style={[styles.auditedBadge, { borderBottomColor: '#fbbf24' }]}>
+                        <MaterialCommunityIcons name="alert-rhombus" size={12} color="#fbbf24" />
+                        <Text style={[styles.auditedText, { color: '#fbbf24' }]}>PENDING REVIEW</Text>
+                      </View>
+                    ) : null}
+                  </>
                 )}
                 
                 <View style={styles.evidenceContainer}>
@@ -1437,19 +1477,6 @@ setIsProcessing(false);
             <View style={styles.noMatch}>
               <MaterialCommunityIcons name="alert-circle-outline" size={48} color="#475569" />
               <Text style={styles.noMatchText}>NO TACTICAL MATCHES FOUND</Text>
-              
-              <TouchableOpacity 
-                style={styles.discoveryBtn}
-                onPress={() => {
-                  setIsDiscoveryMode(true);
-                  setPhase('BRAND');
-                  setSessionActive(true);
-                  askQuestion('Initiating discovery. What brand is this batch?', 'BRAND');
-                }}
-              >
-                <MaterialCommunityIcons name="plus-circle" size={20} color="#fbbf24" />
-                <Text style={styles.discoveryBtnText}>RECRUIT NEW BATCH</Text>
-              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -1528,6 +1555,13 @@ const styles = StyleSheet.create({
   cardSub: { color: '#94a3b8', fontSize: 11, marginBottom: 2 },
   cardQty: { color: '#3b82f6', fontSize: 12, fontWeight: 'bold', marginBottom: 8 },
   
+  auditedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, marginBottom: 8 },
+  auditedText: { color: '#10b981', fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  
+  cardImageContainer: { width: 64, height: 64, borderRadius: 8, overflow: 'hidden', backgroundColor: '#020617', borderWidth: 1, borderColor: '#1e293b' },
+  cardImage: { width: '100%', height: '100%' },
+  imageFallback: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' },
+  
   evidenceContainer: { borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 8 },
   evidenceHeader: { color: '#475569', fontSize: 7, fontWeight: 'bold', marginBottom: 4 },
   evidenceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
@@ -1588,39 +1622,6 @@ const styles = StyleSheet.create({
   rankText: { color: '#94a3b8', fontSize: 8, fontWeight: '900' },
   rankTextActive: { color: '#ffffff' },
 
-  auditedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 8,
-    backgroundColor: '#1e293b',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-  },
-  auditedText: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  discoveryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#1e293b',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: '#fbbf2433',
-  },
-  discoveryBtnText: {
-    color: '#fbbf24',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(2, 6, 23, 0.9)',
@@ -1715,25 +1716,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     marginTop: 12,
-  },
-  cardImageContainer: { 
-    width: 64, 
-    height: 64, 
-    borderRadius: 8, 
-    overflow: 'hidden', 
-    backgroundColor: '#020617', 
-    borderWidth: 1, 
-    borderColor: '#1e293b' 
-  },
-  cardImage: { 
-    width: '100%', 
-    height: '100%' 
-  },
-  imageFallback: { 
-    width: '100%', 
-    height: '100%', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    backgroundColor: '#0f172a' 
   },
 });

@@ -161,6 +161,108 @@ export const Inventory = {
   },
 
   // ============================================================================
+  // AUDIT GATEWAY (V116) - PENDING CHANGES
+  // ============================================================================
+
+  async proposeAdjustment(db: any, batchId: number, itemTypeId: number, proposedQty: number) {
+    const ts = Date.now();
+    await db.runAsync('DELETE FROM AuditPendingChanges WHERE batch_id = ?', [batchId]);
+    await db.runAsync(
+      'INSERT INTO AuditPendingChanges (batch_id, item_type_id, change_type, proposed_intel, created_at) VALUES (?, ?, ?, ?, ?)',
+      [batchId, itemTypeId, 'ADJUST', JSON.stringify({ quantity: proposedQty }), ts]
+    );
+    await db.runAsync('UPDATE Inventory SET last_audited_at = ?, last_audit_outcome = ? WHERE id = ?', [ts, 'PENDING', batchId]);
+  },
+
+  async proposeMIA(db: any, batchId: number, itemTypeId: number) {
+    const ts = Date.now();
+    await db.runAsync('DELETE FROM AuditPendingChanges WHERE batch_id = ?', [batchId]);
+    await db.runAsync(
+      'INSERT INTO AuditPendingChanges (batch_id, item_type_id, change_type, proposed_intel, created_at) VALUES (?, ?, ?, ?, ?)',
+      [batchId, itemTypeId, 'MIA', JSON.stringify({ quantity: 0 }), ts]
+    );
+    await db.runAsync('UPDATE Inventory SET last_audited_at = ?, last_audit_outcome = ? WHERE id = ?', [ts, 'PENDING', batchId]);
+  },
+
+  async proposeNewDiscovery(db: any, itemTypeId: number, cabinetId: number | string, intel: { quantity: number, brand?: string, range?: string, size?: string, month?: number, year?: number }) {
+    const ts = Date.now();
+    await db.runAsync(
+      'INSERT INTO AuditPendingChanges (batch_id, item_type_id, cabinet_id, change_type, proposed_intel, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [null, itemTypeId, cabinetId, 'NEW', JSON.stringify(intel), ts]
+    );
+  },
+
+  async getPendingChanges(db: any) {
+    const query = `
+      SELECT 
+        AuditPendingChanges.*, 
+        ItemTypes.name, 
+        ItemTypes.unit_type, 
+        ItemTypes.default_cabinet_id as it_cab,
+        Inventory.quantity as current_qty,
+        Inventory.cabinet_id as inv_cab,
+        Inventory.supplier as raw_inv_brand,
+        ItemTypes.default_supplier as raw_it_brand,
+        Inventory.product_range as raw_inv_range,
+        ItemTypes.default_product_range as raw_it_range,
+        COALESCE(NULLIF(Inventory.supplier, ''), NULLIF(ItemTypes.default_supplier, '')) as brand,
+        COALESCE(NULLIF(Inventory.product_range, ''), NULLIF(ItemTypes.default_product_range, '')) as product_range,
+        Inventory.size,
+        Inventory.expiry_month,
+        Inventory.expiry_year,
+        Cabinets.name as cabinet_name
+      FROM AuditPendingChanges
+      JOIN ItemTypes ON AuditPendingChanges.item_type_id = ItemTypes.id
+      LEFT JOIN Inventory ON AuditPendingChanges.batch_id = Inventory.id
+      LEFT JOIN Cabinets ON Cabinets.id = COALESCE(AuditPendingChanges.cabinet_id, Inventory.cabinet_id, ItemTypes.default_cabinet_id)
+      ORDER BY AuditPendingChanges.created_at DESC
+    `;
+    return await db.getAllAsync<any>(query);
+  },
+
+  async commitPendingChange(db: any, changeId: number) {
+    const change = await db.getFirstAsync<any>('SELECT * FROM AuditPendingChanges WHERE id = ?', [changeId]);
+    if (!change) return;
+
+    const intel = change.proposed_intel ? JSON.parse(change.proposed_intel) : {};
+
+    if (change.change_type === 'ADJUST') {
+      const diff = change.original_qty - intel.quantity; // Note: we'll need to fetch original_qty or rely on JSON
+      // Better: fetch current quantity from Inventory
+      const batch = await db.getFirstAsync<any>('SELECT quantity FROM Inventory WHERE id = ?', [change.batch_id]);
+      if (batch) {
+        const adjustment = batch.quantity - intel.quantity;
+        await this.consumeQuantity(db, change.batch_id, change.item_type_id, adjustment, 'AUDIT');
+        await this.markAudited(db, change.batch_id, 'ADJUSTED');
+      }
+    } else if (change.change_type === 'MIA') {
+      await this.softDeleteBatch(db, change.batch_id, change.item_type_id, 'AUDIT');
+      await this.markAudited(db, change.batch_id, 'MIA');
+    } else if (change.change_type === 'NEW') {
+      await db.runAsync(
+        'INSERT INTO Inventory (item_type_id, cabinet_id, quantity, size, supplier, product_range, expiry_month, expiry_year, last_audited_at, last_audit_outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [change.item_type_id, change.cabinet_id, intel.quantity, intel.size, intel.brand, intel.range, intel.month, intel.year, Date.now(), 'NEW']
+      );
+    }
+
+    await db.runAsync('DELETE FROM AuditPendingChanges WHERE id = ?', [changeId]);
+  },
+
+  async discardPendingChange(db: any, changeId: number) {
+    const change = await db.getFirstAsync<any>('SELECT batch_id FROM AuditPendingChanges WHERE id = ?', [changeId]);
+    if (change && change.batch_id) {
+      // Reset audit outcome if we're discarding an adjustment
+      await db.runAsync('UPDATE Inventory SET last_audit_outcome = NULL WHERE id = ?', [change.batch_id]);
+    }
+    await db.runAsync('DELETE FROM AuditPendingChanges WHERE id = ?', [changeId]);
+  },
+
+  async clearPendingChanges(db: any, batchId: number) {
+    await db.runAsync('DELETE FROM AuditPendingChanges WHERE batch_id = ?', [batchId]);
+  },
+
+
+  // ============================================================================
   // TACTICAL ANALYTICS & LIFECYCLE MANAGEMENT (V113)
   // ============================================================================
 
@@ -280,5 +382,7 @@ export const Inventory = {
         )
       `, [excess]);
     }
-  }
+  },
+
+
 };
