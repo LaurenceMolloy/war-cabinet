@@ -376,7 +376,7 @@ export default function VoiceIntelPoCScreen() {
           COALESCE(inv.product_range, it.default_product_range) as product_range
         FROM Inventory inv
         JOIN ItemTypes it ON inv.item_type_id = it.id
-        WHERE ${placeholders}
+        WHERE inv.quantity > 0 AND (${placeholders})
         ORDER BY inv.id DESC
         LIMIT 500
       `;

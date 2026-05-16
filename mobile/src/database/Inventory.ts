@@ -11,7 +11,7 @@ export const Inventory = {
    */
   async getAll(db: any) {
     return db.getAllAsync<any>(`
-      SELECT item_type_id, quantity, size FROM Inventory
+      SELECT item_type_id, quantity, size FROM Inventory WHERE quantity > 0
     `);
   },
 
@@ -24,7 +24,7 @@ export const Inventory = {
     return db.getAllAsync<any>(`
       SELECT item_type_id, size, SUM(quantity) AS freq
       FROM Inventory
-      WHERE size IS NOT NULL AND size != '' AND size GLOB '[0-9]*'
+      WHERE quantity > 0 AND size IS NOT NULL AND size != '' AND size GLOB '[0-9]*'
       GROUP BY item_type_id, size
       ORDER BY item_type_id, freq DESC
     `);

@@ -221,7 +221,7 @@ export default function HomeScreen() {
              c.is_mess_hall
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
-      LEFT JOIN Inventory inv ON i.id = inv.item_type_id ${effectiveCabinetId ? ` AND inv.cabinet_id = ${effectiveCabinetId}` : ''}
+      LEFT JOIN Inventory inv ON i.id = inv.item_type_id AND inv.quantity > 0 ${effectiveCabinetId ? ` AND inv.cabinet_id = ${effectiveCabinetId}` : ''}
       LEFT JOIN Cabinets cab ON inv.cabinet_id = cab.id
       ORDER BY c.name, i.name, inv.expiry_year, inv.expiry_month, inv.size
     `);

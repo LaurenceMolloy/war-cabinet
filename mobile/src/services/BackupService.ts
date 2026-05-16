@@ -67,6 +67,7 @@ export const BackupService = {
       const tacticalLogs = await db.getAllAsync<any>('SELECT * FROM TacticalLogs');
       const missions = await db.getAllAsync<any>('SELECT * FROM Missions');
       const assetDeletionsCache = await db.getAllAsync<any>('SELECT * FROM AssetDeletionsCache');
+      const rotationLogs = await db.getAllAsync<any>('SELECT * FROM RotationLogs');
 
       const lastActionRes = settings.find((s: any) => s.key === 'last_activity_log');
       let lastAction = lastActionRes ? lastActionRes.value : 'No operational changes recorded';
@@ -121,7 +122,8 @@ export const BackupService = {
           BarcodeSignatures: barcodeSignatures,
           TacticalLogs: tacticalLogs,
           Missions: missions,
-          AssetDeletionsCache: assetDeletionsCache
+          AssetDeletionsCache: assetDeletionsCache,
+          RotationLogs: rotationLogs
         }
       };
 
@@ -440,6 +442,7 @@ export const BackupService = {
         await db.runAsync("DELETE FROM TacticalLogs");
         await db.runAsync("DELETE FROM Missions");
         await db.runAsync("DELETE FROM AssetDeletionsCache");
+        await db.runAsync("DELETE FROM RotationLogs");
 
         const { tables } = jsonData;
         if (!tables) throw new Error("Invalid tactical data packet: Missing tables.");
@@ -448,8 +451,8 @@ export const BackupService = {
         for (const cat of cats) {
           await db.runAsync(
             "INSERT INTO Categories (id, name, icon, is_mess_hall) VALUES (?, ?, ?, ?)", 
-            cat.id, cat.name, cat.icon || 'box', 
-            cat.is_mess_hall !== undefined ? cat.is_mess_hall : 1
+            [cat.id, cat.name, cat.icon || 'box', 
+            cat.is_mess_hall !== undefined ? cat.is_mess_hall : 1]
           );
         }
 
@@ -457,7 +460,7 @@ export const BackupService = {
         for (const it of itemTypes) {
           await db.runAsync(
             "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months, default_supplier, default_product_range, vanguard_resolved, image_uri, visual_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-            it.id, it.category_id, it.name, it.unit_type || 'weight', it.default_size || null, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0,
+            [it.id, it.category_id, it.name, it.unit_type || 'weight', it.default_size || null, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0,
             it.min_stock_level !== undefined ? it.min_stock_level : null,
             it.max_stock_level !== undefined ? it.max_stock_level : null,
             it.freeze_months !== undefined ? it.freeze_months : null,
@@ -465,7 +468,7 @@ export const BackupService = {
             it.default_product_range || null,
             it.vanguard_resolved !== undefined ? it.vanguard_resolved : 0,
             it.image_uri || null,
-            it.visual_profile || 'standard'
+            it.visual_profile || 'standard']
           );
         }
 
@@ -473,9 +476,9 @@ export const BackupService = {
         for (const cab of cabs) {
           await db.runAsync(
             "INSERT INTO Cabinets (id, name, location, cabinet_type, rotation_interval_months, default_rotation_cabinet_id) VALUES (?, ?, ?, ?, ?, ?)", 
-            cab.id, cab.name, cab.location || '', cab.cabinet_type || 'standard',
+            [cab.id, cab.name, cab.location || '', cab.cabinet_type || 'standard',
             cab.rotation_interval_months !== undefined ? cab.rotation_interval_months : null,
-            cab.default_rotation_cabinet_id !== undefined ? cab.default_rotation_cabinet_id : null
+            cab.default_rotation_cabinet_id !== undefined ? cab.default_rotation_cabinet_id : null]
           );
         }
 
@@ -483,7 +486,7 @@ export const BackupService = {
         for (const inv of invs) {
           await db.runAsync(
             "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining, image_uri, visual_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-            inv.id, inv.item_type_id, inv.quantity, inv.size || '', 
+            [inv.id, inv.item_type_id, inv.quantity, inv.size || '', 
             inv.expiry_month !== undefined ? inv.expiry_month : null, 
             inv.expiry_year !== undefined ? inv.expiry_year : null, 
             inv.entry_month !== undefined ? inv.entry_month : null, 
@@ -495,7 +498,7 @@ export const BackupService = {
             inv.portions_total !== undefined ? inv.portions_total : null,
             inv.portions_remaining !== undefined ? inv.portions_remaining : null,
             inv.image_uri || null,
-            inv.visual_profile || 'standard'
+            inv.visual_profile || 'standard']
           );
         }
 
@@ -504,24 +507,24 @@ export const BackupService = {
           // Skip sensitive cloud/mirror keys from the incoming backup to avoid overwriting current device's connection
           const protectedKeys = ['cloud_account', 'cloud_backup_enabled', 'persistence_mirror_uri', 'google_access_token', 'google_refresh_token'];
           if (protectedKeys.includes(s.key)) continue;
-          await db.runAsync("INSERT INTO Settings (key, value) VALUES (?, ?)", s.key, s.value);
+          await db.runAsync("INSERT INTO Settings (key, value) VALUES (?, ?)", [s.key, s.value]);
         }
 
         // 4. RESTORE CRITICAL LOCAL SETTINGS
         for (const ls of localSettings) {
-          await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", ls.key, ls.value);
+          await db.runAsync("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", [ls.key, ls.value]);
         }
 
         const barcodeSigs = tables.BarcodeSignatures || [];
         for (const bs of barcodeSigs) {
-          await db.runAsync("INSERT INTO BarcodeSignatures (barcode, item_type_id, supplier, size) VALUES (?, ?, ?, ?)", bs.barcode, bs.item_type_id, bs.supplier || null, bs.size || null);
+          await db.runAsync("INSERT INTO BarcodeSignatures (barcode, item_type_id, supplier, size) VALUES (?, ?, ?, ?)", [bs.barcode, bs.item_type_id, bs.supplier || null, bs.size || null]);
         }
 
         const tacticalLogs = tables.TacticalLogs || [];
         for (const log of tacticalLogs) {
           await db.runAsync(
             "INSERT INTO TacticalLogs (id, timestamp, action_type, entity_type, entity_id, entity_name, details) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            log.id, log.timestamp, log.action_type, log.entity_type, log.entity_id, log.entity_name, log.details || null
+            [log.id, log.timestamp, log.action_type, log.entity_type, log.entity_id, log.entity_name, log.details || null]
           );
         }
 
@@ -529,7 +532,7 @@ export const BackupService = {
         for (const m of missions) {
           await db.runAsync(
             "INSERT INTO Missions (id, completed_at, points) VALUES (?, ?, ?)",
-            m.id, m.completed_at, m.points
+            [m.id, m.completed_at, m.points]
           );
         }
 
@@ -537,7 +540,15 @@ export const BackupService = {
         for (const ad of assetDeletionsCache) {
           await db.runAsync(
             "INSERT INTO AssetDeletionsCache (id, filename, asset_type, deleted_timestamp) VALUES (?, ?, ?, ?)",
-            ad.id, ad.filename, ad.asset_type, ad.deleted_timestamp
+            [ad.id, ad.filename, ad.asset_type, ad.deleted_timestamp]
+          );
+        }
+
+        const rotationLogs = tables.RotationLogs || [];
+        for (const rl of rotationLogs) {
+          await db.runAsync(
+            "INSERT INTO RotationLogs (id, item_type_id, source_cabinet_id, target_cabinet_id, quantity, size, expiry_month, expiry_year, rotated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [rl.id, rl.item_type_id, rl.source_cabinet_id, rl.target_cabinet_id, rl.quantity, rl.size, rl.expiry_month, rl.expiry_year, rl.rotated_at]
           );
         }
       });

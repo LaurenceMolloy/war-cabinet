@@ -52,7 +52,7 @@ export default function LogisticsScreen() {
 
     // 2. Fetch all inventory for calculation
     const inventoryRows = await db.getAllAsync<any>(`
-      SELECT item_type_id, quantity, size FROM Inventory
+      SELECT item_type_id, quantity, size FROM Inventory WHERE quantity > 0
     `);
 
     // 3. Helper to parse size string (e.g. "500g" -> 500)
@@ -136,7 +136,7 @@ export default function LogisticsScreen() {
       FROM Inventory i
       JOIN ItemTypes t ON i.item_type_id = t.id
       JOIN Cabinets c ON i.cabinet_id = c.id
-      WHERE c.cabinet_type = 'standard' AND c.rotation_interval_months IS NOT NULL AND c.rotation_interval_months > 0
+      WHERE i.quantity > 0 AND c.cabinet_type = 'standard' AND c.rotation_interval_months IS NOT NULL AND c.rotation_interval_months > 0
     `);
 
     const now = new Date();

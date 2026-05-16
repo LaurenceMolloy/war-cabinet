@@ -61,6 +61,7 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     await db.execAsync(`CREATE TABLE IF NOT EXISTS AssetDeletionsCache (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, asset_type TEXT NOT NULL, deleted_timestamp INTEGER NOT NULL);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS AuditMetrics (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, cabinet_id INTEGER, item_type_id INTEGER, found_qty INTEGER, missing_qty INTEGER, audit_session_id TEXT);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS ProductEventLedger (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, product_id INTEGER NOT NULL, batch_id INTEGER, source TEXT NOT NULL, change_amount INTEGER NOT NULL, FOREIGN KEY(batch_id) REFERENCES Inventory(id) ON DELETE CASCADE, FOREIGN KEY(product_id) REFERENCES ItemTypes(id) ON DELETE CASCADE);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS RotationLogs (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type_id INTEGER NOT NULL, source_cabinet_id INTEGER NOT NULL, target_cabinet_id INTEGER NOT NULL, quantity INTEGER NOT NULL, size TEXT NOT NULL, expiry_month INTEGER, expiry_year INTEGER, rotated_at INTEGER NOT NULL, FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id), FOREIGN KEY(source_cabinet_id) REFERENCES Cabinets(id), FOREIGN KEY(target_cabinet_id) REFERENCES Cabinets(id));`);
 
 
 

@@ -85,7 +85,7 @@ export const ItemTypes = {
       FROM ItemTypes it
     `);
     const inventoryRows = await db.getAllAsync<any>(
-      'SELECT item_type_id, quantity, size FROM Inventory'
+      'SELECT item_type_id, quantity, size FROM Inventory WHERE quantity > 0'
     );
 
     const parseSize = (s: any): number => {

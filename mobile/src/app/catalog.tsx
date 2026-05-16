@@ -590,8 +590,8 @@ export default function CatalogScreen() {
     const rows = await db.getAllAsync(`
       SELECT c.id as cat_id, c.name as cat_name, c.is_mess_hall as cat_is_mess_hall, i.id as type_id, i.name as type_name, i.unit_type as type_unit, i.is_favorite, i.interaction_count, i.default_size as type_default_size, i.image_uri, i.visual_profile,
              i.min_stock_level, i.max_stock_level, i.freeze_months, i.default_cabinet_id, i.default_supplier, i.default_product_range,
-             (SELECT COUNT(*) FROM Inventory v WHERE v.item_type_id = i.id) as type_stock_count,
-             EXISTS(SELECT 1 FROM Inventory v JOIN Cabinets cab ON v.cabinet_id = cab.id WHERE v.item_type_id = i.id AND cab.cabinet_type = 'freezer') as in_freezer
+             (SELECT COUNT(*) FROM Inventory v WHERE v.item_type_id = i.id AND v.quantity > 0) as type_stock_count,
+             EXISTS(SELECT 1 FROM Inventory v JOIN Cabinets cab ON v.cabinet_id = cab.id WHERE v.item_type_id = i.id AND cab.cabinet_type = 'freezer' AND v.quantity > 0) as in_freezer
       FROM Categories c
       LEFT JOIN ItemTypes i ON c.id = i.category_id
       ORDER BY c.name, i.name
@@ -683,7 +683,7 @@ export default function CatalogScreen() {
 
 
   // Compute Current Census (Standardized)
-    const invCountRes = await db.getAllAsync<{q: any}>('SELECT quantity as q FROM Inventory');
+    const invCountRes = await db.getAllAsync<{q: any}>('SELECT quantity as q FROM Inventory WHERE quantity > 0');
     setCurrentCensus({
       units: invCountRes.reduce((sum, r) => sum + Number(r.q || 0), 0),
       batches: invCountRes.length,
@@ -717,7 +717,7 @@ export default function CatalogScreen() {
       // Fetch Supplier Usage Counts
       const sStats = await db.getAllAsync<{val: string, total: number}>(`
         SELECT val, SUM(count) as total FROM (
-          SELECT supplier as val, COUNT(*) as count FROM Inventory WHERE supplier IS NOT NULL AND supplier != '' GROUP BY supplier
+          SELECT supplier as val, COUNT(*) as count FROM Inventory WHERE quantity > 0 AND supplier IS NOT NULL AND supplier != '' GROUP BY supplier
           UNION ALL
           SELECT default_supplier as val, COUNT(*) as count FROM ItemTypes WHERE default_supplier IS NOT NULL AND default_supplier != '' GROUP BY default_supplier
         ) GROUP BY val
@@ -744,7 +744,7 @@ export default function CatalogScreen() {
       // Fetch Range Usage Counts
       const rStats = await db.getAllAsync<{val: string, total: number}>(`
         SELECT val, SUM(count) as total FROM (
-          SELECT product_range as val, COUNT(*) as count FROM Inventory WHERE product_range IS NOT NULL AND product_range != '' GROUP BY product_range
+          SELECT product_range as val, COUNT(*) as count FROM Inventory WHERE quantity > 0 AND product_range IS NOT NULL AND product_range != '' GROUP BY product_range
           UNION ALL
           SELECT default_product_range as val, COUNT(*) as count FROM ItemTypes WHERE default_product_range IS NOT NULL AND default_product_range != '' GROUP BY default_product_range
         ) GROUP BY val

@@ -159,7 +159,7 @@ export default function ReconScreen() {
         MIN(inv.last_audited_at) as last_audit
       FROM Categories c
       JOIN ItemTypes it ON c.id = it.category_id
-      LEFT JOIN Inventory inv ON it.id = inv.item_type_id AND inv.cabinet_id = ?
+      LEFT JOIN Inventory inv ON it.id = inv.item_type_id AND inv.cabinet_id = ? AND inv.quantity > 0
       WHERE inv.id IS NOT NULL OR it.default_cabinet_id = ?
       GROUP BY c.id
       ORDER BY c.name
@@ -187,7 +187,7 @@ export default function ReconScreen() {
         it.unit_type
       FROM Inventory inv
       JOIN ItemTypes it ON inv.item_type_id = it.id
-      WHERE inv.cabinet_id = ? AND it.category_id = ?
+      WHERE inv.cabinet_id = ? AND it.category_id = ? AND inv.quantity > 0
       ORDER BY it.name, inv.expiry_year, inv.expiry_month
     `, [selectedCabinetId, selectedCategoryId]);
 

@@ -278,7 +278,7 @@ export default function RecipesScreen() {
         JOIN ItemTypes i ON i.id = inv.item_type_id
         JOIN Categories c ON c.id = i.category_id
         JOIN Cabinets cab ON cab.id = inv.cabinet_id
-        WHERE c.is_mess_hall = 1
+        WHERE c.is_mess_hall = 1 AND inv.quantity > 0
         ${siloCabinetId ? `AND inv.cabinet_id = ${siloCabinetId}` : ''}
       `);
 
@@ -663,7 +663,7 @@ export default function RecipesScreen() {
       JOIN ItemTypes i ON i.id = inv.item_type_id
       JOIN Categories c ON c.id = i.category_id
       JOIN Cabinets cab ON cab.id = inv.cabinet_id
-      WHERE c.is_mess_hall = 1
+      WHERE c.is_mess_hall = 1 AND inv.quantity > 0
       ${siloCabinetId ? `AND inv.cabinet_id = ${siloCabinetId}` : ''}
     `);
 

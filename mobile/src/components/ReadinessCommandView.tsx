@@ -156,8 +156,11 @@ export function ReadinessCommandView({ mode = 'readiness' }: ReadinessProps) {
             const defSizeVal = parseSize(row.default_size);
             const isPhysical = defSizeVal > 0 && row.unit_type !== 'count';
             const batchPips = (invByType[row.type_id] || []).flatMap((b: any) => {
+              const qty = Math.floor(Number(b.quantity || 0));
+              if (qty <= 0) return [];
               const unitSize = isPhysical ? (parseSize(b.size) || defSizeVal) : 1;
-              return Array(b.quantity).fill(unitSize);
+              if (isNaN(unitSize)) return [];
+              return Array(qty).fill(unitSize);
             }).filter((v: number) => v > 0);
             shortfallList.push({
               name: row.type_name, actual: physicalStock,
@@ -274,7 +277,12 @@ export function ReadinessCommandView({ mode = 'readiness' }: ReadinessProps) {
                       {/* PIP BAR — proportional-width pips per batch */}
                       <View style={styles.pipBarTrack}>
                         {item.batches.map((batchPhysical, i) => {
-                          const pipPct = Math.min((batchPhysical / item.required) * 100, 100);
+                          const pipPct = (item.required > 0 && !isNaN(batchPhysical)) 
+                            ? Math.min((batchPhysical / item.required) * 100, 100)
+                            : 0;
+                          
+                          if (isNaN(pipPct) || pipPct <= 0) return null;
+
                           return (
                             <View
                               key={i}
