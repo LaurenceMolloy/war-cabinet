@@ -32,11 +32,132 @@ export const Inventory = {
 
   /**
    * Marks a batch as audited, updating its timestamp and logging the outcome.
+   * Outcome can be 'VERIFIED', 'ADJUSTED', 'MIA', or 'NEW'.
    */
-  async markAudited(db: any, id: number, isMissing: boolean) {
+  async markAudited(db: any, id: number, outcome: 'VERIFIED' | 'ADJUSTED' | 'MIA' | 'NEW') {
     const now = Date.now();
-    await db.runAsync('UPDATE Inventory SET last_audited_at = ? WHERE id = ?', [now, id]);
-    // The missing/found logic will be handled by the explicit consume/add DAL functions below.
+    await db.runAsync('UPDATE Inventory SET last_audited_at = ?, last_audit_outcome = ? WHERE id = ?', [now, outcome, id]);
+  },
+
+  /**
+   * Generates a tactical briefing for a specific cabinet's audit mission.
+   * Calculates percentages based on the cabinet's unique Maneuver Schedule.
+   */
+  async getAuditBriefing(db: any, cabinetId: string | number | null) {
+    // 1. Get Cabinet Schedule Defaults
+    let interval = 3;
+    let day = 1;
+    if (cabinetId) {
+      const cab = await db.getFirstAsync<{audit_interval_months: number, audit_day_of_month: number}>(
+        'SELECT audit_interval_months, audit_day_of_month FROM Cabinets WHERE id = ?', [cabinetId]
+      );
+      if (cab) {
+        interval = cab.audit_interval_months;
+        day = cab.audit_day_of_month || 1;
+      }
+    }
+
+    // 2. Handle Disabled Audits
+    // 2. Handle Disabled Audits
+    if (interval === 0) {
+      const basic = await db.getFirstAsync<any>(`
+        SELECT COUNT(id) as total_batches, COUNT(DISTINCT item_type_id) as total_products, SUM(quantity) as total_items
+        FROM Inventory WHERE quantity > 0 ${cabinetId ? 'AND cabinet_id = ?' : ''}
+      `, cabinetId ? [cabinetId] : []);
+      
+      return {
+        isExempt: true,
+        windowStart: 'MISSION EXEMPT',
+        counts: {
+          total: basic?.total_batches || 0,
+          verified: 0,
+          new: 0,
+          mia: 0,
+          adjusted: 0
+        },
+        percents: {
+          complete: 100,
+          verified: 0,
+          new: 0,
+          mia: 0,
+          adjusted: 0
+        }
+      };
+    }
+
+    // 3. Calculate Window Start (Most recent 'Maneuver Day' in the current interval cycle)
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    let targetMonth = currentMonth;
+    while ((targetMonth - 1) % interval !== 0) targetMonth--;
+    
+    let windowStart = new Date(currentYear, targetMonth - 1, day);
+    if (now < windowStart) {
+        // We haven't hit the maneuver day this cycle yet, look back to the previous interval
+        let prevMonth = targetMonth - interval;
+        let prevYear = currentYear;
+        if (prevMonth < 1) { prevMonth += 12; prevYear -= 1; }
+        windowStart = new Date(prevYear, prevMonth - 1, day);
+    }
+    const windowStartMs = windowStart.getTime();
+
+    // 3. Query Live Metrics
+    let query = `
+      SELECT 
+        COUNT(id) as total_batches,
+        COUNT(DISTINCT item_type_id) as total_products,
+        SUM(quantity) as total_items,
+        SUM(CASE WHEN last_audited_at >= ? THEN 1 ELSE 0 END) as audited_batches,
+        SUM(CASE WHEN last_audited_at >= ? AND last_audit_outcome = 'VERIFIED' THEN 1 ELSE 0 END) as verified_batches,
+        SUM(CASE WHEN last_audited_at >= ? AND last_audit_outcome = 'ADJUSTED' THEN 1 ELSE 0 END) as adjusted_batches,
+        SUM(CASE WHEN last_audited_at >= ? AND last_audit_outcome = 'NEW' THEN 1 ELSE 0 END) as new_batches,
+        SUM(CASE WHEN last_audited_at >= (strftime('%s','now','-24 hours') * 1000) THEN 1 ELSE 0 END) as session_batches
+      FROM Inventory
+      WHERE quantity > 0
+    `;
+    const params: any[] = [windowStartMs, windowStartMs, windowStartMs, windowStartMs];
+    if (cabinetId) {
+      query += " AND cabinet_id = ?";
+      params.push(cabinetId);
+    }
+
+    const row = await db.getFirstAsync<any>(query, params);
+
+    // 4. Handle MIA (Items that were expected but vanished during this window)
+    let miaQuery = `
+      SELECT COUNT(*) as count 
+      FROM Inventory 
+      WHERE quantity = 0 AND dead_at >= ? AND last_audit_outcome = 'MIA'
+    `;
+    const miaParams: any[] = [windowStartMs];
+    if (cabinetId) {
+      miaQuery += " AND cabinet_id = ?";
+      miaParams.push(cabinetId);
+    }
+    const miaRow = await db.getFirstAsync<{count: number}>(miaQuery, miaParams);
+    const miaCount = miaRow?.count || 0;
+
+    const totalExpected = (row.total_batches || 0) + miaCount - (row.new_batches || 0);
+
+    return {
+      isExempt: false,
+      windowStart: windowStart.toLocaleDateString(),
+      counts: {
+        total: totalExpected,
+        verified: row.verified_batches || 0,
+        new: row.new_batches || 0,
+        mia: miaCount,
+        adjusted: row.adjusted_batches || 0
+      },
+      percents: {
+        complete: totalExpected > 0 ? Math.round(((row.audited_batches + miaCount - row.new_batches) / totalExpected) * 100) : 0,
+        verified: totalExpected > 0 ? Math.round((row.verified_batches / totalExpected) * 100) : 0,
+        new: totalExpected > 0 ? Math.round((row.new_batches / totalExpected) * 100) : 0,
+        mia: totalExpected > 0 ? Math.round((miaCount / totalExpected) * 100) : 0,
+        adjusted: totalExpected > 0 ? Math.round((row.adjusted_batches / totalExpected) * 100) : 0
+      }
+    };
   },
 
   // ============================================================================
@@ -56,16 +177,18 @@ export const Inventory = {
 
     if (actualChange > 0) {
       if (newQty === 0) {
-        await db.runAsync('UPDATE Inventory SET quantity = 0, dead_at = ?, portions_remaining = 0 WHERE id = ?', [ts, batchId]);
+        await db.runAsync('UPDATE Inventory SET quantity = 0, dead_at = ?, portions_remaining = 0, last_audited_at = ?, last_audit_outcome = ? WHERE id = ?', [ts, ts, 'ADJUSTED', batchId]);
       } else {
         await db.runAsync(`
           UPDATE Inventory 
           SET quantity = ?,
+              last_audited_at = ?,
+              last_audit_outcome = ?,
               portions_remaining = CASE 
                 WHEN portions_total > 0 THEN MIN(IFNULL(portions_remaining, quantity * portions_total), ? * portions_total)
                 ELSE portions_remaining 
               END 
-          WHERE id = ?`, [newQty, newQty, batchId]);
+          WHERE id = ?`, [newQty, ts, 'ADJUSTED', newQty, batchId]);
       }
 
       await db.runAsync(
@@ -84,11 +207,13 @@ export const Inventory = {
       UPDATE Inventory 
       SET quantity = quantity + ?, 
           dead_at = NULL,
+          last_audited_at = ?,
+          last_audit_outcome = ?,
           portions_remaining = CASE
             WHEN portions_total > 0 THEN IFNULL(portions_remaining, quantity * portions_total) + (? * portions_total)
             ELSE portions_remaining
           END
-      WHERE id = ?`, [amount, amount, batchId]);
+      WHERE id = ?`, [amount, ts, 'VERIFIED', amount, batchId]);
     
     await db.runAsync(
       'INSERT INTO ProductEventLedger (timestamp, product_id, batch_id, source, change_amount) VALUES (?, ?, ?, ?, ?)',
@@ -120,6 +245,19 @@ export const Inventory = {
       [ts, productId, batchId, source, quantity]
     );
     await this.enforceHighWaterMark(db);
+  },
+
+  /**
+   * Wipes the audit status for all batches in a specific cabinet.
+   * Useful for testing or mission recalibration.
+   */
+  async resetCabinetAudit(db: any, cabinetId: string | number) {
+    await db.runAsync(`
+      UPDATE Inventory 
+      SET last_audited_at = NULL, 
+          last_audit_outcome = NULL 
+      WHERE cabinet_id = ?
+    `, [cabinetId]);
   },
 
   /**

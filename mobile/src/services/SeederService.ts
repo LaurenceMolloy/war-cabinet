@@ -195,9 +195,11 @@ export const SEEDER_SCENARIOS: Record<string, SeederScenario> = {
         // 2. Cabinets (6)
         const cabNames = ['MAIN PANTRY', 'GARAGE FREEZER', 'BASEMENT SHELVES', 'KITCHEN CUPBOARD', 'EMERGENCY BUNKER', 'COLD STORE'];
         const cabIds: number[] = [];
-        for (const name of cabNames) {
-          const res = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type, rotation_interval_months) VALUES (?, ?, ?, ?)', 
-            [name, 'MAIN SITE', name.includes('FREEZER') ? 'freezer' : 'standard', name.includes('FREEZER') ? 6 : 12]);
+        for (let i = 0; i < cabNames.length; i++) {
+          const name = cabNames[i];
+          const isFreezer = name.includes('FREEZER');
+          const res = await db.runAsync('INSERT INTO Cabinets (name, location, cabinet_type, rotation_interval_months, audit_interval_months, audit_day_of_month) VALUES (?, ?, ?, ?, ?, ?)', 
+            [name, 'MAIN SITE', isFreezer ? 'freezer' : 'standard', isFreezer ? 6 : 12, isFreezer ? 6 : 1, (i + 1) * 2]);
           cabIds.push(res.lastInsertRowId);
         }
 
@@ -339,6 +341,12 @@ export const SEEDER_SCENARIOS: Record<string, SeederScenario> = {
               await db.runAsync('INSERT INTO Inventory (item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
                 [typeId, finalQty, batchSize, expM, expY, now.getMonth() + 1, now.getFullYear(), cabId, `BATCH-${group.name.substring(0,3)}-${batchGlobalCounter}`, brand, range]);
               
+              // GHOST BATCH INJECTION (Iteration 113 Testing)
+              if (productGlobalCounter === 1 && b === 0) {
+                await db.runAsync('INSERT INTO Inventory (item_type_id, quantity, size, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, dead_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+                  [typeId, 0, batchSize, now.getMonth() + 1, now.getFullYear(), cabId, 'GHOST-BATCH-TEST', brand, range, Date.now()]);
+              }
+
               batchGlobalCounter++;
             }
           }

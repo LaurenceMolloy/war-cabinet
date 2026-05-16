@@ -165,7 +165,12 @@ export default function ReconScreen() {
       ORDER BY c.name
     `, [selectedCabinetId, selectedCabinetId]);
     
-    setCategories(cats);
+    const safeCats = cats.map(c => ({
+      ...c,
+      last_audit: (c.last_audit && !isNaN(Number(c.last_audit))) ? Number(c.last_audit) : null
+    }));
+    
+    setCategories(safeCats);
     
     // If current selected category is no longer in the list, clear it
     if (selectedCategoryId && !cats.some(c => c.id === selectedCategoryId)) {
@@ -240,10 +245,12 @@ export default function ReconScreen() {
     router.replace('/logistics');
   };
 
-  const getAuditStatus = (lastAudit: number | null) => {
-    if (!lastAudit) return { label: 'NEVER AUDITED', color: '#f43f5e', icon: 'alert-circle-outline' };
+  const getAuditStatus = (lastAudit: any) => {
+    const auditTs = Number(lastAudit);
+    if (!lastAudit || isNaN(auditTs) || auditTs <= 0) return { label: 'NEVER AUDITED', color: '#f43f5e', icon: 'alert-circle-outline' };
     
-    const days = Math.floor((Date.now() - lastAudit) / (1000 * 60 * 60 * 24));
+    const diff = Date.now() - auditTs;
+    const days = Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
     
     if (days === 0) return { label: 'AUDITED TODAY', color: '#22c55e', icon: 'check-decagram' };
     if (days < 7) return { label: `${days}d AGO`, color: '#22c55e', icon: 'check-circle-outline' };
@@ -282,7 +289,8 @@ export default function ReconScreen() {
           <View style={styles.pickerGrid}>
             {/* UNVERIFIED TARGETS */}
             {categories.filter(c => {
-              const days = c.last_audit ? Math.floor((Date.now() - c.last_audit) / (1000 * 60 * 60 * 24)) : 999;
+              const auditTs = Number(c.last_audit);
+              const days = (!isNaN(auditTs) && auditTs > 0) ? Math.floor((Date.now() - auditTs) / (1000 * 60 * 60 * 24)) : 999;
               return days > 0;
             }).map(cat => {
               const status = getAuditStatus(cat.last_audit);
@@ -343,7 +351,8 @@ export default function ReconScreen() {
 
   if (phase === 'active') {
     const current = batches[currentIndex];
-    const progress = ((currentIndex + 1) / batches.length) * 100;
+    const rawProgress = batches.length > 0 ? ((currentIndex + 1) / batches.length) * 100 : 0;
+    const progress = isFinite(rawProgress) ? rawProgress : 0;
 
     return (
       <SafeAreaView style={styles.container}>

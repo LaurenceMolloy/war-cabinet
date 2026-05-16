@@ -13,7 +13,7 @@ import * as Network from 'expo-network';
  * createBackup and restore methods to account for all structural 
  * changes in sqlite.ts.
  */
-export const BACKUP_MANIFEST_VERSION = 112; // SYNCED TO ITERATION 112
+export const BACKUP_MANIFEST_VERSION = 114; // SYNCED TO ITERATION 114
 
 const getBackupDir = () => (FileSystem.documentDirectory || "") + 'backups/';
 const MAX_BACKUPS = 7;
@@ -475,9 +475,11 @@ export const BackupService = {
         const cabs = tables.Cabinets || [];
         for (const cab of cabs) {
           await db.runAsync(
-            "INSERT INTO Cabinets (id, name, location, cabinet_type, rotation_interval_months, default_rotation_cabinet_id) VALUES (?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO Cabinets (id, name, location, cabinet_type, rotation_interval_months, audit_interval_months, audit_day_of_month, default_rotation_cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
             [cab.id, cab.name, cab.location || '', cab.cabinet_type || 'standard',
             cab.rotation_interval_months !== undefined ? cab.rotation_interval_months : null,
+            cab.audit_interval_months !== undefined ? cab.audit_interval_months : 3,
+            cab.audit_day_of_month !== undefined ? cab.audit_day_of_month : 1,
             cab.default_rotation_cabinet_id !== undefined ? cab.default_rotation_cabinet_id : null]
           );
         }

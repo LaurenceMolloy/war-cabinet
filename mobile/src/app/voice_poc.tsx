@@ -6,13 +6,16 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useRouter } from 'expo-router';
 import { useSpeechRecognitionEvent, ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import * as Speech from 'expo-speech';
+import { Database } from '../database';
 
 const VOICE_TRIGGERS = {
   WAKE: 'CHECK',
   TERMINATE: 'OVER',
   SKIP: 'PASS',
   ABANDON: 'QUIT',
-  OPTIONS: 'OPTIONS'
+  OPTIONS: 'OPTIONS',
+  MIA: 'MISSING',
+  RESTART: 'START OVER'
 };
 
 /**
@@ -22,8 +25,8 @@ const VOICE_TRIGGERS = {
  * map fluid speech to structured database records.
  * 
  * RULES OF ENGAGEMENT:
- * 1. STANDALONE: This file contains all its own logic.
- * 2. NO PRODUCTION DAL: SQL queries are inlined here.
+ * 1. STANDALONE: This file contains its own interrogation state machine.
+ * 2. INTEGRATED DAL: Uses the production Database DAL for audit persistence.
  * 3. TRANSPARENCY: UI shows "Match Evidence" for debugging.
  */
 
@@ -63,6 +66,7 @@ export default function VoiceIntelPoCScreen() {
   const [selectedCabinetId, setSelectedCabinetId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [callsign, setCallsign] = useState<'SIR' | "MA'AM" | 'COMMANDER'>('COMMANDER');
+  const [briefing, setBriefing] = useState<any>(null);
 
   // --- INTERROGATION STATE ---
   type InterrogationPhase = 'IDLE' | 'PRODUCT' | 'SIZE' | 'BRAND' | 'RANGE' | 'MONTH' | 'YEAR' | 'QUANTITY_CHECK' | 'DONE';
@@ -76,6 +80,37 @@ export default function VoiceIntelPoCScreen() {
   const [recognitionService, setRecognitionService] = useState<string>('Detecting...');
   const [onDeviceAvailable, setOnDeviceAvailable] = useState<boolean | null>(null);
   const [knownVocab, setKnownVocab] = useState<string[]>([]);
+  const handleRestartMission = () => {
+    setPhase('IDLE');
+    setSessionActive(false);
+    setResults([]);
+    setCandidates([]);
+    setInterrogationHistory(prev => [...prev, `MISSION RESTART: STANDING BY...`]);
+    interrogationBuffer.current = '';
+    confirmedItem.current = null;
+    Vibration.vibrate([0, 50, 50, 50]);
+    
+    // Auto-trigger "What product?" if we want it to act like a mid-process CHECK
+    setSessionActive(true);
+    isSpeaking.current = true;
+    ExpoSpeechRecognitionModule.stop();
+    Speech.speak('Restarting. What product?', { 
+      rate: 1.0,
+      onDone: () => {
+        isSpeaking.current = false;
+        Vibration.vibrate(50); startListening();
+      }
+    });
+  };
+
+  const [isBriefingExpanded, setIsBriefingExpanded] = useState(false);
+  const mainScrollRef = React.useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (results.length > 0 && isBriefingExpanded) {
+      setIsBriefingExpanded(false);
+    }
+  }, [results.length]);
 
   useEffect(() => {
     const checkServices = async () => {
@@ -117,8 +152,39 @@ export default function VoiceIntelPoCScreen() {
 
     const fetchCabinets = async () => {
       try {
-        const rows = await db.getAllAsync<{id: string, name: string}>('SELECT id, name FROM Cabinets ORDER BY name ASC');
-        setCabinets(rows);
+        const rows = await db.getAllAsync<any>(`
+          SELECT id, name, audit_interval_months, audit_day_of_month 
+          FROM Cabinets 
+          ORDER BY name ASC
+        `);
+        
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+        const currentDay = now.getDate();
+
+        const sorted = rows.map(cab => {
+          const interval = cab.audit_interval_months || 3;
+          const day = cab.audit_day_of_month || 1;
+
+          let targetMonth = currentMonth;
+          while ((targetMonth - 1) % interval !== 0 || (targetMonth === currentMonth && day < currentDay)) {
+              targetMonth++;
+          }
+          
+          let targetYear = currentYear;
+          while (targetMonth > 12) { targetMonth -= 12; targetYear += 1; }
+
+          const nextAudit = new Date(targetYear, targetMonth - 1, day);
+          const daysToAudit = Math.ceil((nextAudit.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          
+          return { ...cab, daysToAudit };
+        }).sort((a, b) => {
+          if (a.daysToAudit !== b.daysToAudit) return a.daysToAudit - b.daysToAudit;
+          return a.name.localeCompare(b.name);
+        });
+
+        setCabinets(sorted);
       } catch (e) {
         console.error("Cabinet fetch failed", e);
       }
@@ -128,6 +194,14 @@ export default function VoiceIntelPoCScreen() {
     fetchVocab();
     fetchCabinets();
   }, [db]);
+
+  useEffect(() => {
+    const loadBriefing = async () => {
+      const data = await Database.Inventory.getAuditBriefing(db, selectedCabinetId);
+      setBriefing(data);
+    };
+    loadBriefing();
+  }, [db, selectedCabinetId, results]);
 
   const triggerDownload = async () => {
     if (Platform.OS === 'android') {
@@ -174,69 +248,28 @@ export default function VoiceIntelPoCScreen() {
     setIsListening(false);
   });
   
-  useSpeechRecognitionEvent("result", (event) => {
+  useSpeechRecognitionEvent("result", async (event) => {
+    // Scan all results for the wake word to ensure we catch it immediately in continuous mode
+    const fullTranscript = event.results.map(r => r.transcript).join(' ').toUpperCase();
     const latestResult = event.results[event.results.length - 1];
     const text = latestResult?.transcript || '';
     setPartialText(text);
     
     const currentText = text.toUpperCase().replace(/[.,!]/g, '').trim();
+    console.log(`VOICE [Stream]: "${currentText}" (Full: ${fullTranscript.length} chars)`);
     
-    if (currentText) {
-      // INTERROGATION PHASE: Bypass sessionActive — Buddy is actively questioning
-      if (phase !== 'IDLE' && phase !== 'DONE') {
-
-        // ABANDON AUDIT: Immediately kill the process
-        if (currentText.includes(VOICE_TRIGGERS.ABANDON)) {
-          console.log(`ABANDONING AUDIT`);
-          setPhase('IDLE');
-          setSessionActive(false);
-          interrogationBuffer.current = '';
-          Speech.speak('Audit abandoned.', { rate: 1.0 });
-          return;
-        }
-
-        // OPTIONS PLEASE: Read back available choices for the current question
-        if (currentText.includes(VOICE_TRIGGERS.OPTIONS)) {
-          console.log(`OPTIONS: phase="${phase}" candidates=${candidates.length} isSpeaking=${isSpeaking.current}`);
-          interrogationBuffer.current = '';
-          if (!isSpeaking.current) speakOptions(phase, candidates);
-          return;
-        }
-
-        if (currentText.endsWith(VOICE_TRIGGERS.TERMINATE) || currentText.includes(` ${VOICE_TRIGGERS.TERMINATE}`)) {
-          const regex = new RegExp(`\\s?${VOICE_TRIGGERS.TERMINATE}\\s?`, 'gi');
-          const currentAnswer = currentText.replace(regex, '').trim();
-          // OR logic: use currentAnswer if non-empty, else fall back to buffer — prevents "TWO TWO" duplication
-          const fullAnswer = (currentAnswer || interrogationBuffer.current).trim();
-          interrogationBuffer.current = '';
-          console.log(`QUANTITY ANSWER: "${fullAnswer}"`);
-          Vibration.vibrate([0, 70, 50, 70]);
-          ExpoSpeechRecognitionModule.stop();
-          if (phase === 'QUANTITY_CHECK') {
-            handleQuantityCheck(fullAnswer);
-          } else {
-            handleInterrogationResponse(fullAnswer);
-          }
-          return;
-        }
-        // Accumulate ALL results (interim + final) into buffer to catch short words like "two"
-        if (currentText) {
-          interrogationBuffer.current = currentText; // Use latest full transcript, not append
-          console.log(`INTERROGATION BUFFER: "${interrogationBuffer.current}"`);
-        }
-        return;
-      }
-
+    if (fullTranscript) {
       // STAGE 1: WAITING FOR WAKE WORD
-      if (!sessionActive) {
-        if (currentText.includes(VOICE_TRIGGERS.WAKE)) {
+      if (!sessionActive && phase === 'IDLE') {
+        if (fullTranscript.includes(VOICE_TRIGGERS.WAKE)) {
+          console.log(`WAKE WORD DETECTED: ${VOICE_TRIGGERS.WAKE}`);
           setSessionActive(true);
           setFinalTranscript('');
           setPartialText('');
           Vibration.vibrate(100);
           
-          // Mic Discipline: stop mic, ask leading question, restart
           isSpeaking.current = true;
+          // Simultaneous stop/speak for faster response
           ExpoSpeechRecognitionModule.stop();
           Speech.speak('What product?', { 
             rate: 1.0,
@@ -245,20 +278,80 @@ export default function VoiceIntelPoCScreen() {
               Vibration.vibrate(50); startListening();
             }
           });
-          
           return;
         }
-      } 
-      // STAGE 2: MISSION RECORDING (WAITING FOR TERMINATE)
-      else {
-        if (currentText.endsWith(VOICE_TRIGGERS.TERMINATE) || currentText.includes(` ${VOICE_TRIGGERS.TERMINATE}`)) {
-          // Initial payload sign-off
-          setSessionActive(false);
-          setFinalTranscript(text);
-          Vibration.vibrate([0, 70, 50, 70]);
-          ExpoSpeechRecognitionModule.stop();
-          processInitialPayload(text);
+      }
+
+      if (currentText) {
+        // INTERROGATION PHASE: Bypass sessionActive — Buddy is actively questioning
+        if (phase !== 'IDLE' && phase !== 'DONE') {
+
+          // ABANDON AUDIT: Immediately kill the process
+          if (currentText.includes(VOICE_TRIGGERS.ABANDON) && event.isFinal) {
+            console.log(`ABANDONING AUDIT`);
+            setPhase('IDLE');
+            setSessionActive(false);
+            interrogationBuffer.current = '';
+            Speech.speak('Audit abandoned.', { rate: 1.0 });
+            return;
+          }
+
+          // OPTIONS PLEASE: Read back available choices for the current question
+          if (currentText.includes(VOICE_TRIGGERS.OPTIONS) && event.isFinal) {
+            console.log(`OPTIONS: phase="${phase}" candidates=${candidates.length} isSpeaking=${isSpeaking.current}`);
+            interrogationBuffer.current = '';
+            if (!isSpeaking.current) speakOptions(phase, candidates);
+            return;
+          }
+
+          // START OVER: Mid-process mission reset
+          if (currentText.includes(VOICE_TRIGGERS.RESTART) && event.isFinal) {
+            console.log(`RESTARTING MISSION VIA VOICE`);
+            handleRestartMission();
+            return;
+          }
+
+          if ((currentText.endsWith(VOICE_TRIGGERS.TERMINATE) || currentText.includes(` ${VOICE_TRIGGERS.TERMINATE}`)) && event.isFinal) {
+            const regex = new RegExp(`\\s?${VOICE_TRIGGERS.TERMINATE}\\s?`, 'gi');
+            const currentAnswer = currentText.replace(regex, '').trim();
+            // OR logic: use currentAnswer if non-empty, else fall back to buffer — prevents "TWO TWO" duplication
+            const fullAnswer = (currentAnswer || interrogationBuffer.current).trim();
+            interrogationBuffer.current = '';
+            console.log(`QUANTITY ANSWER: "${fullAnswer}"`);
+            Vibration.vibrate([0, 70, 50, 70]);
+            ExpoSpeechRecognitionModule.stop();
+            if (phase === 'QUANTITY_CHECK') {
+              await handleQuantityCheck(fullAnswer);
+            } else {
+              await handleInterrogationResponse(fullAnswer);
+            }
+            return;
+          }
+          // Accumulate ALL results (interim + final) into buffer to catch short words like "two"
+          if (currentText) {
+            interrogationBuffer.current = currentText; // Use latest full transcript, not append
+            console.log(`INTERROGATION BUFFER: "${interrogationBuffer.current}"`);
+          }
           return;
+        }
+
+        // STAGE 2: MISSION RECORDING (WAITING FOR TERMINATE)
+        else {
+          if (currentText.toUpperCase().includes(VOICE_TRIGGERS.TERMINATE) && event.isFinal) {
+            // Initial payload sign-off
+            setSessionActive(false);
+            setFinalTranscript(currentText);
+            Vibration.vibrate([0, 70, 50, 70]);
+            ExpoSpeechRecognitionModule.stop();
+            processInitialPayload(currentText);
+            return;
+          }
+
+          if (currentText.toUpperCase().includes(VOICE_TRIGGERS.MIA) && confirmedItem.current) {
+            console.log("VOICE: MIA command detected.");
+            handleMIA();
+            return;
+          }
         }
       }
     }
@@ -293,8 +386,8 @@ export default function VoiceIntelPoCScreen() {
       ExpoSpeechRecognitionModule.start({
         lang: 'en-GB',
         interimResults: true,
-        continuous: true, // Modern hardware handles continuous comms better
-        requiresOnDeviceRecognition: true, // Air-gapped / Tactical reliability
+        continuous: true,
+        requiresOnDeviceRecognition: false, // Relaxed for wider device compatibility
       });
     } catch (e) {
       console.error(e);
@@ -400,6 +493,7 @@ export default function VoiceIntelPoCScreen() {
         if (selectedCabinetId && (String(row.cabinet_id) === String(selectedCabinetId) || String(row.default_cabinet_id) === String(selectedCabinetId))) {
           score *= 2.0;
         }
+        
         return { ...row, score, evidence };
       }).filter(r => r.score > 0).sort((a, b) => b.score - a.score);
 
@@ -603,7 +697,7 @@ export default function VoiceIntelPoCScreen() {
     });
   };
 
-  const handleInterrogationResponse = (text: string) => {
+  const handleInterrogationResponse = async (text: string) => {
     const val = text.toLowerCase();
     setInterrogationHistory(prev => [...prev, `User: ${text}`]);
     
@@ -666,7 +760,7 @@ export default function VoiceIntelPoCScreen() {
     }));
 
     if (filtered.length === 1) {
-      finalizeAudit(filtered[0]);
+      await finalizeAudit(filtered[0]);
     } else if (filtered.length === 0) {
       handleNoMatch('Please try again.');
     } else {
@@ -676,7 +770,7 @@ export default function VoiceIntelPoCScreen() {
     }
   };
 
-  const finalizeAudit = (item: VoiceSearchResult) => {
+  const finalizeAudit = async (item: VoiceSearchResult) => {
     const monthNames = [
       "January", "February", "March", "April", "May", "June",
       "July", "August", "September", "October", "November", "December"
@@ -715,12 +809,16 @@ export default function VoiceIntelPoCScreen() {
       setPhase('DONE');
       setSessionActive(false);
       setResults([item]);
+      await Database.Inventory.markAudited(db, item.id, 'VERIFIED');
       Speech.speak(`Confirmed. ${spec} Audit complete, ${callsign}.`, { rate: 1.0 });
       Vibration.vibrate([0, 100, 50, 100]);
+      
+      const updatedBriefing = await Database.Inventory.getAuditBriefing(db, selectedCabinetId);
+      setBriefing(updatedBriefing);
     }
   };
 
-  const handleQuantityCheck = (text: string) => {
+  const handleQuantityCheck = async (text: string) => {
     const item = confirmedItem.current;
     if (!item) return;
 
@@ -779,12 +877,61 @@ export default function VoiceIntelPoCScreen() {
     setInterrogationHistory(prev => [...prev, `User: Found ${found}`]);
 
     if (found === item.quantity) {
+      await Database.Inventory.markAudited(db, item.id, 'VERIFIED');
       Speech.speak(`Inventory confirmed. ${callsign}.`, { rate: 1.0 });
     } else {
+      await Database.Inventory.consumeQuantity(db, item.id, item.id, item.quantity - found, 'AUDIT');
+      await Database.Inventory.markAudited(db, item.id, 'ADJUSTED');
       Speech.speak(`Discrepancy. Expected ${item.quantity}, found ${found}. Logged for review, ${callsign}.`, { rate: 1.0 });
     }
     confirmedItem.current = null;
+    const updatedBriefing = await Database.Inventory.getAuditBriefing(db, selectedCabinetId);
+    setBriefing(updatedBriefing);
   };
+
+  const handleMIA = async () => {
+    if (!confirmedItem.current) return;
+    const item = confirmedItem.current;
+    
+    setInterrogationHistory(prev => [...prev, "User: MISSING"]);
+    
+    await Database.Inventory.softDeleteBatch(db, item.id, item.id, 'AUDIT');
+    await Database.Inventory.markAudited(db, item.id, 'MIA');
+    
+    Speech.speak(`Confirmed. Sector updated. Batch recorded as missing in action, ${callsign}.`, { rate: 1.0 });
+    Vibration.vibrate([0, 150, 100, 150]);
+    
+    confirmedItem.current = null;
+    setPhase('DONE');
+    setSessionActive(false);
+    
+    const updatedBriefing = await Database.Inventory.getAuditBriefing(db, selectedCabinetId);
+    setBriefing(updatedBriefing);
+  };
+
+
+  const handleResetAudit = async () => {
+    if (!selectedCabinetId) return;
+    Alert.alert(
+      "RESET MISSION DATA",
+      "This will clear the audit status for ALL batches in this sector. This cannot be undone. Confirm recalibration?",
+      [
+        { text: "CANCEL", style: "cancel" },
+        { 
+          text: "RESET", 
+          style: "destructive", 
+          onPress: async () => {
+            await Database.Inventory.resetCabinetAudit(db, selectedCabinetId);
+            const data = await Database.Inventory.getAuditBriefing(db, selectedCabinetId);
+            setBriefing(data);
+            Vibration.vibrate(200);
+          }
+        }
+      ]
+    );
+  };
+
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -796,78 +943,139 @@ export default function VoiceIntelPoCScreen() {
         <View style={{ width: 28 }} />
       </View>
 
-      <View style={styles.cabinetFilterContainer}>
-        <Text style={styles.filterLabel}>ACTIVE SECTOR:</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cabinetScroll}>
-          <TouchableOpacity 
-            style={[styles.cabinetChip, !selectedCabinetId && styles.cabinetChipActive]}
-            onPress={() => setSelectedCabinetId(null)}
-          >
-            <Text style={[styles.cabinetChipText, !selectedCabinetId && styles.cabinetChipTextActive]}>ALL SECTORS</Text>
-          </TouchableOpacity>
-          {cabinets.map(cab => (
+      <ScrollView 
+        ref={mainScrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        stickyHeaderIndices={[1]}
+      >
+        <View style={styles.cabinetFilterContainer}>
+          <Text style={styles.filterLabel}>ACTIVE SECTOR:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cabinetScroll}>
             <TouchableOpacity 
-              key={cab.id}
-              style={[styles.cabinetChip, selectedCabinetId === cab.id && styles.cabinetChipActive]}
-              onPress={() => setSelectedCabinetId(cab.id)}
+              style={[styles.cabinetChip, !selectedCabinetId && styles.cabinetChipActive]}
+              onPress={() => setSelectedCabinetId(null)}
             >
-              <Text style={[styles.cabinetChipText, selectedCabinetId === cab.id && styles.cabinetChipTextActive]}>
-                {cab.name.toUpperCase()}
+              <Text style={[styles.cabinetChipText, !selectedCabinetId && styles.cabinetChipTextActive]}>ALL SECTORS</Text>
+            </TouchableOpacity>
+            {cabinets.map(cab => (
+              <TouchableOpacity 
+                key={cab.id} 
+                style={[styles.cabinetChip, selectedCabinetId === cab.id && styles.cabinetChipActive]}
+                onPress={() => setSelectedCabinetId(cab.id)}
+              >
+                <Text style={[styles.cabinetChipText, selectedCabinetId === cab.id && styles.cabinetChipTextActive]}>{cab.name.toUpperCase()}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {briefing && (
+          <View style={styles.briefingCard}>
+            <TouchableOpacity 
+              style={styles.briefingHeader} 
+              onPress={() => setIsBriefingExpanded(!isBriefingExpanded)}
+              activeOpacity={0.7}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialCommunityIcons name="shield-check" size={16} color={briefing.percents.complete >= 100 ? '#10b981' : '#fbbf24'} />
+                <Text style={styles.briefingTitle}>MISSION BRIEFING</Text>
+                {!isBriefingExpanded && (
+                  <View style={{ backgroundColor: '#fbbf2433', paddingHorizontal: 6, borderRadius: 4, marginLeft: 8 }}>
+                    <Text style={{ color: '#fbbf24', fontSize: 10, fontWeight: '900' }}>{Math.round(briefing.percents.complete)}% READY</Text>
+                  </View>
+                )}
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                {isBriefingExpanded && <Text style={styles.windowLabel}>WINDOW: {briefing.windowStart}</Text>}
+                <MaterialCommunityIcons name={isBriefingExpanded ? "chevron-up" : "chevron-down"} size={20} color="#475569" />
+              </View>
+            </TouchableOpacity>
+            
+            {isBriefingExpanded && (
+              <>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, marginTop: -8 }}>
+                   <View />
+                   {!briefing.isExempt && (
+                      <TouchableOpacity onPress={handleResetAudit} style={styles.resetBtn}>
+                        <MaterialCommunityIcons name="refresh" size={14} color="#ef4444" />
+                        <Text style={styles.resetBtnText}>RESET</Text>
+                      </TouchableOpacity>
+                    )}
+                </View>
+
+                <View style={styles.briefingMetrics}>
+                  <View style={styles.metricBlock}>
+                    <Text style={styles.metricVal}>{briefing.counts.total}</Text>
+                    <Text style={styles.metricLabel}>TARGET BATCHES</Text>
+                  </View>
+                  <View style={styles.metricBlock}>
+                    <Text style={[styles.metricVal, { color: briefing.percents.complete >= 100 ? '#10b981' : '#fbbf24' }]}>
+                      {Math.round(briefing.percents.complete)}%
+                    </Text>
+                    <Text style={styles.metricLabel}>READINESS</Text>
+                  </View>
+                </View>
+
+                {briefing.isExempt ? (
+                  <View style={{ backgroundColor: '#1e293b', padding: 12, borderRadius: 6, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed' }}>
+                    <Text style={{ color: '#64748b', fontSize: 14, fontWeight: '900', letterSpacing: 1 }}>NO ACTIVE MANEUVER SCHEDULE</Text>
+                  </View>
+                ) : (
+                  <View style={styles.progressBarBg}>
+                    <View style={[styles.progressBarFill, { width: `${briefing.percents.complete}%` }]} />
+                  </View>
+                )}
+                
+                <View style={styles.integrityRow}>
+                  <Text style={styles.integrityLabel}>INTEL INTEGRITY</Text>
+                  <Text style={[styles.integrityStat, { color: '#fbbf24' }]}>VERIFIED: {Math.round(briefing.percents.verified)}%</Text>
+                  <Text style={[styles.integrityStat, { color: '#3b82f6' }]}>NEW: {Math.round(briefing.percents.new)}%</Text>
+                  <Text style={[styles.integrityStat, { color: '#ef4444' }]}>MIA: {Math.round(briefing.percents.mia)}%</Text>
+                </View>
+              </>
+            )}
+          </View>
+        )}
+
+        <View style={styles.monitor}>
+          <View style={styles.monitorTop}>
+            <View style={styles.statusRow}>
+              <View style={[styles.statusIndicator, { backgroundColor: sessionActive ? '#10b981' : '#475569' }]} />
+              <Text style={[styles.statusText, { color: sessionActive ? '#10b981' : '#475569' }]}>
+                {sessionActive ? 'ACTIVE' : 'READY'}
               </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <TouchableOpacity onPress={handleRestartMission} style={styles.inlineRestartBtn}>
+                <MaterialCommunityIcons name="refresh" size={12} color="#94a3b8" />
+                <Text style={styles.inlineRestartText}>RESTART</Text>
+              </TouchableOpacity>
+              <Text style={styles.hint}>SAY "OVER" TO SEARCH</Text>
+            </View>
+          </View>
 
-      <View style={styles.rankContainer}>
-        <Text style={styles.filterLabel}>CALLSIGN:</Text>
-        <View style={styles.rankRow}>
-          {['SIR', 'MA\'AM', 'COMMANDER'].map(r => (
-            <TouchableOpacity 
-              key={r} 
-              onPress={() => setCallsign(r as any)}
-              style={[styles.rankBtn, callsign === r && styles.rankBtnActive]}
-            >
-              <Text style={[styles.rankText, callsign === r && styles.rankTextActive]}>{r}</Text>
-            </TouchableOpacity>
-          ))}
+          <Text style={styles.transcript} numberOfLines={2}>
+            {isListening ? partialText : (finalTranscript || 'WAITING...')}
+          </Text>
+          
+          {normalizedTranscript !== '' && (
+            <View style={styles.normalizedContainer}>
+              <MaterialCommunityIcons name="check-all" size={12} color="#10b981" />
+              <Text style={styles.normalizedText}>
+                {normalizedTranscript.toUpperCase()}
+              </Text>
+            </View>
+          )}
+
+          {errorMessage && (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            </View>
+          )}
         </View>
-      </View>
 
-      <View style={styles.monitor}>
-        <View style={styles.monitorTop}>
-          <View style={styles.statusRow}>
-            <View style={[styles.statusIndicator, { backgroundColor: sessionActive ? '#10b981' : '#475569' }]} />
-            <Text style={[styles.statusText, { color: sessionActive ? '#10b981' : '#475569' }]}>
-              {sessionActive ? 'ACTIVE' : 'READY'}
-            </Text>
-          </View>
-          <Text style={styles.hint}>SAY "OVER" TO SEARCH</Text>
-        </View>
-
-        <Text style={styles.transcript} numberOfLines={2}>
-          {isListening ? partialText : (finalTranscript || 'WAITING...')}
-        </Text>
-        
-        {normalizedTranscript !== '' && (
-          <View style={styles.normalizedContainer}>
-            <MaterialCommunityIcons name="check-all" size={10} color="#10b981" />
-            <Text style={styles.normalizedText}>
-              {normalizedTranscript.toUpperCase()}
-            </Text>
-          </View>
-        )}
-
-        {errorMessage && (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{errorMessage}</Text>
-          </View>
-        )}
-      </View>
-
-
-      <ScrollView style={styles.resultsScroll} contentContainerStyle={{ paddingBottom: 100 }}>
-        {phase !== 'IDLE' && phase !== 'DONE' && (
+        {interrogationHistory.length > 0 && (
           <View style={styles.historyContainer}>
             {interrogationHistory.map((h, i) => (
               <Text key={i} style={[styles.historyText, h.startsWith('Buddy') ? styles.buddyText : styles.userText]}>
@@ -877,53 +1085,77 @@ export default function VoiceIntelPoCScreen() {
           </View>
         )}
 
-        <Text style={styles.sectionTitle}>
-          {phase !== 'IDLE' && phase !== 'DONE' ? `REFINING INTELLIGENCE (${results.length} REMAINING)` : 
-           isProcessing ? 'ANALYZING ACOUSTICS...' : 'TACTICAL MATCHES'}
-        </Text>
-        
-        {isProcessing && <ActivityIndicator color="#fbbf24" style={{ margin: 20 }} />}
+        <View style={styles.resultsContainer}>
+          <Text style={styles.sectionTitle}>
+            {phase !== 'IDLE' && phase !== 'DONE' ? `REFINING INTELLIGENCE (${results.length} REMAINING)` : 
+             isProcessing ? 'ANALYZING ACOUSTICS...' : 'TACTICAL MATCHES'}
+          </Text>
+          
+          {isProcessing && <ActivityIndicator color="#fbbf24" style={{ margin: 20 }} />}
 
-        {results.map((item, idx) => (
-          <View key={idx} style={styles.resultCard}>
-            <View style={styles.scoreBadge}>
-              <Text style={styles.scoreVal}>{item.score.toFixed(1)}</Text>
-              <Text style={styles.scoreLabel}>SCORE</Text>
-            </View>
-
-            <View style={styles.cardInfo}>
-              <Text style={styles.cardTitle}>{item.name}</Text>
-              <Text style={styles.cardSub}>
-                {item.brand || 'NO BRAND'} • {item.product_range || 'GENERAL RANGE'}
-              </Text>
-              <View style={styles.facetRow}>
-                <Text style={styles.cardQty}>{item.quantity} × {item.size || 'STD'}</Text>
-                <Text style={styles.dateLabel}>EXP: {item.expiry_month}/{item.expiry_year}</Text>
+          {results.map((item, idx) => (
+            <TouchableOpacity key={idx} style={styles.resultCard} onPress={() => beginInterrogation([item])}>
+              <View style={styles.scoreBadge}>
+                <Text style={styles.scoreVal}>{item.score.toFixed(1)}</Text>
+                <Text style={styles.scoreLabel}>SCORE</Text>
               </View>
-              
-              <View style={styles.evidenceContainer}>
-                <Text style={styles.evidenceHeader}>MATCH EVIDENCE:</Text>
-                <View style={styles.evidenceGrid}>
-                  {item.evidence.map((ev, eIdx) => (
-                    <View key={eIdx} style={styles.evidenceBadge}>
-                      <Text style={styles.evidenceText}>{ev.field.toUpperCase()}: {ev.token}</Text>
-                    </View>
-                  ))}
+
+              <View style={styles.cardInfo}>
+                <Text style={styles.cardTitle}>{item.name}</Text>
+                <Text style={styles.cardSub}>
+                  {item.brand || 'NO BRAND'} • {item.product_range || 'GENERAL RANGE'}
+                </Text>
+                <View style={styles.facetRow}>
+                  <Text style={styles.cardQty}>{item.quantity} × {item.size || 'STD'}</Text>
+                  <Text style={styles.dateLabel}>EXP: {item.expiry_month}/{item.expiry_year}</Text>
+                </View>
+                
+                <View style={styles.evidenceContainer}>
+                  <Text style={styles.evidenceHeader}>MATCH EVIDENCE:</Text>
+                  <View style={styles.evidenceGrid}>
+                    {item.evidence.map((ev, eIdx) => (
+                      <View key={eIdx} style={styles.evidenceBadge}>
+                        <Text style={styles.evidenceText}>{ev.field.toUpperCase()}: {ev.token}</Text>
+                      </View>
+                    ))}
+                  </View>
                 </View>
               </View>
-            </View>
-          </View>
-        ))}
+            </TouchableOpacity>
+          ))}
 
-        {results.length === 0 && !isProcessing && finalTranscript !== '' && (
-          <View style={styles.noMatch}>
-            <MaterialCommunityIcons name="alert-circle-outline" size={48} color="#475569" />
-            <Text style={styles.noMatchText}>NO TACTICAL MATCHES FOUND</Text>
+          {results.length === 0 && !isProcessing && finalTranscript !== '' && (
+            <View style={styles.noMatch}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={48} color="#475569" />
+              <Text style={styles.noMatchText}>NO TACTICAL MATCHES FOUND</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.rankContainer}>
+          <Text style={styles.filterLabel}>CALLSIGN PROTOCOL:</Text>
+          <View style={styles.rankRow}>
+            {['SIR', 'MA\'AM', 'COMMANDER'].map(r => (
+              <TouchableOpacity 
+                key={r} 
+                onPress={() => setCallsign(r as any)}
+                style={[styles.rankBtn, callsign === r && styles.rankBtnActive]}
+              >
+                <Text style={[styles.rankText, callsign === r && styles.rankTextActive]}>{r}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {onDeviceAvailable === false && (
+          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+            <TouchableOpacity onPress={triggerDownload} style={styles.downloadBtn}>
+              <Text style={styles.downloadText}>DOWNLOAD OFFLINE MODEL</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
 
-      {/* FLOATING ACTION MIC */}
       <View style={styles.fabContainer}>
         <TouchableOpacity 
           onPress={isListening ? stopListening : startListening} 
@@ -931,14 +1163,6 @@ export default function VoiceIntelPoCScreen() {
         >
           <MaterialCommunityIcons name={isListening ? "stop" : "microphone"} size={32} color="white" />
         </TouchableOpacity>
-        
-        {onDeviceAvailable === false && (
-          <View style={styles.fabInfo}>
-            <TouchableOpacity onPress={triggerDownload} style={styles.downloadBtn}>
-              <Text style={styles.downloadText}>DOWNLOAD OFFLINE MODEL</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
     </SafeAreaView>
   );
@@ -962,19 +1186,20 @@ const styles = StyleSheet.create({
   monitorTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   transcript: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', minHeight: 44, lineHeight: 22 },
   hint: { color: '#475569', fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
+  downloadBtn: { backgroundColor: '#fbbf2422', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#fbbf24' },
+  downloadText: { color: '#fbbf24', fontSize: 10, fontWeight: '900', textAlign: 'center' },
 
-  fabContainer: { position: 'absolute', bottom: 30, right: 20, alignItems: 'flex-end', gap: 12 },
-  micBtn: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 4 },
-  micBtnActive: { backgroundColor: '#ef4444' },
-  fabInfo: { backgroundColor: '#0f172a', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#1e293b' },
+  fabContainer: { position: 'absolute', bottom: 40, right: 30 },
+  micBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 4.65 },
+  micBtnActive: { backgroundColor: '#ef4444', transform: [{ scale: 1.1 }] },
 
   resultsScroll: { flex: 1, paddingHorizontal: 16 },
   sectionTitle: { color: '#64748b', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 12 },
   
   resultCard: { backgroundColor: '#0f172a', borderRadius: 12, padding: 12, marginBottom: 12, flexDirection: 'row', gap: 12, borderWidth: 1, borderColor: '#1e293b' },
-  scoreBadge: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#fbbf24', justifyContent: 'center', alignItems: 'center' },
-  scoreVal: { color: '#0f172a', fontSize: 18, fontWeight: '900' },
-  scoreLabel: { color: '#0f172a', fontSize: 6, fontWeight: 'bold' },
+  scoreBadge: { width: 64, height: 52, borderRadius: 8, backgroundColor: '#fbbf24', justifyContent: 'center', alignItems: 'center' },
+  scoreVal: { color: '#0f172a', fontSize: 16, fontWeight: '900' },
+  scoreLabel: { color: '#0f172a', fontSize: 9, fontWeight: '900' },
   
   cardInfo: { flex: 1 },
   cardTitle: { color: '#f8fafc', fontSize: 15, fontWeight: 'bold', marginBottom: 2 },
@@ -1006,6 +1231,9 @@ const styles = StyleSheet.create({
   
   statusText: { fontSize: 9, fontWeight: '900', letterSpacing: 1 },
 
+  inlineRestartBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#1e293b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
+  inlineRestartText: { color: '#94a3b8', fontSize: 8, fontWeight: 'bold' },
+  
   historyContainer: { backgroundColor: '#1e293b', padding: 12, borderRadius: 8, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: '#3b82f6' },
   historyText: { fontSize: 9, fontWeight: 'bold', marginBottom: 4 },
   buddyText: { color: '#3b82f6' },
@@ -1013,6 +1241,23 @@ const styles = StyleSheet.create({
 
   facetRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   dateLabel: { color: '#fbbf24', fontSize: 10, fontWeight: '900' },
+
+  briefingCard: { backgroundColor: '#0f172a', marginHorizontal: 16, marginBottom: 16, padding: 20, borderRadius: 12, borderWidth: 1, borderColor: '#1e293b', borderLeftWidth: 4, borderLeftColor: '#fbbf24' },
+  briefingHeader: { flexDirection: 'column', alignItems: 'flex-start', marginBottom: 20 },
+  briefingTitle: { color: '#fbbf24', fontSize: 14, fontWeight: '900', letterSpacing: 1.5 },
+  windowLabel: { color: '#475569', fontSize: 11, fontWeight: 'bold' },
+  briefingMetrics: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 20 },
+  metricBlock: { alignItems: 'center' },
+  metricVal: { color: '#f8fafc', fontSize: 24, fontWeight: '900' },
+  metricLabel: { color: '#64748b', fontSize: 10, fontWeight: 'bold', marginTop: 4 },
+  progressBarBg: { height: 8, backgroundColor: '#1e293b', borderRadius: 4, marginBottom: 16 },
+  progressBarFill: { height: '100%', backgroundColor: '#fbbf24', borderRadius: 4 },
+  integrityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 16 },
+  integrityLabel: { color: '#475569', fontSize: 11, fontWeight: 'bold', width: '100%', marginBottom: 6 },
+  integrityStat: { fontSize: 11, fontWeight: '900' },
+
+  resetBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#450a0a', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#ef444433' },
+  resetBtnText: { color: '#ef4444', fontSize: 10, fontWeight: '900' },
 
   rankContainer: { paddingHorizontal: 16, marginBottom: 16 },
   rankRow: { flexDirection: 'row', gap: 8 },

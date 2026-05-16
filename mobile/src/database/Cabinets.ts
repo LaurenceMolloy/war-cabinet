@@ -8,6 +8,8 @@ export interface Cabinet {
   location: string | null;
   cabinet_type: 'standard' | 'freezer';
   rotation_interval_months: number | null;
+  audit_interval_months: number | null;
+  audit_day_of_month: number | null;
   default_rotation_cabinet_id: number | null;
   stock_count?: number; // Optional metadata for UI
 }
@@ -17,6 +19,8 @@ export interface CabinetCreateParams {
   location: string;
   cabinet_type: string;
   rotation_interval_months: number;
+  audit_interval_months: number;
+  audit_day_of_month: number;
   default_rotation_cabinet_id: number | null;
 }
 
@@ -68,7 +72,7 @@ export const Cabinets = {
    * Deploys a new cabinet to the logistics network.
    */
   async create(db: SQLiteDatabase, params: CabinetCreateParams): Promise<number> {
-    const { name, location, cabinet_type, rotation_interval_months, default_rotation_cabinet_id } = params;
+    const { name, location, cabinet_type, rotation_interval_months, audit_interval_months, audit_day_of_month, default_rotation_cabinet_id } = params;
     
     // Check for duplicates
     const existing = await db.getFirstAsync('SELECT id FROM Cabinets WHERE LOWER(name) = LOWER(?)', [name.trim()]);
@@ -77,8 +81,8 @@ export const Cabinets = {
     }
 
     const res = await db.runAsync(
-      'INSERT INTO Cabinets (name, location, cabinet_type, rotation_interval_months, default_rotation_cabinet_id) VALUES (?, ?, ?, ?, ?)',
-      [name.trim(), location.trim(), cabinet_type, rotation_interval_months === 0 ? null : rotation_interval_months, default_rotation_cabinet_id]
+      'INSERT INTO Cabinets (name, location, cabinet_type, rotation_interval_months, audit_interval_months, audit_day_of_month, default_rotation_cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name.trim(), location.trim(), cabinet_type, rotation_interval_months === 0 ? null : rotation_interval_months, audit_interval_months, audit_day_of_month || 1, default_rotation_cabinet_id]
     );
 
     const newId = Number(res.lastInsertRowId);
@@ -94,20 +98,20 @@ export const Cabinets = {
    * Updates an existing cabinet's profile.
    */
   async update(db: SQLiteDatabase, id: number, params: CabinetCreateParams): Promise<void> {
-    const { name, location, cabinet_type, rotation_interval_months, default_rotation_cabinet_id } = params;
+    const { name, location, cabinet_type, rotation_interval_months, audit_interval_months, audit_day_of_month, default_rotation_cabinet_id } = params;
 
     // Check for duplicates (other than itself)
     const existing = await db.getFirstAsync('SELECT id FROM Cabinets WHERE LOWER(name) = LOWER(?) AND id != ?', [name.trim(), id]);
     if (existing) {
-      throw new Error(`"${name}" is already deployed in your logistics network.`);
+      throw new Error(`Another cabinet is already using the name "${name}".`);
     }
 
     // Capture the "Before" state
     const old = await db.getFirstAsync<Cabinet>('SELECT * FROM Cabinets WHERE id = ?', [id]);
 
     await db.runAsync(
-      'UPDATE Cabinets SET name = ?, location = ?, cabinet_type = ?, rotation_interval_months = ?, default_rotation_cabinet_id = ? WHERE id = ?',
-      [name.trim(), location.trim(), cabinet_type, rotation_interval_months === 0 ? null : rotation_interval_months, default_rotation_cabinet_id, id]
+      'UPDATE Cabinets SET name = ?, location = ?, cabinet_type = ?, rotation_interval_months = ?, audit_interval_months = ?, audit_day_of_month = ?, default_rotation_cabinet_id = ? WHERE id = ?',
+      [name.trim(), location.trim(), cabinet_type, rotation_interval_months === 0 ? null : rotation_interval_months, audit_interval_months, audit_day_of_month || 1, default_rotation_cabinet_id, id]
     );
 
     // Record the transition for the "Video Tape"

@@ -290,8 +290,8 @@ export default function LogisticsScreen() {
         }
 
         await db.runAsync(
-          'UPDATE Inventory SET last_rotated_at = ?, cabinet_id = ? WHERE cabinet_id = ? AND item_type_id = ?', 
-          [action.ts, action.finalTarget, action.sourceCabId, action.typeId]
+          'UPDATE Inventory SET last_rotated_at = ?, cabinet_id = ?, last_audited_at = ?, last_audit_outcome = ? WHERE cabinet_id = ? AND item_type_id = ?', 
+          [action.ts, action.finalTarget, Date.now(), 'VERIFIED', action.sourceCabId, action.typeId]
         );
       }
       

@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
  *    script is lagging and requires an audit.
  * 4. Only after auditing BackupService.ts should the versions be re-aligned.
  */
-export const CURRENT_SCHEMA_VERSION = 113;
+export const CURRENT_SCHEMA_VERSION = 115;
 
 // Helper to record last action for backup context
 export const recordActivity = async (db: any, description: string) => {
@@ -52,8 +52,8 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     // 1. Individual Table Initialization (More robust on Web)
     await db.execAsync(`CREATE TABLE IF NOT EXISTS Categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, icon TEXT, is_mess_hall INTEGER DEFAULT 1);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS ItemTypes (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT NOT NULL, unit_type TEXT DEFAULT 'weight', default_size TEXT, default_cabinet_id INTEGER, is_favorite INTEGER DEFAULT 0, interaction_count INTEGER DEFAULT 0, min_stock_level INTEGER, max_stock_level INTEGER, freeze_months INTEGER, default_supplier TEXT, default_product_range TEXT, vanguard_resolved INTEGER DEFAULT 0, custom_sizes TEXT DEFAULT '[]', FOREIGN KEY(category_id) REFERENCES Categories(id));`);
-    await db.execAsync(`CREATE TABLE IF NOT EXISTS Inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type_id INTEGER, quantity INTEGER NOT NULL DEFAULT 1, size TEXT NOT NULL, expiry_month INTEGER, expiry_year INTEGER, entry_month INTEGER NOT NULL, entry_year INTEGER NOT NULL, entry_day INTEGER NOT NULL DEFAULT 1, cabinet_id INTEGER, batch_intel TEXT, supplier TEXT, product_range TEXT, portions_total INTEGER, portions_remaining INTEGER, last_rotated_at INTEGER, FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id));`);
-    await db.execAsync(`CREATE TABLE IF NOT EXISTS Cabinets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, location TEXT, rotation_interval_months INTEGER, default_rotation_cabinet_id INTEGER);`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS Inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type_id INTEGER, quantity INTEGER NOT NULL DEFAULT 1, size TEXT NOT NULL, expiry_month INTEGER, expiry_year INTEGER, entry_month INTEGER NOT NULL, entry_year INTEGER NOT NULL, entry_day INTEGER NOT NULL DEFAULT 1, cabinet_id INTEGER, batch_intel TEXT, supplier TEXT, product_range TEXT, portions_total INTEGER, portions_remaining INTEGER, last_rotated_at INTEGER, last_audited_at INTEGER DEFAULT (strftime('%s','now') * 1000), last_audit_outcome TEXT DEFAULT 'NEW', FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id));`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS Cabinets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, location TEXT, rotation_interval_months INTEGER, audit_interval_months INTEGER DEFAULT 3, audit_day_of_month INTEGER DEFAULT 1, default_rotation_cabinet_id INTEGER);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS Settings (key TEXT PRIMARY KEY, value TEXT);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS BarcodeSignatures (barcode TEXT PRIMARY KEY, item_type_id INTEGER NOT NULL, supplier TEXT, size TEXT, FOREIGN KEY(item_type_id) REFERENCES ItemTypes(id) ON DELETE CASCADE);`);
     await db.execAsync(`CREATE TABLE IF NOT EXISTS TacticalLogs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, action_type TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER, entity_name TEXT, details TEXT);`);
@@ -169,7 +169,16 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
     if (!iInv.some(col => col.name === 'portions_total')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN portions_total INTEGER');
     if (!iInv.some(col => col.name === 'portions_remaining')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN portions_remaining INTEGER');
     if (!iInv.some(col => col.name === 'last_rotated_at')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN last_rotated_at INTEGER');
-    if (!iInv.some(col => col.name === 'last_audited_at')) await db.execAsync('ALTER TABLE Inventory ADD COLUMN last_audited_at INTEGER');
+    if (!iInv.some(col => col.name === 'last_audited_at')) {
+      await db.execAsync("ALTER TABLE Inventory ADD COLUMN last_audited_at INTEGER DEFAULT (strftime('%s','now') * 1000)");
+      // Backfill existing rows that have NO audit date with their entry date (approximated)
+      await db.runAsync("UPDATE Inventory SET last_audited_at = (strftime('%s','now') * 1000) WHERE last_audited_at IS NULL");
+    }
+    if (!iInv.some(col => col.name === 'last_audit_outcome')) {
+      await db.execAsync("ALTER TABLE Inventory ADD COLUMN last_audit_outcome TEXT DEFAULT 'NEW'");
+      await db.runAsync("UPDATE Inventory SET last_audit_outcome = 'VERIFIED' WHERE last_audit_outcome IS NULL AND last_audited_at IS NOT NULL");
+      await db.runAsync("UPDATE Inventory SET last_audit_outcome = 'NEW' WHERE last_audit_outcome IS NULL");
+    }
     
     const hasEntryDay = iInv.some(col => col.name === 'entry_day');
     if (!hasEntryDay) {
@@ -388,6 +397,28 @@ export async function initializeDatabase(db: SQLite.SQLiteDatabase) {
       `);
 
       await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v113_complete', '1']);
+    }
+    
+    // Iteration 114: Audit Maneuver Scheduling
+    const i114Migrated = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM Settings WHERE key = ?', 'migration_v114_complete');
+    if (!i114Migrated || (i114Migrated as any).count === 0) {
+      console.log('[DB] Implementing Audit Maneuver Infrastructure (v114)...');
+      const iCabLatest = await db.getAllAsync<any>('PRAGMA table_info(Cabinets)');
+      if (!iCabLatest.some(col => col.name === 'audit_interval_months')) {
+        await db.execAsync('ALTER TABLE Cabinets ADD COLUMN audit_interval_months INTEGER DEFAULT 3');
+      }
+      if (!iCabLatest.some(col => col.name === 'audit_day_of_month')) {
+        await db.execAsync('ALTER TABLE Cabinets ADD COLUMN audit_day_of_month INTEGER DEFAULT 1');
+      }
+      
+      const iInvLatest = await db.getAllAsync<any>('PRAGMA table_info(Inventory)');
+      if (!iInvLatest.some(col => col.name === 'last_audit_outcome')) {
+        await db.execAsync('ALTER TABLE Inventory ADD COLUMN last_audit_outcome TEXT');
+      }
+      if (!iInvLatest.some(col => col.name === 'last_audited_at')) {
+        await db.execAsync('ALTER TABLE Inventory ADD COLUMN last_audited_at INTEGER');
+      }
+      await db.runAsync('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)', ['migration_v114_complete', '1']);
     }
 
     // Set formal schema version

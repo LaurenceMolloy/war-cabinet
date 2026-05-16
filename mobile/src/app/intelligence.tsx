@@ -324,7 +324,8 @@ export default function IntelligenceScreen() {
     const activeHighlights: any[] = [];
 
     data.forEach((cat, catIdx) => {
-      const catAngleSize = (cat.weight / totalWeight) * 2 * Math.PI;
+      const catWeight = Number(cat.weight) || 0;
+      const catAngleSize = totalWeight > 0 ? (catWeight / totalWeight) * 2 * Math.PI : 0;
       const catEndAngle = currentAngle + catAngleSize;
       
       const baseColor = getRainbowColor(catIdx, data.length);
@@ -364,7 +365,8 @@ export default function IntelligenceScreen() {
       // 2. MIDDLE RING: Products (Thick)
       let typeAngle = currentAngle;
       cat.types.forEach((type: any, typeIdx: number) => {
-        const typeAngleSize = (type.weight / cat.weight) * catAngleSize;
+        const typeWeight = Number(type.weight) || 0;
+        const typeAngleSize = catWeight > 0 ? (typeWeight / catWeight) * catAngleSize : 0;
         const typeEndAngle = typeAngle + typeAngleSize;
         const isTypeActive = (activeLevel >= 2 && activeIndices.cat === catIdx && activeIndices.type === typeIdx);
         // Bright if: Level 0, or (Level 1 and in this cat), or this is the active type
@@ -416,7 +418,9 @@ export default function IntelligenceScreen() {
         const availableBatchSpace = typeAngleSize - (type.batches.length * gapAngle);
 
         type.batches.forEach((batch: any, bIdx: number) => {
-          const batchAngleSize = (batch.weight / type.weight) * availableBatchSpace;
+          const batchWeight = Number(batch.weight) || 0;
+          const typeTotalWeight = Number(type.weight) || 0;
+          const batchAngleSize = typeTotalWeight > 0 ? (batchWeight / typeTotalWeight) * availableBatchSpace : 0;
           
           const batchEndAngle = batchAngle + batchAngleSize;
           const isBatchActive = (activeLevel === 3 && activeIndices.cat === catIdx && activeIndices.type === typeIdx && activeIndices.batch === bIdx);

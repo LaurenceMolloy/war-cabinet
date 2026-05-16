@@ -18,7 +18,7 @@ export const Views = {
              cab.id as cab_id, cab.cabinet_type as cab_type, cab.name as cab_name, cab.location as cab_location
       FROM Categories c
       JOIN ItemTypes it ON c.id = it.category_id
-      JOIN Inventory inv ON it.id = inv.item_type_id
+      JOIN Inventory inv ON it.id = inv.item_type_id AND inv.quantity > 0
       LEFT JOIN Cabinets cab ON inv.cabinet_id = cab.id
     `;
     
