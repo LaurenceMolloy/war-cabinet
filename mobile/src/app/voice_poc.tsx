@@ -274,7 +274,7 @@ export default function VoiceIntelPoCScreen() {
     const text = latestResult?.transcript || '';
     setPartialText(text);
     
-    const currentText = text.toUpperCase().replace(/[.,!]/g, '').trim();
+    const currentText = text.toUpperCase().replace(/[.,!]/g, '').replace(/\//g, ' OVER').trim();
     console.log(`VOICE [Stream]: "${currentText}" (Full: ${fullTranscript.length} chars)`);
     
     if (fullTranscript) {
@@ -907,6 +907,7 @@ setIsProcessing(false);
       const lower = raw.toLowerCase().trim();
       
       // Direct digit parse first
+      // Direct digit parse first (parseInt stops at first non-digit, so '1/' safely parses as 1)
       const direct = parseInt(lower, 10);
       if (!isNaN(direct) && direct >= 0 && direct <= 100) return direct;
 
