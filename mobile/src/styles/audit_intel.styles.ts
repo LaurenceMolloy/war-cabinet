@@ -36,7 +36,7 @@ export const styles = StyleSheet.create({
   resultsContainer: { paddingHorizontal: 16, marginTop: 16 },
   sectionTitle: { color: '#64748b', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 12 },
 
-  resultCard: { backgroundColor: '#0f172a', borderRadius: 12, padding: 12, marginBottom: 12, flexDirection: 'row', gap: 12, borderWidth: 1, borderColor: '#1e293b' },
+  resultCard: { backgroundColor: '#0f172a', borderRadius: 12, padding: 12, marginBottom: 12, flexDirection: 'row', gap: 12, borderWidth: 1, borderColor: '#1e293b', minHeight: 120 },
   scoreBadge: { width: 64, height: 52, borderRadius: 8, backgroundColor: '#fbbf24', justifyContent: 'center', alignItems: 'center' },
   scoreVal: { color: '#0f172a', fontSize: 16, fontWeight: '900' },
   scoreLabel: { color: '#0f172a', fontSize: 9, fontWeight: '900' },

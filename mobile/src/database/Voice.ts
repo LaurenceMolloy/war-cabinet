@@ -15,12 +15,17 @@ export interface VoiceInventoryRow {
   name: string;
   brand: string | null;
   product_range: string | null;
+  batch_intel: string | null;
   size: string | null;
   quantity: number;
   cabinet_id: number | null;
   default_cabinet_id: number | null;
   expiry_month: number | null;
   expiry_year: number | null;
+  entry_day: number | null;
+  entry_month: number | null;
+  entry_year: number | null;
+  last_audited_at: number | null;
   unit_type: string | null;
   batch_image: string | null;
   product_image: string | null;
@@ -108,6 +113,8 @@ export const VoiceDAL = {
     const query = `
       SELECT 
         inv.id, inv.item_type_id, inv.quantity, inv.size, inv.cabinet_id, inv.expiry_month, inv.expiry_year,
+        inv.entry_day, inv.entry_month, inv.entry_year, inv.last_audited_at,
+        inv.batch_intel,
         inv.image_uri as batch_image,
         it.name, it.default_cabinet_id, it.unit_type,
         it.image_uri as product_image,
@@ -139,6 +146,8 @@ export const VoiceDAL = {
     return db.getAllAsync<VoiceInventoryRow>(`
       SELECT 
         inv.id, inv.item_type_id, inv.quantity, inv.size, inv.cabinet_id, inv.expiry_month, inv.expiry_year,
+        inv.entry_day, inv.entry_month, inv.entry_year, inv.last_audited_at,
+        inv.batch_intel,
         inv.image_uri as batch_image,
         it.name, it.default_cabinet_id, it.unit_type,
         it.image_uri as product_image,

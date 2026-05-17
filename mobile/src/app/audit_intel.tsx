@@ -903,8 +903,8 @@ setIsProcessing(false);
 
                     {item.last_audited_at && (Date.now() - item.last_audited_at < 24 * 60 * 60 * 1000) && (
                       <View style={styles.auditedBadge}>
-                        <MaterialCommunityIcons name={item.last_audit_outcome === 'VERIFIED' ? "check-decagram" : "alert-rhombus"} size={12} color={item.last_audit_outcome === 'VERIFIED' ? "#10b981" : "#fbbf24"} />
-                        <Text style={[styles.auditedText, { color: item.last_audit_outcome === 'VERIFIED' ? "#10b981" : "#fbbf24" }]}>
+                        <MaterialCommunityIcons name={item.last_audit_outcome === 'VERIFIED' ? "check-decagram" : "alert-rhombus"} size={12} color={item.last_audit_outcome === 'VERIFIED' ? "#22c55e" : "#fbbf24"} />
+                        <Text style={[styles.auditedText, { color: item.last_audit_outcome === 'VERIFIED' ? "#22c55e" : "#fbbf24" }]}>
                           {item.last_audit_outcome === 'VERIFIED' ? 'SECURED' : 'PENDING REVIEW'}
                         </Text>
                       </View>
@@ -1119,7 +1119,7 @@ setIsProcessing(false);
 
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <Text style={{ 
-                              color: completionPercent >= 100 ? '#10b981' : '#64748b', 
+                              color: completionPercent >= 100 ? '#22c55e' : '#64748b', 
                               fontSize: 12, 
                               fontWeight: '900',
                             }}>
@@ -1205,6 +1205,49 @@ function AuditTargetCard({
   onMIA: (item: any) => Promise<void>, 
   onAdjustQty: (item: any) => void
 }) {
+  // Helper to format last audited age and calculate visual color impact
+  const getAuditAgeDetails = () => {
+    const auditTime = item.last_audited_at 
+      ? item.last_audited_at 
+      : new Date(item.entry_year, item.entry_month - 1, item.entry_day || 1).getTime();
+      
+    const diffMs = Date.now() - auditTime;
+    const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+    
+    let ageText = '';
+    let statusColor = '#94a3b8'; // Default grey
+    
+    if (diffDays === 0) {
+      ageText = 'Today';
+      statusColor = '#059669'; // Deep Green (Emerald 600)
+    } else if (diffDays === 1) {
+      ageText = 'Yesterday';
+      statusColor = '#059669'; // Deep Green
+    } else if (diffDays <= 7) {
+      ageText = `${diffDays}d ago`;
+      statusColor = '#059669'; // Deep Green
+    } else if (diffDays <= 30) {
+      ageText = `${diffDays}d ago`;
+      statusColor = '#22c55e'; // Standard Green (0-1 month) — matches app-wide expiry/readiness green
+    } else if (diffDays <= 60) {
+      ageText = `${diffDays}d ago`;
+      statusColor = '#fde047'; // Yellow (1-2 months) — matches expiry system's 4-7 month yellow
+    } else if (diffDays <= 90) {
+      ageText = `${diffDays}d ago`;
+      statusColor = '#fbbf24'; // Amber (2-3 months) — matches readiness system's near-miss amber
+    } else if (diffDays <= 180) {
+      ageText = `${diffDays}d ago`;
+      statusColor = '#ef4444'; // Stale Red (3-6 months)
+    } else {
+      ageText = `${diffDays}d ago`;
+      statusColor = '#991b1b'; // Deep Crimson Red (6+ months)
+    }
+    
+    return { ageText, statusColor };
+  };
+
+  const { ageText, statusColor } = getAuditAgeDetails();
+
   const [action, setAction] = useState<'IDLE' | 'VERIFIED' | 'MIA'>('IDLE');
   
   // ValueXY for tracking swipe position
@@ -1306,9 +1349,9 @@ function AuditTargetCard({
         getCardStyle()
       ]}
     >
-      <View style={{ flex: 1, flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+      <View style={{ flex: 1, flexDirection: 'row', gap: 12, alignItems: 'stretch' }}>
         {/* Left Badge, Size, & Expiry Stack (Narrower & Pure Metric View) */}
-        <View style={{ flexDirection: 'column', alignItems: 'center', width: 48, gap: 4 }}>
+        <View style={{ flexDirection: 'column', alignItems: 'center', width: 48, justifyContent: 'space-between' }}>
           {/* Expected Count (Adjustable Numeral) */}
           <TouchableOpacity 
             onPress={(e) => {
@@ -1330,34 +1373,12 @@ function AuditTargetCard({
             </Text>
           </TouchableOpacity>
 
-          {/* Size Badge */}
-          <View style={{ 
-            backgroundColor: '#0f172a', 
-            borderWidth: 1, 
-            borderColor: '#3b82f644', 
-            borderRadius: 6, 
-            paddingHorizontal: 2, 
-            paddingVertical: 4,
-            width: '100%',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <Text style={{ 
-              color: '#3b82f6', 
-              fontSize: 11, 
-              fontWeight: '900', 
-              textAlign: 'center'
-            }}>
-              {item.size || 'STD'}{item.unit_type === 'weight' ? 'g' : (item.unit_type === 'volume' ? 'ml' : '')}
-            </Text>
-          </View>
-
-          {/* Expiry Badge */}
-          {item.expiry_month && item.expiry_year && (
+          <View style={{ gap: 4, width: '100%' }}>
+            {/* Size Badge */}
             <View style={{ 
-              backgroundColor: '#1e293b', 
+              backgroundColor: '#0f172a', 
               borderWidth: 1, 
-              borderColor: '#fbbf2444', 
+              borderColor: '#3b82f644', 
               borderRadius: 6, 
               paddingHorizontal: 2, 
               paddingVertical: 4,
@@ -1366,49 +1387,98 @@ function AuditTargetCard({
               justifyContent: 'center'
             }}>
               <Text style={{ 
-                color: '#fbbf24', 
+                color: '#3b82f6', 
                 fontSize: 11, 
                 fontWeight: '900', 
                 textAlign: 'center'
               }}>
-                {String(item.expiry_month).padStart(2, '0')}/{String(item.expiry_year).slice(-2)}
+                {item.size || 'STD'}{item.unit_type === 'weight' ? 'g' : (item.unit_type === 'volume' ? 'ml' : '')}
               </Text>
             </View>
-          )}
+
+            {/* Expiry Badge */}
+            {item.expiry_month && item.expiry_year && (
+              <View style={{ 
+                backgroundColor: '#1e293b', 
+                borderWidth: 1, 
+                borderColor: '#fbbf2444', 
+                borderRadius: 6, 
+                paddingHorizontal: 2, 
+                paddingVertical: 4,
+                width: '100%',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <Text style={{ 
+                  color: '#fbbf24', 
+                  fontSize: 11, 
+                  fontWeight: '900', 
+                  textAlign: 'center'
+                }}>
+                  {String(item.expiry_month).padStart(2, '0')}/{String(item.expiry_year).slice(-2)}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardTitle}>{item.name}</Text>
-          
-          <Text style={{ color: '#fbbf24', fontSize: 10, fontWeight: '700', marginTop: 2 }}>
-            {item.brand ? item.brand.toUpperCase() : 'NO BRAND'}
-          </Text>
-          
-          {item.product_range ? (
-            <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: '500', marginTop: 2 }}>
-              {item.product_range}
+        <View style={[styles.cardInfo, { justifyContent: 'space-between' }]}>
+          {/* Top block: identity — flex:1 pushes audit row to bottom */}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>
+            
+            <Text style={{ color: '#fde047', fontSize: 10, fontWeight: '700', marginTop: 2 }}>
+              {item.brand ? item.brand.toUpperCase() : 'NO BRAND'}
             </Text>
-          ) : null}
-          
-          {item.batch_intel ? (
-            <Text style={{ color: '#64748b', fontSize: 9, fontStyle: 'italic', marginTop: 3 }} numberOfLines={1}>
-              Intel: {item.batch_intel}
+            
+            {item.product_range ? (
+              <Text style={{ color: '#fbbf24', fontSize: 10, fontWeight: '500', marginTop: 2 }}>
+                {item.product_range}
+              </Text>
+            ) : null}
+            
+            {item.batch_intel ? (
+              <Text style={{ color: '#94a3b8', fontSize: 9, fontStyle: 'italic', marginTop: 3 }} numberOfLines={1}>
+                {item.batch_intel}
+              </Text>
+            ) : null}
+          </View>
+
+          {/* Bottom badge: audit age — aligns with expiry badge in left column */}
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            marginBottom: 2,
+            backgroundColor: '#0f172a',
+            borderWidth: 1,
+            borderColor: `${statusColor}44`,
+            borderRadius: 6,
+            paddingHorizontal: 6,
+            paddingVertical: 3,
+            alignSelf: 'flex-start',
+          }}>
+            <MaterialCommunityIcons name="clock-outline" size={14} color={statusColor} />
+            <Text style={{ color: statusColor, fontSize: 11, fontWeight: '900' }}>
+              {ageText}
             </Text>
-          ) : null}
+          </View>
         </View>
 
-        <View style={styles.cardImageContainer}>
-          {item.batch_image || item.product_image ? (
-            <Image 
-              source={{ uri: item.batch_image || item.product_image || '' }} 
-              style={styles.cardImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.imageFallback}>
-              <MaterialCommunityIcons name="package-variant-closed" size={24} color="#1e293b" />
-            </View>
-          )}
+        <View style={{ justifyContent: 'center' }}>
+          <View style={styles.cardImageContainer}>
+            {item.batch_image || item.product_image ? (
+              <Image 
+                source={{ uri: item.batch_image || item.product_image || '' }} 
+                style={styles.cardImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.imageFallback}>
+                <MaterialCommunityIcons name="package-variant-closed" size={24} color="#1e293b" />
+              </View>
+            )}
+          </View>
         </View>
       </View>
 

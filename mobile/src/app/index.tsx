@@ -86,6 +86,7 @@ export default function HomeScreen() {
   const [barcodeSearchQuery, setBarcodeSearchQuery] = useState('');
   const [allItemTypes, setAllItemTypes] = useState<any[]>([]);
   const [permission, requestCameraPermission] = useCameraPermissions();
+  const [showAbsoluteExpiry, setShowAbsoluteExpiry] = useState(false);
 
   const params = useLocalSearchParams();
 
@@ -711,20 +712,28 @@ export default function HomeScreen() {
     const iconName = isExpired ? 'clock-off' : 'clock-outline';
     
     let timeText = "";
-    if (isExpired) {
-      if (abs === 1) {
-        timeText = 'last month';
-      } else {
-        timeText = `${abs} months`;
-      }
-    } else if (remaining === 0) {
-      timeText = 'this month';
+    if (showAbsoluteExpiry) {
+      timeText = `${formatMonth(m)}/${y}`;
     } else {
-      timeText = `${remaining} ${remaining === 1 ? 'month' : 'months'}`;
+      if (isExpired) {
+        if (abs === 1) {
+          timeText = 'last month';
+        } else {
+          timeText = `${abs} months`;
+        }
+      } else if (remaining === 0) {
+        timeText = 'this month';
+      } else {
+        timeText = `${remaining} ${remaining === 1 ? 'month' : 'months'}`;
+      }
     }
     
     return (
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
+      <TouchableOpacity 
+        activeOpacity={0.7} 
+        onPress={() => setShowAbsoluteExpiry(!showAbsoluteExpiry)}
+        style={{flexDirection: 'row', alignItems: 'center', gap: 3}}
+      >
         {isExpired ? (
           <View style={{ width: 18, height: 18, justifyContent: 'center', alignItems: 'center' }}>
             <MaterialCommunityIcons name="clock-outline" size={18} color={color} />
@@ -750,7 +759,7 @@ export default function HomeScreen() {
         >
           {timeText}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -764,16 +773,27 @@ export default function HomeScreen() {
     const abs = Math.abs(remaining);
     
     let timeText = "";
-    if (remaining < 0) {
-      timeText = abs === 1 ? 'last month' : `${abs} months`;
-    } else if (remaining === 0) {
-      timeText = 'this month';
+    if (showAbsoluteExpiry) {
+      const expiryTotalMonths = (inv.entry_year * 12 + inv.entry_month) + limit;
+      const expYear = Math.floor((expiryTotalMonths - 1) / 12);
+      const expMonth = ((expiryTotalMonths - 1) % 12) + 1;
+      timeText = `${formatMonth(expMonth)}/${expYear}`;
     } else {
-      timeText = `${remaining} ${remaining === 1 ? 'month' : 'months'}`;
+      if (remaining < 0) {
+        timeText = abs === 1 ? 'last month' : `${abs} months`;
+      } else if (remaining === 0) {
+        timeText = 'this month';
+      } else {
+        timeText = `${remaining} ${remaining === 1 ? 'month' : 'months'}`;
+      }
     }
 
     return (
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 8}}>
+      <TouchableOpacity 
+        activeOpacity={0.7} 
+        onPress={() => setShowAbsoluteExpiry(!showAbsoluteExpiry)}
+        style={{flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 8}}
+      >
         {isExpired ? (
           <View style={{ width: 16, height: 16, justifyContent: 'center', alignItems: 'center' }}>
             <MaterialCommunityIcons name="clock-outline" size={16} color={color} />
@@ -783,7 +803,7 @@ export default function HomeScreen() {
           <MaterialCommunityIcons name="clock-outline" size={16} color={color} />
         )}
         <Text style={{color, fontSize: 10, fontWeight: 'bold'}} testID={`batch-expiry-urgency-${(typeName || 'unknown').toString().toLowerCase().replace(/\s+/g, '-')}-${invId}`}>{timeText}</Text>
-      </View>
+      </TouchableOpacity>
     );
   };
 

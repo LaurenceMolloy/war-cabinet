@@ -375,7 +375,7 @@ export const Inventory = {
   async resetCabinetAudit(db: any, cabinetId: string | number) {
     await db.runAsync(`
       UPDATE Inventory 
-      SET last_audited_at = NULL, 
+      SET last_audited_at = CAST(strftime('%s', printf('%04d-%02d-%02d', entry_year, entry_month, entry_day)) AS INTEGER) * 1000, 
           last_audit_outcome = NULL 
       WHERE cabinet_id = ?
     `, [cabinetId]);
