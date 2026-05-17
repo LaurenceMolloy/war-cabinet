@@ -97,12 +97,12 @@ export function useAuditStaging(db: SQLiteDatabase, selectedCabinetId: string | 
 
   const discardChange = async (id: string) => {
     await Database.Inventory.discardPendingChange(db, id);
-    await refreshPending();
+    await updateStats();
   };
 
   const updatePendingQuantity = async (changeId: number, newQty: number, currentQty: number) => {
     await Database.Inventory.updatePendingQuantity(db, changeId, newQty, currentQty);
-    await refreshPending();
+    await updateStats();
   };
 
   const resetAudit = async () => {

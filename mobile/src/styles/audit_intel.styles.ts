@@ -1,9 +1,9 @@
 import { StyleSheet } from 'react-native';
 
 /**
- * Voice Intel PoC — StyleSheet
+ * Audit Intel — StyleSheet
  *
- * Co-located style module for voice_intel.tsx.
+ * Co-located style module for audit_intel.tsx.
  * Future: shared design tokens (colours, spacing, typography) will be
  * extracted to src/styles/theme.ts and imported here.
  */
@@ -13,9 +13,9 @@ export const styles = StyleSheet.create({
   backBtn: { padding: 4 },
   title: { color: '#f8fafc', fontSize: 18, fontWeight: '900', letterSpacing: 2 },
 
-  cabinetFilterContainer: { marginBottom: 16, paddingHorizontal: 4 },
-  filterLabel: { color: '#64748b', fontSize: 8, fontWeight: '900', letterSpacing: 1, marginBottom: 8, marginLeft: 12 },
-  cabinetScroll: { paddingHorizontal: 8, gap: 8 },
+  cabinetFilterContainer: { marginBottom: 16 },
+  filterLabel: { color: '#64748b', fontSize: 8, fontWeight: '900', letterSpacing: 1, marginBottom: 8, marginLeft: 16 },
+  cabinetScroll: { paddingHorizontal: 16, gap: 8 },
   cabinetChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
   cabinetChipActive: { backgroundColor: '#3b82f6', borderColor: '#60a5fa' },
   cabinetChipText: { color: '#94a3b8', fontSize: 10, fontWeight: 'bold' },
@@ -33,6 +33,7 @@ export const styles = StyleSheet.create({
   micBtnActive: { backgroundColor: '#ef4444', transform: [{ scale: 1.1 }] },
 
   resultsScroll: { flex: 1, paddingHorizontal: 16 },
+  resultsContainer: { paddingHorizontal: 16, marginTop: 16 },
   sectionTitle: { color: '#64748b', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, marginBottom: 12 },
 
   resultCard: { backgroundColor: '#0f172a', borderRadius: 12, padding: 12, marginBottom: 12, flexDirection: 'row', gap: 12, borderWidth: 1, borderColor: '#1e293b' },
@@ -234,8 +235,8 @@ export const styles = StyleSheet.create({
     marginTop: 12,
   },
   cardImageContainer: {
-    width: 64,
-    height: 64,
+    width: 80,
+    height: 80,
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#020617',
@@ -252,5 +253,31 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#0f172a',
+  },
+  reviewScroll: {
+    padding: 15,
+  },
+  reviewItem: {
+    backgroundColor: '#1e293b',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  reviewItemTitle: {
+    color: '#f8fafc',
+    fontSize: 13,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  reviewItemSubtitle: {
+    color: '#fbbf24',
+    fontSize: 10,
+    fontWeight: '900',
+    marginTop: 4,
+    letterSpacing: 0.5,
   },
 });

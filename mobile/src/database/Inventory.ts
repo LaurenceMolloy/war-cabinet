@@ -213,11 +213,13 @@ export const Inventory = {
         Inventory.size,
         Inventory.expiry_month,
         Inventory.expiry_year,
-        Cabinets.name as cabinet_name
+        Cabinets.name as cabinet_name,
+        Categories.name as category_name
       FROM AuditPendingChanges
       JOIN ItemTypes ON AuditPendingChanges.item_type_id = ItemTypes.id
       LEFT JOIN Inventory ON AuditPendingChanges.batch_id = Inventory.id
       LEFT JOIN Cabinets ON Cabinets.id = COALESCE(AuditPendingChanges.cabinet_id, Inventory.cabinet_id, ItemTypes.default_cabinet_id)
+      LEFT JOIN Categories ON ItemTypes.category_id = Categories.id
       ORDER BY AuditPendingChanges.created_at DESC
     `;
     return await db.getAllAsync<any>(query);

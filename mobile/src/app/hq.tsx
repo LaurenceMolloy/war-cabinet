@@ -219,14 +219,14 @@ export default function SecretHQScreen() {
 
         <TouchableOpacity 
           style={[styles.scenarioCard, { borderColor: '#fbbf24', marginTop: 12 }]}
-          onPress={() => router.push('/voice_intel')}
+          onPress={() => router.push('/audit_intel')}
           disabled={isSeeding}
         >
           <View style={{ flex: 1 }}>
-            <Text style={[styles.scenarioId, { color: '#fbbf24' }]}>VOICE INTEL POC</Text>
-            <Text style={styles.scenarioRank}>TEST ACOUSTIC-TO-SEMANTIC MAPPING</Text>
+            <Text style={[styles.scenarioId, { color: '#fbbf24' }]}>AUDIT INTEL</Text>
+            <Text style={styles.scenarioRank}>HYBRID VOICE & MANUAL AUDITING ENGINE</Text>
           </View>
-          <MaterialCommunityIcons name="microphone" size={24} color="#fbbf24" />
+          <MaterialCommunityIcons name="shield-check" size={24} color="#fbbf24" />
         </TouchableOpacity>
 
         <TouchableOpacity 

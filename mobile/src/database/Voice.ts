@@ -24,6 +24,7 @@ export interface VoiceInventoryRow {
   unit_type: string | null;
   batch_image: string | null;
   product_image: string | null;
+  category_name: string | null;
 }
 
 export interface VoiceCabinetRow {
@@ -111,9 +112,11 @@ export const VoiceDAL = {
         it.name, it.default_cabinet_id, it.unit_type,
         it.image_uri as product_image,
         COALESCE(inv.supplier, it.default_supplier) as brand,
-        COALESCE(inv.product_range, it.default_product_range) as product_range
+        COALESCE(inv.product_range, it.default_product_range) as product_range,
+        c.name as category_name
       FROM Inventory inv
       JOIN ItemTypes it ON inv.item_type_id = it.id
+      LEFT JOIN Categories c ON it.category_id = c.id
       WHERE inv.quantity > 0 
       AND (${placeholders})
       AND (inv.last_audited_at IS NULL OR inv.last_audited_at < ?)
@@ -132,13 +135,35 @@ export const VoiceDAL = {
    * @param cabinetId    - The cabinet being swept
    * @param sessionStartMs - Unix ms timestamp marking start of the audit window
    */
-  async getUnauditedBatches(db: any, cabinetId: string | number, sessionStartMs: number): Promise<Array<{ id: number; item_type_id: number; quantity: number; name: string }>> {
-    return db.getAllAsync<any>(`
-      SELECT inv.id, inv.item_type_id, inv.quantity, it.name 
+  async getUnauditedBatches(db: any, cabinetId: string | number, sessionStartMs: number): Promise<VoiceInventoryRow[]> {
+    return db.getAllAsync<VoiceInventoryRow>(`
+      SELECT 
+        inv.id, inv.item_type_id, inv.quantity, inv.size, inv.cabinet_id, inv.expiry_month, inv.expiry_year,
+        inv.image_uri as batch_image,
+        it.name, it.default_cabinet_id, it.unit_type,
+        it.image_uri as product_image,
+        COALESCE(inv.supplier, it.default_supplier) as brand,
+        COALESCE(inv.product_range, it.default_product_range) as product_range,
+        c.name as category_name
       FROM Inventory inv
       JOIN ItemTypes it ON inv.item_type_id = it.id
+      LEFT JOIN Categories c ON it.category_id = c.id
       WHERE inv.cabinet_id = ? AND inv.quantity > 0 
       AND (inv.last_audited_at IS NULL OR inv.last_audited_at < ?)
     `, [cabinetId, sessionStartMs]);
+  },
+
+  async getCategoryCompletion(db: any, cabinetId: string | number, sessionStartMs: number): Promise<{category_name: string, total: number, audited: number}[]> {
+    return db.getAllAsync<any>(`
+      SELECT 
+        COALESCE(c.name, 'GENERAL CATEGORY') as category_name,
+        COUNT(inv.id) as total,
+        SUM(CASE WHEN inv.last_audited_at >= ? THEN 1 ELSE 0 END) as audited
+      FROM Inventory inv
+      JOIN ItemTypes it ON inv.item_type_id = it.id
+      LEFT JOIN Categories c ON it.category_id = c.id
+      WHERE inv.cabinet_id = ? AND (inv.quantity > 0 OR (inv.quantity = 0 AND inv.last_audit_outcome = 'MIA' AND inv.dead_at >= ?))
+      GROUP BY category_name
+    `, [sessionStartMs, cabinetId, sessionStartMs]);
   },
 };
