@@ -38,6 +38,7 @@ export default function VoiceIntelPoCScreen() {
   const [selectedCabinetId, setSelectedCabinetId] = useState<string | null>(null);
   const [callsign, setCallsign] = useState<'SIR' | "MA'AM" | 'COMMANDER'>('COMMANDER');
   const [remainingTargets, setRemainingTargets] = useState<any[]>([]);
+  const [bountyTargets, setBountyTargets] = useState<any[]>([]);
   const [adjustingItem, setAdjustingItem] = useState<any | null>(null);
   const [adjustingQty, setAdjustingQty] = useState<number>(1);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
@@ -46,6 +47,7 @@ export default function VoiceIntelPoCScreen() {
   const {
     briefing,
     pendingChanges,
+    stageRevision,
     isReviewVisible,
     setIsReviewVisible,
     isProcessing,
@@ -125,15 +127,32 @@ export default function VoiceIntelPoCScreen() {
     fetchCabinets();
   }, [db]);
 
+  const lastCabinetIdRef = React.useRef<string | null>(null);
+
   const loadRemainingTargets = useCallback(async () => {
+    const cabinetChanged = lastCabinetIdRef.current !== selectedCabinetId;
+    lastCabinetIdRef.current = selectedCabinetId;
+
     if (!selectedCabinetId) {
-      setRemainingTargets([]);
-      setCategoryProgress({});
+      if (cabinetChanged) {
+        // Preemptive clear only during actual view transition to avoid format clash ghosting
+        setRemainingTargets([]);
+        setBountyTargets([]);
+        setCategoryProgress({});
+      }
+      
+      const globalBounties = await VoiceDAL.getTopAuditBounties(db, null, 5);
+      setBountyTargets(globalBounties);
       return;
     }
+    
     const sessionWindow = Date.now() - AUDIT_SESSION_WINDOW;
     const targets = await VoiceDAL.getUnauditedBatches(db, selectedCabinetId, sessionWindow);
+    const bounties = await VoiceDAL.getTopAuditBounties(db, selectedCabinetId, 3);
+    
+    // Set them together to minimize render cycles
     setRemainingTargets(targets);
+    setBountyTargets(bounties);
 
     try {
       const progressList = await VoiceDAL.getCategoryCompletion(db, selectedCabinetId, sessionWindow);
@@ -149,7 +168,7 @@ export default function VoiceIntelPoCScreen() {
 
   useEffect(() => {
     loadRemainingTargets();
-  }, [loadRemainingTargets, briefing]);
+  }, [loadRemainingTargets, briefing, stageRevision]);
 
   const {
     isListening,
@@ -968,6 +987,29 @@ setIsProcessing(false);
             </View>
           ) : selectedCabinetId ? (
             <>
+              {bountyTargets.length > 0 && (
+                <View style={{ marginBottom: 24 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <MaterialCommunityIcons name="target" size={20} color="#f59e0b" />
+                    <Text style={[styles.sectionTitle, { color: '#f59e0b', marginBottom: 0 }]}>
+                      BOUNTY HUNT: TOP {bountyTargets.length} STALEST TARGETS
+                    </Text>
+                  </View>
+                  {bountyTargets.map((item, idx) => (
+                    <AuditTargetCard
+                      key={`bounty-${item.id || idx}`}
+                      item={item}
+                      onVerify={recordVerified}
+                      onMIA={recordMIA}
+                      onAdjustQty={() => {
+                        setAdjustingItem(item);
+                        setAdjustingQty(item.quantity || 1);
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
+
               <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>
                 REMAINING TARGETS ({remainingTargets.length})
               </Text>
@@ -1150,11 +1192,37 @@ setIsProcessing(false);
               )}
             </>
           ) : (
-            <View style={{ alignItems: 'center', padding: 40 }}>
-              <MaterialCommunityIcons name="office-building" size={48} color="#475569" />
-              <Text style={{ color: '#475569', fontSize: 12, fontWeight: 'bold', marginTop: 12, textAlign: 'center' }}>
-                SELECT CABINET TO BEGIN AUDIT RECON
-              </Text>
+            <View style={{ paddingBottom: 40 }}>
+              {bountyTargets.length > 0 ? (
+                <View style={{ marginBottom: 24, paddingHorizontal: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <MaterialCommunityIcons name="target" size={20} color="#f59e0b" />
+                    <Text style={[styles.sectionTitle, { color: '#f59e0b', marginBottom: 0 }]}>
+                      ALL-ESTATE BOUNTY HUNT: TOP {bountyTargets.length} TARGETS
+                    </Text>
+                  </View>
+                  {bountyTargets.map((item, idx) => (
+                    <AuditTargetCard
+                      key={`global-bounty-${item.id || idx}`}
+                      item={item}
+                      onVerify={recordVerified}
+                      onMIA={recordMIA}
+                      showCabinet={true}
+                      onAdjustQty={() => {
+                        setAdjustingItem(item);
+                        setAdjustingQty(item.quantity || 1);
+                      }}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={{ alignItems: 'center', padding: 40 }}>
+                  <MaterialCommunityIcons name="office-building" size={48} color="#475569" />
+                  <Text style={{ color: '#475569', fontSize: 12, fontWeight: 'bold', marginTop: 12, textAlign: 'center' }}>
+                    SELECT CABINET TO BEGIN AUDIT RECON
+                  </Text>
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -1198,12 +1266,14 @@ function AuditTargetCard({
   item, 
   onVerify, 
   onMIA, 
-  onAdjustQty 
+  onAdjustQty,
+  showCabinet 
 }: { 
   item: any, 
   onVerify: (item: any) => Promise<void>, 
   onMIA: (item: any) => Promise<void>, 
-  onAdjustQty: (item: any) => void
+  onAdjustQty: (item: any) => void,
+  showCabinet?: boolean
 }) {
   // Helper to format last audited age and calculate visual color impact
   const getAuditAgeDetails = () => {
@@ -1341,6 +1411,7 @@ function AuditTargetCard({
       style={[
         styles.resultCard, 
         { 
+          flexDirection: 'column',
           marginBottom: 8, 
           paddingRight: 6,
           transform: [{ translateX: position.x }],
@@ -1349,8 +1420,17 @@ function AuditTargetCard({
         getCardStyle()
       ]}
     >
-      <View style={{ flex: 1, flexDirection: 'row', gap: 12, alignItems: 'stretch' }}>
-        {/* Left Badge, Size, & Expiry Stack (Narrower & Pure Metric View) */}
+      {showCabinet && item.cabinet_name && (
+        <View style={{ backgroundColor: '#1e293b', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, alignSelf: 'stretch', marginBottom: 4 }}>
+          <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: '900', textTransform: 'uppercase', textAlign: 'center', letterSpacing: 1 }}>
+            CABINET: {item.cabinet_name}
+          </Text>
+        </View>
+      )}
+
+      <View style={{ flexDirection: 'row', width: '100%', alignItems: 'stretch' }}>
+        <View style={{ flex: 1, flexDirection: 'row', gap: 12, alignItems: 'stretch' }}>
+          {/* Left Badge, Size, & Expiry Stack (Narrower & Pure Metric View) */}
         <View style={{ flexDirection: 'column', alignItems: 'center', width: 48, justifyContent: 'space-between' }}>
           {/* Expected Count (Adjustable Numeral) */}
           <TouchableOpacity 
@@ -1496,6 +1576,7 @@ function AuditTargetCard({
         >
           <MaterialCommunityIcons name="close" size={18} color="#ef4444" />
         </TouchableOpacity>
+      </View>
       </View>
     </Animated.View>
   );

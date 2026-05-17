@@ -10,12 +10,14 @@ export function useAuditStaging(db: SQLiteDatabase, selectedCabinetId: string | 
   const [pendingChanges, setPendingChanges] = useState<any[]>([]);
   const [isReviewVisible, setIsReviewVisible] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [stageRevision, setStageRevision] = useState(0);
 
   useEffect(() => {
     const loadData = async () => {
       if (!selectedCabinetId) {
         setBriefing(null);
         setPendingChanges([]);
+        setStageRevision(prev => prev + 1);
         return;
       }
       // Clear zombie records before we start
@@ -26,6 +28,7 @@ export function useAuditStaging(db: SQLiteDatabase, selectedCabinetId: string | 
       ]);
       setBriefing(briefingData);
       setPendingChanges(pendingData);
+      setStageRevision(prev => prev + 1);
     };
     loadData();
   }, [db, selectedCabinetId]);
@@ -38,6 +41,7 @@ export function useAuditStaging(db: SQLiteDatabase, selectedCabinetId: string | 
       const updatedBriefing = await Database.Inventory.getAuditBriefing(db, selectedCabinetId);
       setBriefing(updatedBriefing);
     }
+    setStageRevision(prev => prev + 1);
   };
 
   const refreshPending = async () => {
@@ -140,6 +144,7 @@ export function useAuditStaging(db: SQLiteDatabase, selectedCabinetId: string | 
   return {
     briefing,
     pendingChanges,
+    stageRevision,
     isReviewVisible,
     setIsReviewVisible,
     isProcessing,

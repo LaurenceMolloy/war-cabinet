@@ -158,6 +158,7 @@ export const VoiceDAL = {
       JOIN ItemTypes it ON inv.item_type_id = it.id
       LEFT JOIN Categories c ON it.category_id = c.id
       WHERE inv.cabinet_id = ? AND inv.quantity > 0 
+      AND inv.id NOT IN (SELECT batch_id FROM AuditPendingChanges WHERE batch_id IS NOT NULL)
       AND (inv.last_audited_at IS NULL OR inv.last_audited_at < ?)
     `, [cabinetId, sessionStartMs]);
   },
@@ -174,5 +175,48 @@ export const VoiceDAL = {
       WHERE inv.cabinet_id = ? AND (inv.quantity > 0 OR (inv.quantity = 0 AND inv.last_audit_outcome = 'MIA' AND inv.dead_at >= ?))
       GROUP BY category_name
     `, [sessionStartMs, cabinetId, sessionStartMs]);
+  },
+
+  /**
+   * Fetches the stalest X items in a cabinet for the "Bounty Hunt" feature.
+   * Orders by last_audited_at, falling back to entry date if never audited.
+   */
+  async getTopAuditBounties(db: any, cabinetId: string | number | null, limit: number = 5): Promise<any[]> {
+    let query = `
+      SELECT 
+        inv.id, inv.item_type_id, inv.quantity, inv.size, inv.cabinet_id, inv.expiry_month, inv.expiry_year,
+        inv.entry_day, inv.entry_month, inv.entry_year, inv.last_audited_at,
+        inv.batch_intel,
+        inv.image_uri as batch_image,
+        it.name, it.default_cabinet_id, it.unit_type,
+        it.image_uri as product_image,
+        COALESCE(inv.supplier, it.default_supplier) as brand,
+        COALESCE(inv.product_range, it.default_product_range) as product_range,
+        c.name as category_name,
+        cab.name as cabinet_name
+      FROM Inventory inv
+      JOIN ItemTypes it ON inv.item_type_id = it.id
+      LEFT JOIN Categories c ON it.category_id = c.id
+      JOIN Cabinets cab ON inv.cabinet_id = cab.id
+      WHERE inv.quantity > 0 
+      AND inv.id NOT IN (SELECT batch_id FROM AuditPendingChanges WHERE batch_id IS NOT NULL)
+    `;
+    const params: any[] = [];
+    
+    if (cabinetId !== null) {
+      query += ` AND inv.cabinet_id = ? `;
+      params.push(cabinetId);
+    }
+    
+    query += `
+      ORDER BY COALESCE(
+        inv.last_audited_at, 
+        CAST(strftime('%s', printf('%04d-%02d-%02d', inv.entry_year, inv.entry_month, inv.entry_day)) AS INTEGER) * 1000
+      ) ASC
+      LIMIT ?
+    `;
+    params.push(limit);
+    
+    return db.getAllAsync<any>(query, params);
   },
 };
