@@ -278,7 +278,7 @@ export default function LogisticsScreen() {
       for (const action of commitActions) {
         // Capture batch states before movement for the log
         const movingBatches = await db.getAllAsync<any>(
-          'SELECT quantity, size, expiry_month, expiry_year FROM Inventory WHERE cabinet_id = ? AND item_type_id = ?', 
+          'SELECT quantity, size, expiry_month, expiry_year FROM Inventory WHERE cabinet_id = ? AND item_type_id = ? AND quantity > 0', 
           [action.sourceCabId, action.typeId]
         );
 
@@ -290,7 +290,7 @@ export default function LogisticsScreen() {
         }
 
         await db.runAsync(
-          'UPDATE Inventory SET last_rotated_at = ?, cabinet_id = ?, last_audited_at = ?, last_audit_outcome = ? WHERE cabinet_id = ? AND item_type_id = ?', 
+          'UPDATE Inventory SET last_rotated_at = ?, cabinet_id = ?, last_audited_at = ?, last_audit_outcome = ? WHERE cabinet_id = ? AND item_type_id = ? AND quantity > 0', 
           [action.ts, action.finalTarget, Date.now(), 'VERIFIED', action.sourceCabId, action.typeId]
         );
       }

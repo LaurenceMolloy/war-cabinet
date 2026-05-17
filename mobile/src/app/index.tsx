@@ -1195,6 +1195,7 @@ export default function HomeScreen() {
                           {inv.quantity}
                         </Animated.Text>
                         <Text 
+                          testID={`${cat.name.toLowerCase().replace(/\s+/g, '-')}-${type.name.toLowerCase().replace(/\s+/g, '-')}-batch-${inv.id}-size`}
                           style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}
                           numberOfLines={1} 
                         >

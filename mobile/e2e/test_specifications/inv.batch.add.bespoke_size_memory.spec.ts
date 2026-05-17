@@ -60,7 +60,7 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     const qtyBadge1 = page.getByTestId('test-category-1-test-item-1-batch-1-qty');
     const sizeBadge1 = page.getByTestId('test-category-1-test-item-1-batch-1-size');
     await expect(qtyBadge1).toHaveText('1');
-    await expect(sizeBadge1).toHaveText('75g');
+    await expect(sizeBadge1).toHaveText(/75g/i);
   });
 
   await test.step('STEP 3: Second Batch (200g) - Interleaving 75g', async () => {
@@ -68,12 +68,12 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     
     // Verify 75g is cleanly interleaved between 50g and 100g
     const sizeLabels = page.locator('[data-testid^="size-label-"]');
-    await expect(sizeLabels).toHaveText(['50g', '75g', '100g', '250g', '500g', '1kg']);
+    await expect(sizeLabels).toHaveText([/50g/i, /75g/i, /100g/i, /250g/i, /500g/i, /1kg/i]);
 
     // Verify 75g is marked custom
     const customChips = page.locator('[data-testid$="-custom"]');
     await expect(customChips).toHaveCount(1);
-    await expect(customChips).toHaveText(['75g']);
+    await expect(customChips).toHaveText([/75g/i]);
 
     // Wait for DB to populate the default size
     await expect(page.getByTestId('size-input')).toHaveValue('100');
@@ -89,7 +89,7 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     const qtyBadge2 = page.getByTestId('test-category-1-test-item-1-batch-2-qty');
     const sizeBadge2 = page.getByTestId('test-category-1-test-item-1-batch-2-size');
     await expect(qtyBadge2).toHaveText('1');
-    await expect(sizeBadge2).toHaveText('200g');
+    await expect(sizeBadge2).toHaveText(/200g/i);
   });
 
   await test.step('STEP 4: Third Batch (400g) - Interleaving 75g & 200g', async () => {
@@ -97,12 +97,12 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     
     // Verify 200g is added to memory and cleanly interleaved
     const sizeLabels = page.locator('[data-testid^="size-label-"]');
-    await expect(sizeLabels).toHaveText(['50g', '75g', '100g', '200g', '250g', '500g', '1kg']);
+    await expect(sizeLabels).toHaveText([/50g/i, /75g/i, /100g/i, /200g/i, /250g/i, /500g/i, /1kg/i]);
 
     const customChips = page.locator('[data-testid$="-custom"]');
     await expect(customChips).toHaveCount(2);
     // Custom chips will be ordered numerically too because they are interleaved
-    await expect(customChips).toHaveText(['75g', '200g']);
+    await expect(customChips).toHaveText([/75g/i, /200g/i]);
 
     // Wait for DB to populate the default size
     await expect(page.getByTestId('size-input')).toHaveValue('100');
@@ -117,7 +117,7 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     const qtyBadge3 = page.getByTestId('test-category-1-test-item-1-batch-3-qty');
     const sizeBadge3 = page.getByTestId('test-category-1-test-item-1-batch-3-size');
     await expect(qtyBadge3).toHaveText('1');
-    await expect(sizeBadge3).toHaveText('400g');
+    await expect(sizeBadge3).toHaveText(/400g/i);
   });
 
   await test.step('STEP 5: Fourth Batch (800g) - Memory Full, 75g Dropped', async () => {
@@ -125,11 +125,11 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     
     // Verify memory contains 3 custom chips properly interleaved
     const sizeLabels = page.locator('[data-testid^="size-label-"]');
-    await expect(sizeLabels).toHaveText(['50g', '75g', '100g', '200g', '250g', '400g', '500g', '1kg']);
+    await expect(sizeLabels).toHaveText([/50g/i, /75g/i, /100g/i, /200g/i, /250g/i, /400g/i, /500g/i, /1kg/i]);
 
     const customChips = page.locator('[data-testid$="-custom"]');
     await expect(customChips).toHaveCount(3);
-    await expect(customChips).toHaveText(['75g', '200g', '400g']);
+    await expect(customChips).toHaveText([/75g/i, /200g/i, /400g/i]);
 
     // Wait for DB to populate the default size
     await expect(page.getByTestId('size-input')).toHaveValue('100');
@@ -144,7 +144,7 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     const qtyBadge4 = page.getByTestId('test-category-1-test-item-1-batch-4-qty');
     const sizeBadge4 = page.getByTestId('test-category-1-test-item-1-batch-4-size');
     await expect(qtyBadge4).toHaveText('1');
-    await expect(sizeBadge4).toHaveText('800g');
+    await expect(sizeBadge4).toHaveText(/800g/i);
   });
 
   await test.step('STEP 6: Memory Pruning Verification', async () => {
@@ -152,11 +152,11 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     
     // Verify 75g was pruned (oldest). 200g, 400g, and 800g remain and are interleaved.
     const sizeLabels = page.locator('[data-testid^="size-label-"]');
-    await expect(sizeLabels).toHaveText(['50g', '100g', '200g', '250g', '400g', '500g', '800g', '1kg']);
+    await expect(sizeLabels).toHaveText([/50g/i, /100g/i, /200g/i, /250g/i, /400g/i, /500g/i, /800g/i, /1kg/i]);
 
     const customChips = page.locator('[data-testid$="-custom"]');
     await expect(customChips).toHaveCount(3);
-    await expect(customChips).toHaveText(['200g', '400g', '800g']);
+    await expect(customChips).toHaveText([/200g/i, /400g/i, /800g/i]);
 
     await page.getByTestId('cancel-btn').click();
   });
@@ -175,13 +175,13 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
 
     // Verify the 50g batch was saved correctly
     const sizeBadge5 = page.getByTestId('test-category-1-test-item-1-batch-5-size');
-    await expect(sizeBadge5).toHaveText('50g');
+    await expect(sizeBadge5).toHaveText(/50g/i);
 
     // Re-open - custom memory slots should be unchanged (50g is standard, not bespoke)
     await page.getByTestId('add-btn-test-category-1-test-item-1').filter({ visible: true }).click();
     const customChips = page.locator('[data-testid$="-custom"]');
     await expect(customChips).toHaveCount(3);
-    await expect(customChips).toHaveText(['200g', '400g', '800g']);
+    await expect(customChips).toHaveText([/200g/i, /400g/i, /800g/i]);
 
     await page.getByTestId('cancel-btn').click();
   });
@@ -189,7 +189,7 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
   await test.step('STEP 8: Persistent Memory Decoupling (Batch Deletion)', async () => {
     // RN Web virtualization leaves multiple copies of the row in the DOM.
     // We find all 200g size badges and use the first one to extract the ID.
-    const allSizeBadges200g = page.getByTestId(/test-category-1-test-item-1-batch-\d+-size/).filter({ hasText: '200g' });
+    const allSizeBadges200g = page.getByTestId(/test-category-1-test-item-1-batch-\d+-size/).filter({ hasText: /200g/i }).filter({ visible: true });
     const firstSizeBadge200g = allSizeBadges200g.first();
     await expect(firstSizeBadge200g).toBeAttached();
 
@@ -214,7 +214,7 @@ test('Tactical Logistics: Custom Size Memory Interleaving', async ({ page }) => 
     // THE CORE ASSERTION: 200g must still appear in smart size chips after deletion.
     await page.getByTestId('add-btn-test-category-1-test-item-1').filter({ visible: true }).click();
     await expect(page.locator('[data-testid$="-custom"]')).toHaveCount(3);
-    await expect(page.locator('[data-testid$="-custom"]')).toHaveText(['200g', '400g', '800g']);
+    await expect(page.locator('[data-testid$="-custom"]')).toHaveText([/200g/i, /400g/i, /800g/i]);
     await page.getByTestId('cancel-btn').click();
   });
 

@@ -920,11 +920,15 @@ export default function CatalogScreen() {
   };
 
   const handleDeleteItemType = async (typeId: number) => {
-    const count = await db.getFirstAsync<{c: number}>('SELECT COUNT(*) as c FROM Inventory WHERE item_type_id = ?', [typeId]);
+    const count = await db.getFirstAsync<{c: number}>('SELECT COUNT(*) as c FROM Inventory WHERE item_type_id = ? AND quantity > 0', [typeId]);
     if (count && count.c > 0) {
       Alert.alert('Cannot Delete', 'This item type has stock. Please delete the stock first.');
       return;
     }
+    
+    // Purge any depleted or empty inventory records to prevent foreign key constraint violations
+    await db.runAsync('DELETE FROM Inventory WHERE item_type_id = ?', [typeId]);
+    
     const typeNameRes = await db.getFirstAsync<{name: string}>('SELECT name FROM ItemTypes WHERE id = ?', [typeId]);
     await db.runAsync('DELETE FROM ItemTypes WHERE id = ?', [typeId]);
     await logTacticalAction(db, 'DELETE', 'ITEM_TYPE', typeId, typeNameRes?.name || 'Unknown');
@@ -950,11 +954,44 @@ export default function CatalogScreen() {
   };
 
   const handleDeleteCabinet = async (cabId: number, hasStock: boolean) => {
-    try {
-      await Database.Cabinets.delete(db, cabId);
-      load();
-    } catch (e: any) {
-      Alert.alert('Deployment Error', e.message);
+    // 1. Check for active stock (quantity > 0)
+    const activeStock = await db.getFirstAsync<{c: number}>('SELECT COUNT(*) as c FROM Inventory WHERE cabinet_id = ? AND quantity > 0', [cabId]);
+    if (activeStock && activeStock.c > 0) {
+      Alert.alert('Cannot Delete', 'This cabinet still contains active stock. Please move or consume the stock first.');
+      return;
+    }
+
+    // 2. Identify all item types whose default storage is set to this cabinet
+    const defaultingItems = await db.getAllAsync<{name: string}>('SELECT name FROM ItemTypes WHERE default_cabinet_id = ?', [cabId]);
+    
+    const proceedWithDeletion = async () => {
+      try {
+        // Clear default_cabinet_id on any item types configured for this cabinet
+        await db.runAsync('UPDATE ItemTypes SET default_cabinet_id = NULL WHERE default_cabinet_id = ?', [cabId]);
+        
+        // Purge any depleted or empty inventory records (quantity = 0) to satisfy database constraints
+        await db.runAsync('DELETE FROM Inventory WHERE cabinet_id = ?', [cabId]);
+        
+        // Decommission the cabinet
+        await Database.Cabinets.delete(db, cabId);
+        load();
+      } catch (e: any) {
+        Alert.alert('Deployment Error', e.message);
+      }
+    };
+
+    if (defaultingItems && defaultingItems.length > 0) {
+      const itemList = defaultingItems.map(item => `• ${item.name}`).join('\n');
+      Alert.alert(
+        'Default Location Warning',
+        `This cabinet is configured as the default storage location for the following products:\n\n${itemList}\n\nProceeding will reset their default cabinet setting. Do you wish to continue?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Reset Defaults & Delete', style: 'destructive', onPress: proceedWithDeletion }
+        ]
+      );
+    } else {
+      await proceedWithDeletion();
     }
   };
 

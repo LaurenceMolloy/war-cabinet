@@ -32,7 +32,7 @@ export const Cabinets = {
     return await db.getAllAsync<Cabinet>(`
       SELECT c.*, COUNT(i.id) as stock_count 
       FROM Cabinets c 
-      LEFT JOIN Inventory i ON i.cabinet_id = c.id
+      LEFT JOIN Inventory i ON i.cabinet_id = c.id AND i.quantity > 0
       GROUP BY c.id
       ORDER BY c.name ASC
     `);
@@ -59,12 +59,13 @@ export const Cabinets = {
    * Identifies all storage sites currently containing stock for a specific item type.
    * Useful for "Location Conflict" detection and logistical pooling.
    */
-  async getStorageSitesForItemType(db: SQLiteDatabase, typeId: number, excludingCabinetId?: number): Promise<{id: number, name: string}[]> {
-    return await db.getAllAsync<{id: number, name: string}>(`
-      SELECT DISTINCT c.id, c.name 
+  async getStorageSitesForItemType(db: SQLiteDatabase, typeId: number, excludingCabinetId?: number): Promise<{id: number, name: string, current_qty: number}[]> {
+    return await db.getAllAsync<{id: number, name: string, current_qty: number}>(`
+      SELECT c.id, c.name, COALESCE(SUM(v.quantity), 0) as current_qty
       FROM Inventory v 
       JOIN Cabinets c ON v.cabinet_id = c.id 
       WHERE v.item_type_id = ? ${excludingCabinetId ? `AND v.cabinet_id != ${excludingCabinetId}` : ''}
+      GROUP BY c.id, c.name
     `, [typeId]);
   },
 
@@ -134,9 +135,9 @@ export const Cabinets = {
   async delete(db: SQLiteDatabase, id: number): Promise<void> {
     const old = await db.getFirstAsync<Cabinet>('SELECT * FROM Cabinets WHERE id = ?', [id]);
     
-    const stock = await db.getFirstAsync<{c: number}>('SELECT COUNT(*) as c FROM Inventory WHERE cabinet_id = ?', [id]);
+    const stock = await db.getFirstAsync<{c: number}>('SELECT COUNT(*) as c FROM Inventory WHERE cabinet_id = ? AND quantity > 0', [id]);
     if (stock && stock.c > 0) {
-      throw new Error('Cannot delete a cabinet that still contains stock.');
+      throw new Error('Cannot delete a cabinet that still contains active stock.');
     }
 
     await db.runAsync('DELETE FROM Cabinets WHERE id = ?', [id]);

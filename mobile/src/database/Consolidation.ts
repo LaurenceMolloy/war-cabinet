@@ -55,6 +55,7 @@ export const Consolidation = {
       SELECT id, batch_intel, expiry_month, expiry_year, supplier, product_range, size, image_uri 
       FROM Inventory 
       WHERE item_type_id = ? AND size = ? AND cabinet_id = ?
+        AND quantity > 0
         AND ( (expiry_month IS NULL AND ? IS NULL) OR (expiry_month = ?) )
         AND ( (expiry_year IS NULL AND ? IS NULL) OR (expiry_year = ?) )
         AND id != ?

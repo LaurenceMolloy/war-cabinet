@@ -380,7 +380,7 @@ export default function AddInventoryScreen() {
   const [showRangeFuzzyModal, setShowRangeFuzzyModal] = useState(false);
   const [fuzzyRangeMatches, setFuzzyRangeMatches] = useState<string[]>([]);
   const [ignoredFuzzyRanges, setIgnoredFuzzyRanges] = useState<Set<string>>(new Set());
-  const [otherLocations, setOtherLocations] = useState<{id: number, name: string}[]>([]);
+  const [otherLocations, setOtherLocations] = useState<{id: number, name: string, current_qty: number}[]>([]);
   const [makeDefaultHome, setMakeDefaultHome] = useState(false);
   const [showFreezeMonthPicker, setShowFreezeMonthPicker] = useState(false);
   const [showFreezeYearPicker, setShowFreezeYearPicker] = useState(false);
@@ -937,24 +937,28 @@ export default function AddInventoryScreen() {
           // Only challenge if: No default, no manual override, stock exists in OTHER cabinets, and NO stock here.
           if (finalTypeId) {
             const typeRes = await db.getFirstAsync<{default_cabinet_id: number | null}>('SELECT default_cabinet_id FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
-            const others = await Database.Cabinets.getStorageSitesForItemType(db, Number(finalTypeId), Number(selectedCabinetId));
-            const isDeviatingFromDefault = typeRes?.default_cabinet_id && typeRes.default_cabinet_id !== Number(selectedCabinetId);
-            const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? LIMIT 1', [Number(finalTypeId), selectedCabinetId]);
+            const isDefaultCabinet = typeRes?.default_cabinet_id === Number(selectedCabinetId);
+            const existingHere = await db.getFirstAsync<any>('SELECT id FROM Inventory WHERE item_type_id = ? AND cabinet_id = ? AND quantity > 0 LIMIT 1', [Number(finalTypeId), selectedCabinetId]);
 
             // TACTICAL OVERSIGHT HIERARCHY:
-            // 1. If we are adding to an existing stockpile in this cabinet, no challenge needed.
-            if (!existingHere) {
+            // 1. If we are placing in the configured Default Cabinet (Rule 1) or adding to an existing active stack in this cabinet (Rule 2), no challenge needed.
+            if (!isDefaultCabinet && !existingHere) {
+               const others = await Database.Cabinets.getStorageSitesForItemType(db, Number(finalTypeId), Number(selectedCabinetId));
                const typeStatus = await db.getFirstAsync<{vanguard_resolved: number}>('SELECT vanguard_resolved FROM ItemTypes WHERE id = ?', [Number(finalTypeId)]);
+               const isDeviatingFromDefault = typeRes?.default_cabinet_id && typeRes.default_cabinet_id !== Number(selectedCabinetId);
                
+               const hasActiveStockElsewhere = others.some(o => o.current_qty > 0);
+               const shouldTriggerConflict = hasActiveStockElsewhere || isDeviatingFromDefault;
+
                if (!typeRes?.default_cabinet_id && !typeStatus?.vanguard_resolved) {
                   // SCENARIO: VANGUARD HANDSHAKE (No home established, first arrival)
                   const savePayloadWithProfile = { ...savePayload, visualProfile: currentQuality === 70 ? 'hq' : 'standard' };
                   setDeferredSave(savePayloadWithProfile);
                   setShowVanguardModal(true);
                   return;
-               } else if (others.length > 0 || isDeviatingFromDefault) {
+               } else if (shouldTriggerConflict && others.length > 0) {
                   // SCENARIO: LOCATION CONFLICT (Stock exists elsewhere or deviating from established home)
-                  let finalOthers = others.map(o => ({ id: o.id, name: o.name }));
+                  let finalOthers = others.map(o => ({ id: o.id, name: o.name, current_qty: o.current_qty }));
                   setOtherLocations(finalOthers);
                   const savePayloadWithProfile = { ...savePayload, visualProfile: currentQuality === 70 ? 'hq' : 'standard' };
                   setDeferredSave(savePayloadWithProfile);
@@ -2489,7 +2493,11 @@ export default function AddInventoryScreen() {
               </View>
               
               <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
-                This item is already assigned to established sites. Deploying to [<Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{selectedCabinet?.name}</Text>] creates fragmentation. Standardize or override?
+                {otherLocations.some(l => l.current_qty > 0) ? (
+                  <>This item is currently active in other sites. Deploying to [<Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{selectedCabinet?.name}</Text>] creates fragmentation. Standardize or override?</>
+                ) : (
+                  <>This item was previously stored in other sites, but is currently out of stock there. Standardize to a previous location, or establish a new home in [<Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{selectedCabinet?.name}</Text>]?</>
+                )}
               </Text>
 
               <View style={{ marginBottom: 20, gap: 8 }}>
@@ -2507,7 +2515,9 @@ export default function AddInventoryScreen() {
                     }}
                   >
                     <MaterialCommunityIcons name="undo-variant" size={18} color="#22c55e" />
-                    <Text testID={`correct-to-cabinet-${loc.id}-btn`} style={{ color: '#f8fafc', fontWeight: 'bold' }}>CORRECT TO: {loc.name.toUpperCase()}</Text>
+                    <Text testID={`correct-to-cabinet-${loc.id}-btn`} style={{ color: '#f8fafc', fontWeight: 'bold' }}>
+                      CORRECT TO: {loc.name.toUpperCase()} {loc.current_qty > 0 ? `(${loc.current_qty} ACTIVE)` : '(EMPTY - PREVIOUSLY STORED)'}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -2526,7 +2536,9 @@ export default function AddInventoryScreen() {
                 testID="proceed-anyway-cabinet-btn"
               >
                 <MaterialCommunityIcons name="arrow-right-bold" size={18} color="#fb923c" />
-                <Text style={{ color: '#fb923c', fontWeight: 'bold' }}>PROCEED TO: {selectedCabinet?.name.toUpperCase()}</Text>
+                <Text style={{ color: '#fb923c', fontWeight: 'bold' }}>
+                  {otherLocations.some(l => l.current_qty > 0) ? `PROCEED TO: ${selectedCabinet?.name.toUpperCase()}` : `ESTABLISH NEW HOME IN: ${selectedCabinet?.name.toUpperCase()}`}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity 

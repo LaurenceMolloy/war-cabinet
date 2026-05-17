@@ -216,7 +216,7 @@ export default function ReconScreen() {
     } else {
       setFoundCount(prev => prev + 1);
       // Immediate DB update for "Found" items to reset staleness
-      await Database.Inventory.markAudited(db, currentBatch.id, false);
+      await Database.Inventory.markAudited(db, currentBatch.id, 'VERIFIED');
     }
 
     if (currentIndex < batches.length - 1) {
@@ -231,7 +231,7 @@ export default function ReconScreen() {
     for (const item of missingList) {
       await db.runAsync('DELETE FROM Inventory WHERE id = ?', [item.id]);
       // Log the MIA event
-      await Database.Inventory.markAudited(db, item.id, true); 
+      await Database.Inventory.markAudited(db, item.id, 'MIA'); 
       // Record in Metrics (Future implementation will use AuditMetrics table properly)
     }
 
@@ -404,7 +404,7 @@ export default function ReconScreen() {
     // Add to found count
     setFoundCount(prev => prev + 1);
     // Mark as audited in DB (since it was actually found)
-    await Database.Inventory.markAudited(db, item.id, false);
+    await Database.Inventory.markAudited(db, item.id, 'VERIFIED');
   };
 
   if (phase === 'summary') {
