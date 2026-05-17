@@ -13,7 +13,7 @@ import * as Network from 'expo-network';
  * createBackup and restore methods to account for all structural 
  * changes in sqlite.ts.
  */
-export const BACKUP_MANIFEST_VERSION = 114; // SYNCED TO ITERATION 114
+export const BACKUP_MANIFEST_VERSION = 115; // SYNCED TO ITERATION 115
 
 const getBackupDir = () => (FileSystem.documentDirectory || "") + 'backups/';
 const MAX_BACKUPS = 7;
@@ -43,7 +43,7 @@ export const BackupService = {
    * Generates a tactical backup (JSON + CSV).
    * Slotted into the rolling 5-file stack.
    */
-  async createBackup(db: SQLiteDatabase, isManual = false) {
+  async createBackup(db: SQLiteDatabase, isManual: boolean | string = false) {
     const backupDir = getBackupDir();
     if (Platform.OS === 'web' || !FileSystem.documentDirectory) {
       console.warn('Local snapshots are not supported on Web. Use tactical export instead.');
@@ -67,6 +67,8 @@ export const BackupService = {
       const tacticalLogs = await db.getAllAsync<any>('SELECT * FROM TacticalLogs');
       const missions = await db.getAllAsync<any>('SELECT * FROM Missions');
       const assetDeletionsCache = await db.getAllAsync<any>('SELECT * FROM AssetDeletionsCache');
+      const productEventLedger = await db.getAllAsync<any>('SELECT * FROM ProductEventLedger');
+      const auditMetrics = await db.getAllAsync<any>('SELECT * FROM AuditMetrics');
       const rotationLogs = await db.getAllAsync<any>('SELECT * FROM RotationLogs');
 
       const lastActionRes = settings.find((s: any) => s.key === 'last_activity_log');
@@ -123,6 +125,8 @@ export const BackupService = {
           TacticalLogs: tacticalLogs,
           Missions: missions,
           AssetDeletionsCache: assetDeletionsCache,
+          ProductEventLedger: productEventLedger,
+          AuditMetrics: auditMetrics,
           RotationLogs: rotationLogs
         }
       };
@@ -442,6 +446,9 @@ export const BackupService = {
         await db.runAsync("DELETE FROM TacticalLogs");
         await db.runAsync("DELETE FROM Missions");
         await db.runAsync("DELETE FROM AssetDeletionsCache");
+        await db.runAsync("DELETE FROM ProductEventLedger");
+        await db.runAsync("DELETE FROM AuditMetrics");
+        await db.runAsync("DELETE FROM AuditPendingChanges");
         await db.runAsync("DELETE FROM RotationLogs");
 
         const { tables } = jsonData;
@@ -459,7 +466,7 @@ export const BackupService = {
         const itemTypes = tables.ItemTypes || [];
         for (const it of itemTypes) {
           await db.runAsync(
-            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months, default_supplier, default_product_range, vanguard_resolved, image_uri, visual_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO ItemTypes (id, category_id, name, unit_type, default_size, default_cabinet_id, is_favorite, interaction_count, min_stock_level, max_stock_level, freeze_months, default_supplier, default_product_range, vanguard_resolved, custom_sizes, image_uri, visual_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
             [it.id, it.category_id, it.name, it.unit_type || 'weight', it.default_size || null, it.default_cabinet_id || null, it.is_favorite || 0, it.interaction_count || 0,
             it.min_stock_level !== undefined ? it.min_stock_level : null,
             it.max_stock_level !== undefined ? it.max_stock_level : null,
@@ -467,6 +474,7 @@ export const BackupService = {
             it.default_supplier || null,
             it.default_product_range || null,
             it.vanguard_resolved !== undefined ? it.vanguard_resolved : 0,
+            it.custom_sizes || '[]',
             it.image_uri || null,
             it.visual_profile || 'standard']
           );
@@ -475,30 +483,36 @@ export const BackupService = {
         const cabs = tables.Cabinets || [];
         for (const cab of cabs) {
           await db.runAsync(
-            "INSERT INTO Cabinets (id, name, location, cabinet_type, rotation_interval_months, audit_interval_months, audit_day_of_month, default_rotation_cabinet_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO Cabinets (id, name, location, cabinet_type, rotation_interval_months, audit_interval_months, audit_day_of_month, default_rotation_cabinet_id, audit_frequency_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
             [cab.id, cab.name, cab.location || '', cab.cabinet_type || 'standard',
             cab.rotation_interval_months !== undefined ? cab.rotation_interval_months : null,
             cab.audit_interval_months !== undefined ? cab.audit_interval_months : 3,
             cab.audit_day_of_month !== undefined ? cab.audit_day_of_month : 1,
-            cab.default_rotation_cabinet_id !== undefined ? cab.default_rotation_cabinet_id : null]
+            cab.default_rotation_cabinet_id !== undefined ? cab.default_rotation_cabinet_id : null,
+            cab.audit_frequency_days !== undefined ? cab.audit_frequency_days : 0]
           );
         }
 
         const invs = tables.Inventory || [];
         for (const inv of invs) {
           await db.runAsync(
-            "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining, image_uri, visual_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            "INSERT INTO Inventory (id, item_type_id, quantity, size, expiry_month, expiry_year, entry_month, entry_year, entry_day, cabinet_id, batch_intel, supplier, product_range, portions_total, portions_remaining, last_rotated_at, last_audited_at, last_audit_outcome, dead_at, image_uri, visual_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
             [inv.id, inv.item_type_id, inv.quantity, inv.size || '', 
             inv.expiry_month !== undefined ? inv.expiry_month : null, 
             inv.expiry_year !== undefined ? inv.expiry_year : null, 
             inv.entry_month !== undefined ? inv.entry_month : null, 
             inv.entry_year !== undefined ? inv.entry_year : null, 
+            inv.entry_day !== undefined ? inv.entry_day : 1,
             inv.cabinet_id !== undefined ? inv.cabinet_id : null,
             inv.batch_intel !== undefined ? inv.batch_intel : null,
             inv.supplier || null,
             inv.product_range || null,
             inv.portions_total !== undefined ? inv.portions_total : null,
             inv.portions_remaining !== undefined ? inv.portions_remaining : null,
+            inv.last_rotated_at !== undefined ? inv.last_rotated_at : null,
+            inv.last_audited_at !== undefined ? inv.last_audited_at : null,
+            inv.last_audit_outcome !== undefined ? inv.last_audit_outcome : 'NEW',
+            inv.dead_at !== undefined ? inv.dead_at : null,
             inv.image_uri || null,
             inv.visual_profile || 'standard']
           );
@@ -543,6 +557,22 @@ export const BackupService = {
           await db.runAsync(
             "INSERT INTO AssetDeletionsCache (id, filename, asset_type, deleted_timestamp) VALUES (?, ?, ?, ?)",
             [ad.id, ad.filename, ad.asset_type, ad.deleted_timestamp]
+          );
+        }
+
+        const productEventLedger = tables.ProductEventLedger || [];
+        for (const pe of productEventLedger) {
+          await db.runAsync(
+            "INSERT INTO ProductEventLedger (id, timestamp, product_id, batch_id, source, change_amount) VALUES (?, ?, ?, ?, ?, ?)",
+            [pe.id, pe.timestamp, pe.product_id, pe.batch_id, pe.source, pe.change_amount]
+          );
+        }
+
+        const auditMetrics = tables.AuditMetrics || [];
+        for (const am of auditMetrics) {
+          await db.runAsync(
+            "INSERT INTO AuditMetrics (id, timestamp, cabinet_id, item_type_id, found_qty, missing_qty, audit_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [am.id, am.timestamp, am.cabinet_id, am.item_type_id, am.found_qty, am.missing_qty, am.audit_session_id]
           );
         }
 
