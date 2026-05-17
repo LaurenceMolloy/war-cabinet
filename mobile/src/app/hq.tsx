@@ -219,7 +219,7 @@ export default function SecretHQScreen() {
 
         <TouchableOpacity 
           style={[styles.scenarioCard, { borderColor: '#fbbf24', marginTop: 12 }]}
-          onPress={() => router.push('/voice_poc')}
+          onPress={() => router.push('/voice_intel')}
           disabled={isSeeding}
         >
           <View style={{ flex: 1 }}>

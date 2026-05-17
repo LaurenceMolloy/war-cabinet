@@ -112,11 +112,12 @@ export const Inventory = {
         SUM(CASE WHEN last_audited_at >= ? AND last_audit_outcome = 'VERIFIED' THEN 1 ELSE 0 END) as verified_batches,
         SUM(CASE WHEN last_audited_at >= ? AND last_audit_outcome = 'ADJUSTED' THEN 1 ELSE 0 END) as adjusted_batches,
         SUM(CASE WHEN last_audited_at >= ? AND last_audit_outcome = 'NEW' THEN 1 ELSE 0 END) as new_batches,
+        SUM(CASE WHEN last_audited_at >= ? AND last_audit_outcome = 'PENDING' THEN 1 ELSE 0 END) as pending_batches,
         SUM(CASE WHEN last_audited_at >= (strftime('%s','now','-24 hours') * 1000) THEN 1 ELSE 0 END) as session_batches
       FROM Inventory
       WHERE quantity > 0
     `;
-    const params: any[] = [windowStartMs, windowStartMs, windowStartMs, windowStartMs];
+    const params: any[] = [windowStartMs, windowStartMs, windowStartMs, windowStartMs, windowStartMs];
     if (cabinetId) {
       query += " AND cabinet_id = ?";
       params.push(cabinetId);
@@ -148,14 +149,16 @@ export const Inventory = {
         verified: row.verified_batches || 0,
         new: row.new_batches || 0,
         mia: miaCount,
-        adjusted: row.adjusted_batches || 0
+        adjusted: row.adjusted_batches || 0,
+        pending: row.pending_batches || 0
       },
       percents: {
         complete: totalExpected > 0 ? Math.round(((row.audited_batches + miaCount - row.new_batches) / totalExpected) * 100) : 0,
         verified: totalExpected > 0 ? Math.round((row.verified_batches / totalExpected) * 100) : 0,
         new: totalExpected > 0 ? Math.round((row.new_batches / totalExpected) * 100) : 0,
         mia: totalExpected > 0 ? Math.round((miaCount / totalExpected) * 100) : 0,
-        adjusted: totalExpected > 0 ? Math.round((row.adjusted_batches / totalExpected) * 100) : 0
+        adjusted: totalExpected > 0 ? Math.round((row.adjusted_batches / totalExpected) * 100) : 0,
+        pending: totalExpected > 0 ? Math.round((row.pending_batches / totalExpected) * 100) : 0
       }
     };
   },
@@ -227,8 +230,6 @@ export const Inventory = {
     const intel = change.proposed_intel ? JSON.parse(change.proposed_intel) : {};
 
     if (change.change_type === 'ADJUST') {
-      const diff = change.original_qty - intel.quantity; // Note: we'll need to fetch original_qty or rely on JSON
-      // Better: fetch current quantity from Inventory
       const batch = await db.getFirstAsync<any>('SELECT quantity FROM Inventory WHERE id = ?', [change.batch_id]);
       if (batch) {
         const adjustment = batch.quantity - intel.quantity;
@@ -243,6 +244,8 @@ export const Inventory = {
         'INSERT INTO Inventory (item_type_id, cabinet_id, quantity, size, supplier, product_range, expiry_month, expiry_year, last_audited_at, last_audit_outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [change.item_type_id, change.cabinet_id, intel.quantity, intel.size, intel.brand, intel.range, intel.month, intel.year, Date.now(), 'NEW']
       );
+    } else if (change.change_type === 'VERIFY') {
+      await this.markAudited(db, change.batch_id, 'VERIFIED');
     }
 
     await db.runAsync('DELETE FROM AuditPendingChanges WHERE id = ?', [changeId]);
@@ -251,14 +254,28 @@ export const Inventory = {
   async discardPendingChange(db: any, changeId: number) {
     const change = await db.getFirstAsync<any>('SELECT batch_id FROM AuditPendingChanges WHERE id = ?', [changeId]);
     if (change && change.batch_id) {
-      // Reset audit outcome if we're discarding an adjustment
-      await db.runAsync('UPDATE Inventory SET last_audit_outcome = NULL WHERE id = ?', [change.batch_id]);
+      // Reset audit outcome and timestamp if we're discarding an adjustment
+      await db.runAsync('UPDATE Inventory SET last_audit_outcome = NULL, last_audited_at = NULL WHERE id = ?', [change.batch_id]);
     }
     await db.runAsync('DELETE FROM AuditPendingChanges WHERE id = ?', [changeId]);
   },
 
   async clearPendingChanges(db: any, batchId: number) {
     await db.runAsync('DELETE FROM AuditPendingChanges WHERE batch_id = ?', [batchId]);
+  },
+
+  async updatePendingQuantity(db: any, changeId: number, newQty: number, currentQty: number) {
+    const change = await db.getFirstAsync<any>('SELECT batch_id FROM AuditPendingChanges WHERE id = ?', [changeId]);
+    if (!change) return;
+
+    let type = 'ADJUST';
+    if (newQty === currentQty) type = 'VERIFY';
+    else if (newQty === 0) type = 'MIA';
+
+    await db.runAsync(
+      'UPDATE AuditPendingChanges SET change_type = ?, proposed_intel = ? WHERE id = ?',
+      [type, JSON.stringify({ quantity: newQty }), changeId]
+    );
   },
 
 
