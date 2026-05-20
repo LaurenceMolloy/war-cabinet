@@ -132,3 +132,10 @@ total product weight/volume assumes whole packs - partial consumption not captur
 e.g. 1.5kg of product but one 500g bag is open and with 3/5 portions left - should 
 reduce to 1.3kg. (penne pasta exposed this oversight)
 --
+
+
+AUDIT:
+progress is non-zero even though we have all items requiremeing verification.
+I think we need toi think a bit more about the definition of some metrics
+AND what determines a cabinet's audit cycle date-wise - when does it start
+and when doies it reset?

@@ -603,7 +603,7 @@ setIsProcessing(false);
               <>
                 <View style={{ marginBottom: 12 }}>
                   <Text style={{ color: '#475569', fontSize: 10, fontWeight: 'bold' }}>ACTIVE WINDOW:</Text>
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold', marginTop: 4 }}>{briefing.windowStart} (72H RETROSPECTIVE)</Text>
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'bold', marginTop: 4 }}>{briefing.windowStart} (ACTIVE CABINET CYCLE)</Text>
                 </View>
 
                 <View style={styles.briefingMetrics}>
