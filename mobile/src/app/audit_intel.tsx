@@ -13,6 +13,7 @@ import { styles } from '../styles/audit_intel.styles';
 import { useVoiceEngine } from '../hooks/useVoiceEngine';
 import { useAuditStaging } from '../hooks/useAuditStaging';
 import { useDialogManager, VoiceSearchResult } from '../hooks/useDialogManager';
+import { ImagePreviewModal } from '../components/ImagePreviewModal';
 
 /**
  * VOICE INTEL POC: ACOUSTIC-TO-SEMANTIC MAPPING
@@ -43,6 +44,7 @@ export default function VoiceIntelPoCScreen() {
   const [adjustingQty, setAdjustingQty] = useState<number>(1);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const [categoryProgress, setCategoryProgress] = useState<Record<string, { total: number, audited: number }>>({});
+  const [previewImage, setPreviewImage] = useState<{ uri: string | null; title: string; subtitle?: string } | null>(null);
   
   const {
     briefing,
@@ -943,11 +945,22 @@ setIsProcessing(false);
 
                   <View style={styles.cardImageContainer}>
                     {item.batch_image || item.product_image ? (
-                      <Image 
-                        source={{ uri: item.batch_image || item.product_image || '' }} 
-                        style={styles.cardImage}
-                        resizeMode="cover"
-                      />
+                      <TouchableOpacity
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          setPreviewImage({
+                            uri: item.batch_image || item.product_image || '',
+                            title: item.name,
+                            subtitle: [item.brand, item.product_range].filter(Boolean).join(' | ')
+                          });
+                        }}
+                      >
+                        <Image 
+                          source={{ uri: item.batch_image || item.product_image || '' }} 
+                          style={styles.cardImage}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
                     ) : (
                       <View style={styles.imageFallback}>
                         <MaterialCommunityIcons name="package-variant-closed" size={24} color="#1e293b" />
@@ -1004,6 +1017,13 @@ setIsProcessing(false);
                       onAdjustQty={() => {
                         setAdjustingItem(item);
                         setAdjustingQty(item.quantity || 1);
+                      }}
+                      onPressImage={(pressedItem) => {
+                        setPreviewImage({
+                          uri: pressedItem.batch_image || pressedItem.product_image || '',
+                          title: pressedItem.name,
+                          subtitle: [pressedItem.brand, pressedItem.product_range].filter(Boolean).join(' | ')
+                        });
                       }}
                     />
                   ))}
@@ -1183,6 +1203,13 @@ setIsProcessing(false);
                             onVerify={recordVerified}
                             onMIA={recordMIA}
                             onAdjustQty={handleOpenAdjustQty}
+                            onPressImage={(pressedItem) => {
+                              setPreviewImage({
+                                uri: pressedItem.batch_image || pressedItem.product_image || '',
+                                title: pressedItem.name,
+                                subtitle: [pressedItem.brand, pressedItem.product_range].filter(Boolean).join(' | ')
+                              });
+                            }}
                           />
                         ))}
                       </View>
@@ -1211,6 +1238,13 @@ setIsProcessing(false);
                       onAdjustQty={() => {
                         setAdjustingItem(item);
                         setAdjustingQty(item.quantity || 1);
+                      }}
+                      onPressImage={(pressedItem) => {
+                        setPreviewImage({
+                          uri: pressedItem.batch_image || pressedItem.product_image || '',
+                          title: pressedItem.name,
+                          subtitle: [pressedItem.brand, pressedItem.product_range].filter(Boolean).join(' | ')
+                        });
                       }}
                     />
                   ))}
@@ -1258,6 +1292,14 @@ setIsProcessing(false);
           </TouchableOpacity>
         </View>
       )}
+      
+      <ImagePreviewModal
+        visible={previewImage !== null}
+        imageUri={previewImage?.uri || null}
+        title={previewImage?.title || ''}
+        subtitle={previewImage?.subtitle}
+        onClose={() => setPreviewImage(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -1267,13 +1309,15 @@ function AuditTargetCard({
   onVerify, 
   onMIA, 
   onAdjustQty,
-  showCabinet 
+  showCabinet,
+  onPressImage
 }: { 
   item: any, 
   onVerify: (item: any) => Promise<void>, 
   onMIA: (item: any) => Promise<void>, 
   onAdjustQty: (item: any) => void,
-  showCabinet?: boolean
+  showCabinet?: boolean,
+  onPressImage?: (item: any) => void
 }) {
   // Helper to format last audited age and calculate visual color impact
   const getAuditAgeDetails = () => {
@@ -1548,11 +1592,20 @@ function AuditTargetCard({
         <View style={{ justifyContent: 'center' }}>
           <View style={styles.cardImageContainer}>
             {item.batch_image || item.product_image ? (
-              <Image 
-                source={{ uri: item.batch_image || item.product_image || '' }} 
-                style={styles.cardImage}
-                resizeMode="cover"
-              />
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation();
+                  if (onPressImage) {
+                    onPressImage(item);
+                  }
+                }}
+              >
+                <Image 
+                  source={{ uri: item.batch_image || item.product_image || '' }} 
+                  style={styles.cardImage}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
             ) : (
               <View style={styles.imageFallback}>
                 <MaterialCommunityIcons name="package-variant-closed" size={24} color="#1e293b" />

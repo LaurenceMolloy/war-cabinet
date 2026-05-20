@@ -21,6 +21,7 @@ import { Database } from '../database';
 import { CabinetFormModal } from '../components/CabinetFormModal';
 import { CommandLedgerView } from '../components/CommandLedgerView';
 import { CloudRestoreModal } from '../components/CloudRestoreModal';
+import { ImagePreviewModal } from '../components/ImagePreviewModal';
 import { formatQuantity } from '../utils/measurements';
 import { VisualSupplyService } from '../services/VisualSupplyService';
 
@@ -3511,59 +3512,13 @@ export default function CatalogScreen() {
         </View>
       </Modal>
       {/* --- VISUAL VERIFICATION PREVIEW MODAL --- */}
-      <Modal visible={showImageModal} transparent animationType="fade" onRequestClose={() => setShowImageModal(false)}>
-        <Pressable
-          style={{ flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.92)', alignItems: 'center', justifyContent: 'center' }}
-          onPress={() => setShowImageModal(false)}
-        >
-          <View style={{ width: '88%', maxWidth: 380, backgroundColor: '#0f172a', borderRadius: 16, borderWidth: 1, borderColor: '#334155', overflow: 'hidden' }}>
-
-            {/* Header: name + brand/range */}
-            <View style={{ paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#1e293b', borderBottomWidth: 1, borderBottomColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3b82f6' }} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#f1f5f9', fontSize: 16, fontWeight: '900', letterSpacing: 0.3 }} numberOfLines={1}>{modalItemName}</Text>
-                {(modalItemBrand || modalItemRange) ? (
-                  <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600', marginTop: 2 }} numberOfLines={1}>
-                    {[modalItemBrand, modalItemRange].filter(Boolean).join(' | ').toUpperCase()}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-
-            {/* Image */}
-            <View style={{ padding: 12 }}>
-              {modalImageUri ? (
-                <View style={{ borderRadius: 10, overflow: 'hidden', backgroundColor: '#020617', borderWidth: 1, borderColor: '#1e293b' }}>
-                  <Image
-                    source={{ uri: modalImageUri }}
-                    style={{ width: '100%', aspectRatio: 1 }}
-                    resizeMode="contain"
-                  />
-                  {/* Quality badge */}
-                  <View style={{ position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(15,23,42,0.85)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(59,130,246,0.5)', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <MaterialCommunityIcons name="target" size={10} color="#3b82f6" />
-                    <Text style={{ color: '#ffffff', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 }}>
-                      {modalImageUri.includes('q70') || modalImageUri.includes('_hq') ? 'HQ' : 'STD'}
-                    </Text>
-                  </View>
-                </View>
-              ) : (
-                <View style={{ width: '100%', aspectRatio: 1, backgroundColor: '#020617', borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#1e293b', borderStyle: 'dashed' }}>
-                  <MaterialCommunityIcons name="image-off-outline" size={48} color="#334155" />
-                  <Text style={{ color: '#334155', fontSize: 12, marginTop: 12, fontWeight: 'bold' }}>NO ASSET DATA</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Footer */}
-            <View style={{ paddingBottom: 18, paddingTop: 4, alignItems: 'center' }}>
-              <Text style={{ color: '#334155', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 }}>TAP ANYWHERE TO DISMISS</Text>
-            </View>
-
-          </View>
-        </Pressable>
-      </Modal>
+      <ImagePreviewModal
+        visible={showImageModal}
+        imageUri={modalImageUri}
+        title={modalItemName}
+        subtitle={[modalItemBrand, modalItemRange].filter(Boolean).join(' | ')}
+        onClose={() => setShowImageModal(false)}
+      />
     </View>
   );
 }
